@@ -74,14 +74,21 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 @keyframes jm-drift2 { 0%,100% { transform:translate(0,0); } 50% { transform:translate(-25px,20px); } }
 @keyframes jm-toastin { 0% { opacity:0; transform:translateY(-8px); } 100% { opacity:1; transform:translateY(0); } }
 
-/* ===== iPhone bezel chrome (not provided as a file — reimplemented) ========= */
+/* ===== Desktop presentation: a plain, centered app panel — not a literal
+   iPhone mockup. Used to render as a fake phone (notch, status-bar clock,
+   home indicator, thick bezel) even on desktop browsers, which read as an
+   unfinished demo shell rather than the app itself. The fake-chrome
+   elements below are kept (not deleted) in case they're ever wanted again
+   for an actual marketing/demo page, but are display:none everywhere now —
+   real touch devices already had a separate override hiding them; this
+   just extends the same call to desktop. */
 .device-page{ min-height:100vh; background:var(--color-bg); display:flex; align-items:center; justify-content:center; padding:32px 16px; }
-.device-frame{ position:relative; width:402px; height:874px; max-width:100vw; max-height:100vh; border-radius:52px; background:#0a0a0a; padding:12px; box-shadow:0 0 0 2px rgba(255,255,255,.06), 0 40px 90px rgba(0,0,0,.65), 0 0 60px rgba(0,150,255,.08); }
-.device-screen{ position:relative; width:100%; height:100%; border-radius:42px; overflow:hidden; background:var(--color-bg); color:var(--color-cyan); direction:rtl; }
-.dynamic-island{ position:absolute; top:14px; left:50%; transform:translateX(-50%); width:118px; height:32px; background:#000; border-radius:18px; z-index:500; box-shadow:inset 0 0 0 1px rgba(255,255,255,.04); }
-.status-bar-clock{ position:absolute; top:19px; left:26px; z-index:500; font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--color-white); letter-spacing:.5px; }
-.status-bar-glyphs{ position:absolute; top:20px; right:26px; z-index:500; font-size:11px; color:var(--color-white); opacity:.8; letter-spacing:2px; }
-.home-indicator{ position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:134px; height:5px; border-radius:3px; background:rgba(255,255,255,.35); z-index:500; }
+.device-frame{ position:relative; width:402px; height:874px; max-width:100vw; max-height:100vh; border-radius:20px; background:#0a0a0a; padding:0; box-shadow:0 1px 0 rgba(255,255,255,.06), 0 20px 50px rgba(0,0,0,.45); }
+.device-screen{ position:relative; width:100%; height:100%; border-radius:20px; overflow:hidden; background:var(--color-bg); color:var(--color-cyan); direction:rtl; }
+.dynamic-island{ display:none; position:absolute; top:14px; left:50%; transform:translateX(-50%); width:118px; height:32px; background:#000; border-radius:18px; z-index:500; box-shadow:inset 0 0 0 1px rgba(255,255,255,.04); }
+.status-bar-clock{ display:none; position:absolute; top:19px; left:26px; z-index:500; font-family:var(--font-mono); font-size:14px; font-weight:600; color:var(--color-white); letter-spacing:.5px; }
+.status-bar-glyphs{ display:none; position:absolute; top:20px; right:26px; z-index:500; font-size:11px; color:var(--color-white); opacity:.8; letter-spacing:2px; }
+.home-indicator{ display:none; position:absolute; bottom:8px; left:50%; transform:translateX(-50%); width:134px; height:5px; border-radius:3px; background:rgba(255,255,255,.35); z-index:500; }
 
 /* ===== Ambient background layers ============================================ */
 .bg-fixed{ position:absolute; inset:0; background:#050B14; pointer-events:none; }
@@ -143,7 +150,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 /* ===== App screen shell ====================================================== */
 .app-screen{ position:relative; height:100%; display:none; flex-direction:column; }
 .app-screen.show{ display:flex; }
-.app-header{ padding:58px 20px 10px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; z-index:5; }
+.app-header{ padding:20px 20px 10px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; z-index:5; }
 .app-header-brand{ display:flex; align-items:center; gap:8px; }
 .app-header-dot{ width:6px; height:6px; border-radius:50%; background:var(--color-green); box-shadow:0 0 8px var(--color-green); animation:jm-blink 2.4s ease-in-out infinite; }
 .app-header-word{ font-family:var(--font-display); font-weight:700; font-size:14px; letter-spacing:var(--tracking-widest); color:var(--color-white); text-shadow:0 0 10px rgba(0,243,255,.6); }
@@ -471,10 +478,10 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
        frame adapting to stay clear of it. */
     .device-frame{ width:100vw; height:100vh; max-width:100vw; max-height:100vh; border-radius:0; padding:0; background:transparent; box-shadow:none; }
     .device-screen{ border-radius:0; }
-    .dynamic-island, .status-bar-clock, .home-indicator{ display:none; }
-    /* That padding was sized to clear the fake island/home-indicator we just
-       hid — on the real device, use its actual safe-area instead of the
-       mock's fixed guess. */
+    /* The fake island/home-indicator are already display:none everywhere
+       (see their base rules above) — that padding was sized to clear them;
+       on the real device, use its actual safe-area instead of the mock's
+       fixed guess. */
     .app-header{ padding-top:max(16px, env(safe-area-inset-top)); }
     /* position:absolute here anchors to .device-screen's own (static-height,
        plain-vh) layout box, not to whatever's actually on screen right now.
