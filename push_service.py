@@ -74,13 +74,30 @@ def _unwrap_private_key(raw_env_value: str) -> str:
     return raw_env_value
 
 
-VAPID_PRIVATE_KEY = _unwrap_private_key(os.environ.get("VAPID_PRIVATE_KEY", ""))
+_raw_private_key_env = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_PRIVATE_KEY = _unwrap_private_key(_raw_private_key_env)
 VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
 # mailto: contact required by the Web Push spec so a push provider that
 # sees abuse from this server's VAPID identity has somewhere to complain to.
 VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:admin@example.com")
 
 CONFIGURED = bool(VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY)
+
+# Diagnostic only, deliberately never prints the actual secret value —
+# only its shape. Exists because "Could not deserialize key data" kept
+# recurring even after the value was reportedly replaced in the Render
+# dashboard, and neither a screenshot (font ambiguity: 0/O/8, l/I/1, m/w)
+# nor asking the user to describe it could settle whether the RUNNING
+# process actually received the new value or something is still stale/
+# different from what the dashboard shows was saved.
+if _raw_private_key_env:
+    logger.info(
+        f"push_service: VAPID_PRIVATE_KEY env var is {len(_raw_private_key_env)} chars, "
+        f"starts with {_raw_private_key_env[:12]!r}, ends with {_raw_private_key_env[-12:]!r}, "
+        f"unwrap {'succeeded (looks like a PEM)' if VAPID_PRIVATE_KEY.startswith('-----BEGIN') else 'did NOT produce a PEM'}."
+    )
+else:
+    logger.info("push_service: VAPID_PRIVATE_KEY env var is empty or unset.")
 
 if CONFIGURED:
     from pywebpush import webpush, WebPushException
