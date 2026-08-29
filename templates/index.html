@@ -2472,6 +2472,23 @@ async function enablePushNotifications(){
         }
 
         const registration = await navigator.serviceWorker.register('/sw.js');
+        await registration.update();  // don't let iOS keep serving an old cached SW after a fix ships
+
+        // pushManager.subscribe() on a registration that ALREADY has a
+        // subscription just hands back that SAME subscription (same
+        // endpoint) — it does not silently create a fresh one. That matters
+        // specifically on iOS: WebKit permanently kills a subscription
+        // after ~3 pushes it counts as "silent" (delivered but no
+        // notification actually shown), which is exactly what happened to
+        // every subscription created before the manifest.json / ttl=0 bugs
+        // were fixed — Apple's relay keeps accepting sends to a dead
+        // subscription and reporting success, it just never reaches the
+        // device. Explicitly unsubscribing first forces a genuinely new
+        // endpoint on the next subscribe call, discarding whatever history
+        // (and 3-strike count) the old one had.
+        const existing = await registration.pushManager.getSubscription();
+        if (existing) { try { await existing.unsubscribe(); } catch (e) {} }
+
         const subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
             applicationServerKey: _base64UrlToUint8Array(keyData.key),

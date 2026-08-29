@@ -1544,7 +1544,11 @@ def service_worker():
     push events for the whole app rather than just a /static/ subpath."""
     return app.response_class(
         SERVICE_WORKER_JS, mimetype="application/javascript",
-        headers={"Service-Worker-Allowed": "/"},
+        # Without this, iOS Safari can keep running a cached copy of this
+        # script from before a fix here shipped, even after registration.update()
+        # asks it to check — browsers are inconsistent about honoring SW
+        # update checks against a script response that itself looks cacheable.
+        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
     )
 
 
