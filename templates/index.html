@@ -4,6 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>J.A.R.V.I.S</title>
+<!-- Without these, "Add to Home Screen" on iOS creates a plain bookmark
+     that opens back inside regular Safari with full browser chrome, not a
+     standalone installed app -- and Apple's Push API is only exposed to
+     the standalone/home-screen context, not a Safari tab. This was
+     confirmed missing entirely (no manifest, no apple-mobile-web-app-*
+     meta tags anywhere in this file) while debugging push notifications
+     silently never arriving despite a successful subscribe(). -->
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="JARVIS">
+<meta name="theme-color" content="#00f3ff">
+<meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;900&family=Rubik:wght@400;500;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
