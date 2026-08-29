@@ -50,13 +50,28 @@ logger = logging.getLogger("jarvis.push")
 def _unwrap_private_key(raw_env_value: str) -> str:
     """VAPID_PRIVATE_KEY is stored as urlsafe-base64(PEM), not raw PEM — see
     this module's docstring for why. Falls back to treating the value as a
-    raw PEM directly if it doesn't decode cleanly, so a manually-set raw PEM
-    (e.g. in a .env file, which isn't subject to the same corruption a web
-    dashboard's form submission is) still works rather than breaking."""
+    raw PEM directly if it doesn't decode/verify cleanly, so a manually-set
+    raw PEM (e.g. in a .env file, which isn't subject to the same
+    corruption a web dashboard's form submission is) still works rather
+    than breaking.
+
+    The try/except alone (an earlier version of this function) already
+    correctly falls back for a plain raw PEM specifically — verified
+    directly: base64.urlsafe_b64decode() on real PEM text does produce
+    non-UTF-8 garbage bytes, but the chained .decode() step then raises
+    UnicodeDecodeError, which the except already catches. The explicit
+    "-----BEGIN" check below is an extra guard for the narrower case where
+    decoded garbage bytes happen to ALSO be valid UTF-8 (not every random
+    byte sequence trips UnicodeDecodeError) — something try/except alone
+    can't distinguish from a real successfully-unwrapped key, only content
+    inspection can."""
     try:
-        return base64.urlsafe_b64decode(raw_env_value.encode()).decode()
+        decoded = base64.urlsafe_b64decode(raw_env_value.encode()).decode()
     except Exception:
         return raw_env_value
+    if decoded.lstrip().startswith("-----BEGIN"):
+        return decoded
+    return raw_env_value
 
 
 VAPID_PRIVATE_KEY = _unwrap_private_key(os.environ.get("VAPID_PRIVATE_KEY", ""))
