@@ -62,37 +62,41 @@ def _send_user_email(user_id: str, subject: str, body: str) -> None:
 
 def _check_due_reminders():
     for reminder in users.get_due_reminders(time.time()):
-        try:
-            _send_user_email(
-                reminder["user_id"],
-                "Reminder from J.A.R.V.I.S.",
-                f"Sir, this is your reminder: {reminder['text']}",
-            )
-        except Exception as e:
-            logger.error(f"Failed to deliver reminder {reminder['id']}: {e}")
-        finally:
-            # Marked delivered even on failure (e.g. token revoked meanwhile)
-            # — a broken reminder retried forever every minute isn't better
-            # than one that silently didn't go out once. Recurring reminders
-            # (recurrence set) are the one exception: instead of a dead end,
-            # advance remind_at to next week's occurrence so it keeps firing
-            # on schedule instead of going silent after the first time.
-            if reminder["recurrence"]:
-                try:
-                    weekday, hour, minute = (int(p) for p in reminder["recurrence"].split(":"))
-                    next_fire = productivity_service.next_weekday_occurrence(weekday, hour, minute)
-                    users.reschedule_reminder(reminder["id"], next_fire.timestamp())
-                except (ValueError, TypeError) as e:
-                    logger.error(f"Malformed recurrence on reminder {reminder['id']}: {e}")
-                    users.mark_reminder_delivered(reminder["id"])
-            else:
-                users.mark_reminder_delivered(reminder["id"])
+        # Push if the user has it set up (an actual device notification,
+        # what they actually asked for), email only as the fallback for
+        # someone who never enabled push — not both every time. Checking
+        # "has a subscription" rather than a separate on/off setting means
+        # this needs no new preference to manage: enabling push in Settings
+        # is itself what turns email off for future reminders.
+        has_push = push_service.CONFIGURED and bool(users.get_push_subscriptions(reminder["user_id"]))
+        if has_push:
+            push_service.send_push(reminder["user_id"], "תזכורת מ-J.A.R.V.I.S", reminder["text"])
+        else:
+            try:
+                _send_user_email(
+                    reminder["user_id"],
+                    "Reminder from J.A.R.V.I.S.",
+                    f"Sir, this is your reminder: {reminder['text']}",
+                )
+            except Exception as e:
+                logger.error(f"Failed to deliver reminder {reminder['id']}: {e}")
 
-        # Alongside email, not instead of it — send_push already never
-        # raises and no-ops entirely if VAPID isn't configured, so this is
-        # safe unconditionally and runs regardless of whether the email
-        # above succeeded or the reminder was one-time vs recurring.
-        push_service.send_push(reminder["user_id"], "תזכורת מ-J.A.R.V.I.S", reminder["text"])
+        # Marked delivered even on total failure (e.g. token revoked
+        # meanwhile) — a broken reminder retried forever every minute isn't
+        # better than one that silently didn't go out once. Recurring
+        # reminders (recurrence set) are the one exception: instead of a
+        # dead end, advance remind_at to next week's occurrence so it keeps
+        # firing on schedule instead of going silent after the first time.
+        if reminder["recurrence"]:
+            try:
+                weekday, hour, minute = (int(p) for p in reminder["recurrence"].split(":"))
+                next_fire = productivity_service.next_weekday_occurrence(weekday, hour, minute)
+                users.reschedule_reminder(reminder["id"], next_fire.timestamp())
+            except (ValueError, TypeError) as e:
+                logger.error(f"Malformed recurrence on reminder {reminder['id']}: {e}")
+                users.mark_reminder_delivered(reminder["id"])
+        else:
+            users.mark_reminder_delivered(reminder["id"])
 
 
 def _next_weekly_fire(after: datetime) -> datetime:
