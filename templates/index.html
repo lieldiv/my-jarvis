@@ -1141,6 +1141,7 @@ let micMuted = false;      // press-to-talk: muted again after every utterance/c
 let currentAudio = null;
 let recognition = null;
 let recognitionActive = false;
+let recognitionSafetyTimer = null;  // forces recognition.stop() if the browser's own end-of-speech detection never fires (see onstart)
 let micInitialized = false;
 const SPEECH_RECOGNITION_SUPPORTED = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 let textOnlyMode = false;
@@ -1322,9 +1323,29 @@ function initSpeechRecognition(){
     recognition.onstart = () => {
         recognitionActive = true;
         if (isAwake && voiceState === 'idle') { voiceState = 'listening'; renderOrb(); }
+        // Safety net for "never stops listening" with background noise.
+        // continuous=false + interimResults=false means the BROWSER's own
+        // internal silence-detection decides when speech has "ended" — our
+        // code never sees anything until it fires onresult/onerror/onend.
+        // On a real phone call/street noise/a TV in the background, that
+        // internal heuristic can apparently just never conclude "the user
+        // stopped talking", leaving the orb stuck on "מקשיב…" indefinitely
+        // with no event ever firing to recover from (not a bug in the
+        // handlers below — nothing here runs until the browser decides to
+        // call one of them). A real volume-threshold voice-activity check
+        // was considered instead of a flat timeout, but every phone/mic has
+        // a different noise floor, making a single "quiet enough" threshold
+        // unreliable across devices; a hard ceiling is simpler and can't be
+        // wrong the same way. recognition.stop() (not abort()) still lets
+        // whatever WAS understood so far come through via onresult first.
+        clearTimeout(recognitionSafetyTimer);
+        recognitionSafetyTimer = setTimeout(() => {
+            if (recognitionActive) { try { recognition.stop(); } catch (e) {} }
+        }, 12000);
     };
 
     recognition.onresult = (event) => {
+        clearTimeout(recognitionSafetyTimer);
         if (micMuted) return;
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
 
@@ -1349,6 +1370,7 @@ function initSpeechRecognition(){
     };
 
     recognition.onerror = (event) => {
+        clearTimeout(recognitionSafetyTimer);
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
             showToast('הגישה למיקרופון נחסמה — אפשר אותה בהגדרות הדפדפן, או השתמש בקלט הטקסט.', true);
         } else if (event.error === 'no-speech' && isAwake && !micMuted) {
@@ -1372,6 +1394,7 @@ function initSpeechRecognition(){
     };
 
     recognition.onend = () => {
+        clearTimeout(recognitionSafetyTimer);
         recognitionActive = false;
         // No result came in this round (no speech heard, network hiccup, the
         // mobile recognizer just timing out early — all common on phones) —
