@@ -94,7 +94,19 @@ def send_push(user_id: str, title: str, body: str) -> None:
                 data=payload,
                 vapid_private_key=VAPID_PRIVATE_KEY,
                 vapid_claims={"sub": VAPID_SUBJECT},
+                # pywebpush defaults ttl to 0 when omitted, which per RFC
+                # 8030 means "deliver this instant or discard it" — the
+                # push service will NOT hold it for a device that isn't
+                # reachable right now (asleep, app fully closed, briefly
+                # offline). It still returns success to US either way, so
+                # this was a genuinely silent drop: no exception, no log
+                # line, nothing — a reminder fired while the phone happened
+                # to be locked just vanished between Apple's relay and the
+                # device. One hour gives real slack for that without
+                # reminders showing up so late they're useless.
+                ttl=3600,
             )
+            logger.info(f"Push sent for user {user_id} (accepted by provider).")
         except WebPushException as e:
             status = getattr(e.response, "status_code", None)
             if status in (404, 410):
