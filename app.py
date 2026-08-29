@@ -783,6 +783,34 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "set_recurring_reminder",
+            "description": (
+                "Set a WEEKLY repeating reminder — 'every Wednesday at 3pm, "
+                "remind me to walk the dog'. Use this instead of set_reminder "
+                "whenever the user says 'every <day>' / 'each week' / any "
+                "repeating cadence, rather than a single one-off moment. "
+                "Same delivery mechanism as set_reminder (emailed when due), "
+                "except this one keeps firing every week instead of once. "
+                "Executes immediately, no approval needed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "What to be reminded of, e.g. 'walk the dog'."},
+                    "weekday": {
+                        "type": "integer",
+                        "description": "Day of week: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6.",
+                    },
+                    "hour": {"type": "integer", "description": "Hour in 24h local time, 0-23."},
+                    "minute": {"type": "integer", "description": "Minute, 0-59. Defaults to 0 if not given."},
+                },
+                "required": ["text", "weekday", "hour"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "find_nearby_places",
             "description": (
                 "Propose a Google Maps search for nearby places — restaurants, "
@@ -1028,6 +1056,14 @@ def _set_reminder(user_id, args):
     return result["message"]
 
 
+def _set_recurring_reminder(user_id, args):
+    result = productivity_service.request_set_recurring_reminder(
+        user_id, text=args.get("text", ""), weekday=args.get("weekday", -1),
+        hour=args.get("hour", -1), minute=args.get("minute", 0),
+    )
+    return result["message"]
+
+
 # Fallback for _find_nearby_places below: on mobile, plain request/response
 # (the LLM's text reply) reliably arrives but the SSE push carrying the
 # confirmation sometimes doesn't — mobile browsers are far more aggressive
@@ -1092,6 +1128,7 @@ def _build_tool_impl(user_id: str) -> dict:
         "update_calendar_event": lambda args: _update_calendar_event(user_id, args),
         "send_email": lambda args: _send_email(user_id, args),
         "set_reminder": lambda args: _set_reminder(user_id, args),
+        "set_recurring_reminder": lambda args: _set_recurring_reminder(user_id, args),
         "find_nearby_places": lambda args: _find_nearby_places(user_id, args),
         "computer_use": lambda args: _computer_use(user_id, args),
         "write_and_test_code": lambda args: _write_and_test_code(user_id, args),
@@ -1435,6 +1472,37 @@ def upcoming_events():
     if events is None:
         return jsonify({"configured": False, "events": []})
     return jsonify({"configured": True, "events": events})
+
+
+@app.route("/api/reminders")
+def list_reminders():
+    """Backs the HUD's own reminders list — set_reminder/set_recurring_reminder
+    only ever get to the user by email (see daily_briefing.py's docstring for
+    why), so without this there was genuinely no way to see what's still
+    pending short of checking your inbox."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"reminders": []})
+    reminders = users.list_active_reminders(user_id)
+    out = []
+    for r in reminders:
+        if r["recurrence"]:
+            weekday, hour, minute = (int(p) for p in r["recurrence"].split(":"))
+            label = f"Every {productivity_service.WEEKDAY_NAMES[weekday]} at {hour:02d}:{minute:02d}"
+        else:
+            dt = datetime.fromtimestamp(r["remind_at"], tz=productivity_service.LOCAL_TZ)
+            label = dt.strftime("%a %b %d, %H:%M")
+        out.append({"id": r["id"], "text": r["text"], "label": label, "recurring": bool(r["recurrence"])})
+    return jsonify({"reminders": out})
+
+
+@app.route("/api/reminders/<int:reminder_id>", methods=["DELETE"])
+def delete_reminder(reminder_id):
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    deleted = users.delete_reminder(reminder_id, user_id)
+    return jsonify({"ok": deleted})
 
 
 @app.route("/api/calendar/cancel-request", methods=["POST"])

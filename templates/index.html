@@ -688,7 +688,13 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
                 <input class="input-field" id="reminder-text-input" placeholder="למה להזכיר?">
                 <input class="input-field" id="reminder-time-input" value="09:00">
               </div>
+              <div style="font-size:11.5px; color:var(--color-text-dim); margin:6px 0 10px;">לתזכורת קבועה (כל שבוע) — תגיד/תכתוב לג'רוויס למשל "כל יום רביעי ב-15:00 תזכיר לי לצאת עם הכלבה".</div>
               <div class="submit-block" onclick="submitReminder()">קבע תזכורת · תישלח במייל</div>
+            </div>
+
+            <div class="hud-panel">
+              <div class="hud-panel-title" style="margin-bottom:5px;"><span>◂ 📋 התזכורות שלי</span></div>
+              <div id="reminders-list"><div class="events-empty">טוען…</div></div>
             </div>
           </div>
 
@@ -1497,7 +1503,50 @@ function setAgendaView(view){
     $('agenda-week-view').style.display = view === 'week' ? '' : 'none';
     if (view === 'week') loadWeekAgenda(false);
 }
-function loadAgendaTab(){ renderEventList($('agenda-events-list'), upcomingEventsCache, true); }
+function loadAgendaTab(){ renderEventList($('agenda-events-list'), upcomingEventsCache, true); loadReminders(); }
+
+/* ================================================================================
+   Reminders list — set_reminder/set_recurring_reminder only ever reach the
+   user by email (see daily_briefing.py), so this is the only place to see
+   what's still pending without checking your inbox.
+   ================================================================================ */
+async function loadReminders(){
+    const container = $('reminders-list');
+    try {
+        const res = await fetch('/api/reminders');
+        const data = await res.json();
+        renderReminders(data.reminders || []);
+    } catch (e) {
+        container.innerHTML = '<div class="events-empty">לא הצלחתי לטעון תזכורות</div>';
+    }
+}
+function renderReminders(reminders){
+    const container = $('reminders-list');
+    container.innerHTML = '';
+    if (!reminders.length) {
+        container.innerHTML = '<div class="events-empty">אין תזכורות פעילות</div>';
+        return;
+    }
+    reminders.forEach(r => {
+        const row = el('div','event-row');
+        const t = el('span','t'); t.textContent = (r.recurring ? '🔁 ' : '') + r.label;
+        const s = el('span','s'); s.textContent = r.text;
+        const btn = el('button','cancel-x'); btn.innerText = '✕'; btn.title = 'מחק תזכורת';
+        btn.onclick = (e) => { e.stopPropagation(); deleteReminderRow(r.id); };
+        row.append(t, s, btn);
+        container.appendChild(row);
+    });
+}
+async function deleteReminderRow(id){
+    try {
+        const res = await fetch(`/api/reminders/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.ok) { showToast('התזכורת נמחקה.'); loadReminders(); }
+        else { showToast('לא הצלחתי למחוק את התזכורת.', true); }
+    } catch (e) {
+        showToast('לא הצלחתי להתחבר לשרת.', true);
+    }
+}
 
 /* ---- Upcoming events (real /api/upcoming-events), shared by Home widget and
    the Agenda tab's "today" view. Polled every 60s, same as the old file. ---- */
@@ -1642,6 +1691,7 @@ async function submitReminder(){
         const data = await res.json();
         logCommandSettle('executed');
         showToast(data.response || 'התזכורת נקבעה.');
+        loadReminders();
     } catch (err) {
         logCommandSettle('cancelled');
         showToast('לא הצלחתי להתחבר לשרת.', true);

@@ -19,6 +19,8 @@ for delete/kill — one audited confirm-to-act path for every "irreversible"
 action in the codebase, not a special case just for this feature.
 """
 
+from __future__ import annotations  # PEP 604 `X | None` hints, running on Python 3.9 (see users.py)
+
 import logging
 import os
 import time
@@ -398,6 +400,31 @@ def request_update_calendar_event(user_id: str, summary_hint: str = "",
         return {"status": "refused", "message": f"I found more than one match, sir: {names}. Which one did you mean?"}
 
     event = matches[0]
+    # If only one side of the range was given, patching just that one onto
+    # the server (google_service.update_calendar_event deliberately only
+    # touches whichever field it's passed) leaves the OTHER side at its old
+    # absolute clock time — e.g. "move it to 5pm" on a 2:00-2:30 meeting
+    # would patch start to 5pm while end stays 2:30, producing an
+    # end-before-start interval. Google Calendar's API rejects that, and
+    # depending on exactly how, the event can stop showing up in list
+    # queries afterward even though nothing was actually deleted — this is
+    # the "I changed the time and the meeting disappeared" bug. Preserve
+    # the original duration instead of the original absolute time whenever
+    # only one side changed, which also matches what "move it to 5pm"
+    # actually means (same length, new start), not "same end time".
+    try:
+        old_start = datetime.fromisoformat(event["start"].replace("Z", "+00:00"))
+        old_end = datetime.fromisoformat(event["end"].replace("Z", "+00:00"))
+        duration = old_end - old_start
+        if new_start_iso and not new_end_iso:
+            new_start_dt = datetime.fromisoformat(new_start_iso.replace("Z", "+00:00"))
+            new_end_iso = (new_start_dt + duration).strftime("%Y-%m-%dT%H:%M:%SZ")
+        elif new_end_iso and not new_start_iso:
+            new_end_dt = datetime.fromisoformat(new_end_iso.replace("Z", "+00:00"))
+            new_start_iso = (new_end_dt - duration).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, TypeError, KeyError):
+        pass  # fall through with whatever was given — update_calendar_event still guards empty fields
+
     resolved_start = new_start_iso or event["start"]
     resolved_end = new_end_iso or event["end"]
     description_text = f"Update '{event['summary']}' to {resolved_start} - {resolved_end}"
@@ -577,3 +604,41 @@ def request_set_reminder(user_id: str, text: str, remind_at_iso: str) -> dict:
     users.add_reminder(user_id, text, remind_at_epoch)
     when_label = dt.astimezone(LOCAL_TZ).strftime("%A, %B %d at %H:%M")
     return {"status": "ok", "message": f"I'll remind you to {text} on {when_label}, sir."}
+
+
+WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def next_weekday_occurrence(weekday: int, hour: int, minute: int, after: datetime | None = None) -> datetime:
+    """Next local wall-clock moment matching weekday/hour/minute, strictly
+    after `after` (defaults to now) — same 'roll forward a week if today's
+    slot already passed' logic daily_briefing.py's _next_weekly_fire uses
+    for the weekly summary, just parameterized instead of hardcoded to one
+    schedule, since reminders need one of these per reminder."""
+    after = after or datetime.now(LOCAL_TZ)
+    candidate = after.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    days_ahead = (weekday - candidate.weekday()) % 7
+    candidate += timedelta(days=days_ahead)
+    if candidate <= after:
+        candidate += timedelta(days=7)
+    return candidate
+
+
+def request_set_recurring_reminder(user_id: str, text: str, weekday: int, hour: int, minute: int = 0) -> dict:
+    """Weekly reminder — 'every Wednesday at 3pm, remind me to walk the
+    dog'. Same no-confirmation, note-to-self reasoning as
+    request_set_reminder; the only difference is daily_briefing.py
+    re-arms it (users.reschedule_reminder) instead of marking it delivered
+    once it fires, so it keeps firing every week instead of once."""
+    if not (0 <= weekday <= 6):
+        return {"status": "error", "message": "That doesn't look like a valid day of the week, sir."}
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return {"status": "error", "message": "That doesn't look like a valid time, sir."}
+
+    first_fire = next_weekday_occurrence(weekday, hour, minute)
+    recurrence = f"{weekday}:{hour}:{minute}"
+    users.add_reminder(user_id, text, first_fire.timestamp(), recurrence=recurrence)
+    return {
+        "status": "ok",
+        "message": f"I'll remind you to {text} every {WEEKDAY_NAMES[weekday]} at {hour:02d}:{minute:02d}, sir.",
+    }

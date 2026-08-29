@@ -72,8 +72,20 @@ def _check_due_reminders():
         finally:
             # Marked delivered even on failure (e.g. token revoked meanwhile)
             # — a broken reminder retried forever every minute isn't better
-            # than one that silently didn't go out once.
-            users.mark_reminder_delivered(reminder["id"])
+            # than one that silently didn't go out once. Recurring reminders
+            # (recurrence set) are the one exception: instead of a dead end,
+            # advance remind_at to next week's occurrence so it keeps firing
+            # on schedule instead of going silent after the first time.
+            if reminder["recurrence"]:
+                try:
+                    weekday, hour, minute = (int(p) for p in reminder["recurrence"].split(":"))
+                    next_fire = productivity_service.next_weekday_occurrence(weekday, hour, minute)
+                    users.reschedule_reminder(reminder["id"], next_fire.timestamp())
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Malformed recurrence on reminder {reminder['id']}: {e}")
+                    users.mark_reminder_delivered(reminder["id"])
+            else:
+                users.mark_reminder_delivered(reminder["id"])
 
 
 def _next_weekly_fire(after: datetime) -> datetime:
