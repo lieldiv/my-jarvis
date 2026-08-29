@@ -68,6 +68,25 @@ def _init_db():
         except sqlite3.OperationalError:
             pass  # column already exists
 
+        # Browser push subscriptions (see push_service.py) — one row per
+        # device/browser a user has granted notification permission on
+        # (someone could enable this on both their phone and their laptop,
+        # both should get pushed). endpoint is unique per subscription;
+        # UNIQUE here means re-subscribing the same browser just overwrites
+        # its row instead of accumulating duplicates that would double-send.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                endpoint TEXT NOT NULL UNIQUE,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+            """
+        )
+
 
 @contextmanager
 def _connect():
@@ -186,6 +205,45 @@ def delete_reminder(reminder_id: int, user_id: str) -> bool:
     with _connect() as conn:
         cur = conn.execute("DELETE FROM reminders WHERE id = ? AND user_id = ?", (reminder_id, user_id))
         return cur.rowcount > 0
+
+
+def save_push_subscription(user_id: str, endpoint: str, p256dh: str, auth: str) -> None:
+    """INSERT OR REPLACE on the endpoint's own uniqueness (not an explicit
+    id) — the browser is the source of truth for what its subscription is;
+    if it hands us the same endpoint again (re-registering the service
+    worker, e.g. after clearing site data then re-granting permission) this
+    just refreshes the keys instead of erroring on the UNIQUE constraint."""
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth
+            """,
+            (user_id, endpoint, p256dh, auth, time.time()),
+        )
+
+
+def get_push_subscriptions(user_id: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+    return [{"endpoint": r[0], "p256dh": r[1], "auth": r[2]} for r in rows]
+
+
+def delete_push_subscription(endpoint: str) -> None:
+    """Not scoped by user_id, unlike delete_reminder — this is called from
+    push_service.py after the push provider itself reports the endpoint is
+    gone (410/404, e.g. the user cleared site data or uninstalled the
+    browser profile), where the caller only ever has the endpoint on hand,
+    not which user it belonged to. The endpoint itself is an unguessable
+    provider-issued URL, not a small guessable integer id like reminder ids
+    are, so this doesn't carry the same cross-user risk delete_reminder's
+    scoping exists to prevent."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
 
 
 _init_db()

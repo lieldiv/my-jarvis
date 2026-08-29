@@ -113,6 +113,7 @@ import google_service
 import tavily_service
 import stocks_service
 import users
+import push_service
 # -----------------------------------------------------------------------------
 
 app = Flask(__name__)
@@ -222,6 +223,36 @@ MAX_SPEAK_CHARS = 2000
 # calendar event by the local UTC offset. Injected fresh into every request
 # in run_llm() below rather than baked into the static SYSTEM_PROMPT.
 LOCAL_TZ = ZoneInfo(os.environ.get("JARVIS_TIMEZONE", "Asia/Jerusalem"))
+
+# Kept as a plain string constant and served by the /sw.js route below
+# rather than a real static file, so there's exactly one place in the repo
+# a push-payload shape change needs to touch. Deliberately minimal: no
+# offline caching / fetch interception, this service worker exists only to
+# receive 'push' events while no tab is open (the one thing a page's own JS
+# categorically cannot do) and turn them into a real OS notification.
+SERVICE_WORKER_JS = """
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) {}
+  const title = data.title || 'J.A.R.V.I.S';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || '',
+      tag: 'jarvis-reminder',
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const c of list) { if ('focus' in c) return c.focus(); }
+      if (clients.openWindow) return clients.openWindow('/');
+    })
+  );
+});
+"""
 
 
 def _time_context() -> str:
@@ -1503,6 +1534,40 @@ def delete_reminder(reminder_id):
         return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
     deleted = users.delete_reminder(reminder_id, user_id)
     return jsonify({"ok": deleted})
+
+
+@app.route("/sw.js")
+def service_worker():
+    """Served at the site root (not /static/sw.js) deliberately — a service
+    worker's scope is limited to the directory it's served from and
+    everything below it, so serving it from root is what lets it control
+    push events for the whole app rather than just a /static/ subpath."""
+    return app.response_class(
+        SERVICE_WORKER_JS, mimetype="application/javascript",
+        headers={"Service-Worker-Allowed": "/"},
+    )
+
+
+@app.route("/api/push/vapid-public-key")
+def push_vapid_public_key():
+    if not push_service.CONFIGURED:
+        return jsonify({"configured": False})
+    return jsonify({"configured": True, "key": push_service.VAPID_PUBLIC_KEY})
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+def push_subscribe():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get("endpoint", "")
+    keys = data.get("keys", {})
+    p256dh, auth = keys.get("p256dh", ""), keys.get("auth", "")
+    if not (endpoint and p256dh and auth):
+        return jsonify({"ok": False, "message": "Malformed subscription."}), 400
+    users.save_push_subscription(user_id, endpoint, p256dh, auth)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/calendar/cancel-request", methods=["POST"])

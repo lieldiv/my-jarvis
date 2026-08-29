@@ -745,6 +745,10 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="settings-sub">◂ קול</div>
             <div class="voice-info-block">לחיצה לדיבור · מדבר בעברית · JARVIS עונה באנגלית<br/>אישור לפני פעולה: פעיל — כל שינוי ביומן או שליחת מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
 
+            <div class="settings-sub">◂ התראות</div>
+            <div class="voice-info-block" id="push-status-text">תזכורות נשלחות כברירת מחדל במייל. ניתן גם לקבל אותן כהתראה אמיתית בדפדפן/בטלפון, גם כשהאתר סגור.</div>
+            <button class="mic-btn show" id="push-enable-btn" onclick="enablePushNotifications()">🔔 הפעל התראות בדפדפן</button>
+
             <div class="warn-block">⚠ המערכת עדיין בשלב בדיקות (Testing) — נגישה רק לחשבונות שאושרו מראש.</div>
 
             <button class="reset-btn" onclick="resetMemory()">🧹 איפוס זיכרון שיחה</button>
@@ -2393,6 +2397,64 @@ async function resetMemory(){
         await fetch('/api/reset', { method: 'POST' });
         showToast('הזיכרון אופס.');
     } catch (err) { showToast('לא הצלחתי לאפס את הזיכרון.', true); }
+}
+
+/* ================================================================================
+   Real browser push notifications for reminders (push_service.py) — email
+   always goes out regardless (daily_briefing.py), this is the opt-in,
+   additional "actually buzz my phone" channel the mail-only version was
+   missing. Standard Web Push subscribe dance: register a service worker,
+   ask permission, subscribe with the server's VAPID public key, hand the
+   resulting subscription back to the server to store.
+   ================================================================================ */
+function _base64UrlToUint8Array(base64Url){
+    const padding = '='.repeat((4 - base64Url.length % 4) % 4);
+    const base64 = (base64Url + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+}
+async function enablePushNotifications(){
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        showToast('הדפדפן הזה לא תומך בהתראות דחיפה, אדוני.', true);
+        return;
+    }
+    try {
+        const keyRes = await fetch('/api/push/vapid-public-key');
+        const keyData = await keyRes.json();
+        if (!keyData.configured) {
+            showToast('התראות עדיין לא הוגדרו בצד השרת.', true);
+            return;
+        }
+
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+            showToast('לא אושרה הרשאה להתראות.', true);
+            return;
+        }
+
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: _base64UrlToUint8Array(keyData.key),
+        });
+
+        const res = await fetch('/api/push/subscribe', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(subscription.toJSON()),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            showToast('התראות הופעלו — תזכורות יגיעו גם כהתראה, לא רק במייל.');
+            $('push-status-text').innerText = 'התראות פעילות בדפדפן/מכשיר הזה. ✓';
+            $('push-enable-btn').style.display = 'none';
+        } else {
+            showToast('השרת דחה את ההרשמה להתראות.', true);
+        }
+    } catch (err) {
+        showToast('לא הצלחתי להפעיל התראות — נסה שוב.', true);
+    }
 }
 
 /* ---- Known-accounts switcher (client-side localStorage) ---- */

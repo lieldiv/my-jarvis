@@ -37,6 +37,7 @@ from datetime import datetime, timedelta
 
 import google_service
 import productivity_service
+import push_service
 import users
 
 logger = logging.getLogger("jarvis.daily_briefing")
@@ -86,6 +87,12 @@ def _check_due_reminders():
                     users.mark_reminder_delivered(reminder["id"])
             else:
                 users.mark_reminder_delivered(reminder["id"])
+
+        # Alongside email, not instead of it — send_push already never
+        # raises and no-ops entirely if VAPID isn't configured, so this is
+        # safe unconditionally and runs regardless of whether the email
+        # above succeeded or the reminder was one-time vs recurring.
+        push_service.send_push(reminder["user_id"], "תזכורת מ-J.A.R.V.I.S", reminder["text"])
 
 
 def _next_weekly_fire(after: datetime) -> datetime:

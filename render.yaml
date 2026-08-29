@@ -47,3 +47,11 @@ services:
         sync: false            # generate once (e.g. `python -c "import secrets; print(secrets.token_hex(32))"`) and keep it stable across deploys
       - key: TAVILY_API_KEY
         sync: false            # free, no card — https://tavily.com — powers get_current_info
+      - key: VAPID_PRIVATE_KEY
+        sync: false            # browser push notifications (push_service.py) — see that file's
+                                # docstring for the one-time keygen snippet. Optional: reminders
+                                # still email fine with this unset, push is just disabled.
+      - key: VAPID_PUBLIC_KEY
+        sync: false            # generated alongside VAPID_PRIVATE_KEY, same keygen snippet
+      - key: VAPID_SUBJECT
+        value: "mailto:admin@example.com"  # contact a push provider can reach about abuse — change to a real address

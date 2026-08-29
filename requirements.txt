@@ -40,6 +40,11 @@ google-api-python-client==2.169.0
 # --- Microsoft Outlook/365 (Graph API) ------------------------------------
 msal==1.37.0
 
+# --- Browser push notifications (reminders, real device notification not
+# just email) -- pulls in py-vapid (VAPID key handling) and http-ece
+# (payload encryption) as transitive deps automatically.
+pywebpush==2.1.2
+
 # Note: get_current_info (tavily_service.py) needs no new dependency here —
 # Tavily's API is plain REST, called via the `requests` package already
 # pinned above.
