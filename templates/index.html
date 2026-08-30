@@ -1220,13 +1220,32 @@ function renderOrb(){
 }
 renderOrb();
 
+// iOS shares ONE underlying audio session between <audio> playback and
+// SpeechRecognition's mic capture. Calling recognition.start() in the exact
+// same tick a previous session (TTS just finishing, or a prior recognition
+// session tearing down) ended can land mid-transition on that shared
+// session — desktop has no such constraint (separate audio paths), which
+// matches this being reported as smooth on desktop but intermittent on
+// iPhone specifically: same code, only iOS has anything to race. A short
+// settle delay before start() is well within Safari's multi-second
+// user-activation window (doesn't break gesture-gated mic permission
+// reuse), and every call site gets the same not-silent failure handling
+// instead of five different ad-hoc try/catches.
+function startRecognitionSafely(){
+    if (!recognition || recognitionActive) return;
+    setTimeout(() => {
+        if (!recognition || recognitionActive) return;
+        try { recognition.start(); }
+        catch (e) { showToast('ההאזנה לא התחילה — הקש שוב.', true); }
+    }, 150);
+}
 function orbTap(){
     if (!isAwake) { triggerWake(); return; }
     if (micMuted) { toggleMicMute(); return; }
     if (voiceState !== 'idle') return;
     if (!SPEECH_RECOGNITION_SUPPORTED || textOnlyMode) { $('cmd-input').focus(); return; }
     playTapBurst();
-    if (!recognitionActive) { try { recognition.start(); } catch(e){} }
+    startRecognitionSafely();
 }
 function playTapBurst(){
     const stage = $('orb-stage');
@@ -1251,7 +1270,7 @@ function toggleMicMute(){
         if (recognition && recognitionActive) { try { recognition.stop(); } catch(e){} }
         beep(320, 0.12);
     } else {
-        if (SPEECH_RECOGNITION_SUPPORTED && !recognitionActive) { try { recognition.start(); } catch(e){} }
+        if (SPEECH_RECOGNITION_SUPPORTED) startRecognitionSafely();
         beep(660, 0.12);
     }
     renderOrb();
@@ -1279,7 +1298,7 @@ function clearOrbBubbles(){ setOrbTranscript(''); setOrbTool(''); setOrbResponse
 function triggerWake(){
     if (SPEECH_RECOGNITION_SUPPORTED && !textOnlyMode) {
         if (!micInitialized) { initSpeechRecognition(); micInitialized = true; }
-        if (!recognitionActive) { try { recognition.start(); } catch(e) {} }
+        startRecognitionSafely();
     }
     wakeJarvis('Hello Jarvis');
 }
@@ -1326,7 +1345,7 @@ function playJarvisAudio(b64Audio, onStart){
     currentAudio.onplay = () => { voiceState = 'done'; renderOrb(); if (onStart) onStart(); };
     currentAudio.onended = () => {
         voiceState = 'idle'; renderOrb();
-        if (isAwake && !micMuted && recognition && !recognitionActive) { try { recognition.start(); } catch(e){} }
+        if (isAwake && !micMuted && recognition) startRecognitionSafely();
         setTimeout(() => { if (voiceState === 'idle') clearOrbBubbles(); }, 2600);
     };
     currentAudio.onerror = () => {
@@ -1478,6 +1497,18 @@ function initSpeechRecognition(){
         renderOrb();
     };
 }
+// Backgrounding the tab/app mid-listen (switching apps, pulling down
+// Control Center, a phone call) is far more common on a phone than on
+// desktop, and leaves an active recognition session in an inconsistent
+// state that the next tap can inherit — a plausible extra piece of "works
+// fine on desktop, sometimes just doesn't on iPhone" beyond the audio-
+// session-transition fix above. Stop cleanly on hide so the next tap
+// always starts fresh instead of racing whatever was still in flight.
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && recognition && recognitionActive) {
+        try { recognition.stop(); } catch (e) {}
+    }
+});
 
 /* ================================================================================
    sendCommand — POST /api/command, same contract/behavior as the old file.
@@ -2739,7 +2770,7 @@ function startWakePhraseStep(){
     // conversation and, being a real tap, reliably unlocks audio.
     $('mic-tap-start-btn').classList.add('show');
     if (!micInitialized) { initSpeechRecognition(); micInitialized = true; }
-    try { recognition.start(); } catch (e) {}
+    startRecognitionSafely();
 }
 function enterApp(){
     $('mic-gate').classList.add('closing');
