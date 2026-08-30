@@ -39,7 +39,6 @@ import google_service
 import productivity_service
 import push_service
 import users
-import whatsapp_service
 
 logger = logging.getLogger("jarvis.daily_briefing")
 
@@ -63,30 +62,19 @@ def _send_user_email(user_id: str, subject: str, body: str) -> None:
 
 def _check_due_reminders():
     for reminder in users.get_due_reminders(time.time()):
-        # First channel the user actually has set up wins, never more than
-        # one — no new preference to manage, since enabling a channel in
-        # Settings is itself what turns the others off for future reminders.
-        # Order is by "most likely to actually surface it right now": push
-        # is a real device notification, WhatsApp arrives inside an app
-        # people already check constantly, email is the fallback for anyone
-        # who set up neither.
-        user_id = reminder["user_id"]
-        has_push = push_service.CONFIGURED and bool(users.get_push_subscriptions(user_id))
-        whatsapp_settings = None if has_push else users.get_whatsapp_settings(user_id)
-
+        # Push if the user has it set up (an actual device notification,
+        # what they actually asked for), email only as the fallback for
+        # someone who never enabled push — not both every time. Checking
+        # "has a subscription" rather than a separate on/off setting means
+        # this needs no new preference to manage: enabling push in Settings
+        # is itself what turns email off for future reminders.
+        has_push = push_service.CONFIGURED and bool(users.get_push_subscriptions(reminder["user_id"]))
         if has_push:
-            push_service.send_push(user_id, "תזכורת מ-J.A.R.V.I.S", reminder["text"])
-        elif whatsapp_settings:
-            ok, message = whatsapp_service.send_whatsapp(
-                whatsapp_settings["phone"], whatsapp_settings["apikey"],
-                f"⏰ תזכורת מ-J.A.R.V.I.S: {reminder['text']}",
-            )
-            if not ok:
-                logger.error(f"WhatsApp delivery failed for reminder {reminder['id']}: {message}")
+            push_service.send_push(reminder["user_id"], "תזכורת מ-J.A.R.V.I.S", reminder["text"])
         else:
             try:
                 _send_user_email(
-                    user_id,
+                    reminder["user_id"],
                     "Reminder from J.A.R.V.I.S.",
                     f"Sir, this is your reminder: {reminder['text']}",
                 )

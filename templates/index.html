@@ -763,18 +763,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="voice-info-block" id="push-status-text">תזכורות נשלחות כברירת מחדל במייל. ניתן גם לקבל אותן כהתראה אמיתית בדפדפן/בטלפון, גם כשהאתר סגור.</div>
             <button class="mic-btn show" id="push-enable-btn" onclick="enablePushNotifications()">🔔 הפעל התראות בדפדפן</button>
 
-            <div class="settings-sub">◂ התראות בוואטסאפ</div>
-            <div class="voice-info-block" id="whatsapp-status-text">
-              קבלת תזכורות ישירות לוואטסאפ, דרך שירות חינמי בשם CallMeBot:<br/>
-              1. פתחו את <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener" style="color:#00f3ff;">דף ההרשמה הרשמי של CallMeBot</a> — שם מופיע מספר הבוט העדכני (הוא מתחלף מדי פעם, לכן לא קבוע כאן).<br/>
-              2. שמרו את המספר שמופיע שם באנשי הקשר שלכם, ושלחו לו בוואטסאפ את ההודעה: <span style="direction:ltr; unicode-bidi:embed; display:inline-block;">"I allow callmebot to send me messages"</span><br/>
-              3. הוא ישלח בחזרה מפתח API — הדביקו אותו כאן יחד עם המספר שלכם.
-            </div>
-            <div><div class="field-label">מספר טלפון (עם קידומת מדינה, לדוגמה +9725...)</div><input class="input-field" id="whatsapp-phone" style="direction:ltr; text-align:left;" placeholder="+972501234567"></div>
-            <div><div class="field-label">מפתח API מ-CallMeBot</div><input class="input-field" id="whatsapp-apikey" style="direction:ltr; text-align:left;" placeholder="123456"></div>
-            <button class="mic-btn show" id="whatsapp-save-btn" onclick="saveWhatsAppSettings()">💬 שמור ושלח הודעת בדיקה</button>
-            <button class="reset-btn" id="whatsapp-disable-btn" style="display:none;" onclick="disableWhatsAppSettings()">🚫 בטל התראות וואטסאפ</button>
-
             <div class="warn-block">⚠ המערכת עדיין בשלב בדיקות (Testing) — נגישה רק לחשבונות שאושרו מראש.</div>
 
             <button class="reset-btn" onclick="resetMemory()">🧹 איפוס זיכרון שיחה</button>
@@ -1126,7 +1114,6 @@ function setTab(key){
     renderNav();
     if (key === 'inbox') loadInboxTab();
     if (key === 'agenda') loadAgendaTab();
-    if (key === 'settings') loadWhatsAppSettings();
 }
 renderNav();
 
@@ -2521,59 +2508,6 @@ async function enablePushNotifications(){
         }
     } catch (err) {
         showToast('לא הצלחתי להפעיל התראות — נסה שוב.', true);
-    }
-}
-
-/* ---- WhatsApp reminders (whatsapp_service.py, via CallMeBot) ---- */
-async function loadWhatsAppSettings(){
-    try {
-        const res = await fetch('/api/settings/whatsapp');
-        const data = await res.json();
-        if (data.configured) {
-            $('whatsapp-phone').value = data.phone || '';
-            $('whatsapp-status-text').innerHTML = 'התראות וואטסאפ פעילות ✓ (' + data.phone + ')';
-            $('whatsapp-save-btn').innerText = '💬 עדכן ושלח הודעת בדיקה';
-            $('whatsapp-disable-btn').style.display = '';
-        }
-    } catch (err) { /* settings tab still usable even if this fails */ }
-}
-async function saveWhatsAppSettings(){
-    const phone = $('whatsapp-phone').value.trim();
-    const apikey = $('whatsapp-apikey').value.trim();
-    if (!phone || !apikey) {
-        showToast('יש למלא גם מספר טלפון וגם מפתח API.', true);
-        return;
-    }
-    const btn = $('whatsapp-save-btn');
-    btn.disabled = true; btn.innerText = 'שולח הודעת בדיקה…';
-    try {
-        const res = await fetch('/api/settings/whatsapp', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone, apikey }),
-        });
-        const data = await res.json();
-        showToast(data.message || (data.ok ? 'נשלח בהצלחה.' : 'השליחה נכשלה.'), !data.ok);
-        if (data.ok) {
-            $('whatsapp-status-text').innerHTML = 'התראות וואטסאפ פעילות ✓ (' + phone + ')';
-            $('whatsapp-disable-btn').style.display = '';
-            $('whatsapp-apikey').value = '';
-        }
-    } catch (err) {
-        showToast('לא הצלחתי לשמור — נסה שוב.', true);
-    } finally {
-        btn.disabled = false; btn.innerText = '💬 עדכן ושלח הודעת בדיקה';
-    }
-}
-async function disableWhatsAppSettings(){
-    try {
-        await fetch('/api/settings/whatsapp', { method: 'DELETE' });
-        $('whatsapp-phone').value = ''; $('whatsapp-apikey').value = '';
-        $('whatsapp-status-text').innerHTML = 'התראות וואטסאפ כבויות. תזכורות יחזרו למייל (או להתראת דפדפן, אם מופעלת).';
-        $('whatsapp-save-btn').innerText = '💬 שמור ושלח הודעת בדיקה';
-        $('whatsapp-disable-btn').style.display = 'none';
-        showToast('התראות וואטסאפ כובו.');
-    } catch (err) {
-        showToast('לא הצלחתי לכבות — נסה שוב.', true);
     }
 }
 
