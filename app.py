@@ -114,6 +114,7 @@ import tavily_service
 import stocks_service
 import users
 import push_service
+import whatsapp_service
 # -----------------------------------------------------------------------------
 
 app = Flask(__name__)
@@ -1571,6 +1572,48 @@ def push_subscribe():
     if not (endpoint and p256dh and auth):
         return jsonify({"ok": False, "message": "Malformed subscription."}), 400
     users.save_push_subscription(user_id, endpoint, p256dh, auth)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/settings/whatsapp")
+def whatsapp_settings_get():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"configured": False})
+    settings = users.get_whatsapp_settings(user_id)
+    # Phone is shown back so the field isn't blank on reload; the apikey
+    # never round-trips to the client once saved — same asymmetry as
+    # google_token_json never being handed back to the browser either.
+    return jsonify({"configured": bool(settings), "phone": settings["phone"] if settings else ""})
+
+
+@app.route("/api/settings/whatsapp", methods=["POST"])
+def whatsapp_settings_save():
+    """Saves phone+apikey and immediately sends a real test message — so the
+    user finds out right away whether they copied the apikey correctly
+    instead of only discovering it days later when a real reminder silently
+    doesn't arrive."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    data = request.get_json(silent=True) or {}
+    phone = (data.get("phone") or "").strip()
+    apikey = (data.get("apikey") or "").strip()
+    if not (phone and apikey):
+        return jsonify({"ok": False, "message": "צריך גם מספר טלפון וגם מפתח API."}), 400
+    users.save_whatsapp_settings(user_id, phone, apikey)
+    ok, message = whatsapp_service.send_whatsapp(
+        phone, apikey, "✅ J.A.R.V.I.S מחובר להתראות הוואטסאפ שלך. תזכורות יגיעו לכאן."
+    )
+    return jsonify({"ok": ok, "message": message})
+
+
+@app.route("/api/settings/whatsapp", methods=["DELETE"])
+def whatsapp_settings_clear():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    users.clear_whatsapp_settings(user_id)
     return jsonify({"ok": True})
 
 

@@ -87,6 +87,17 @@ def _init_db():
             """
         )
 
+        # WhatsApp reminder delivery (see whatsapp_service.py) via CallMeBot's
+        # free personal-use API — unlike push_subscriptions (one row per
+        # browser/device, since a user can enable push on several), this is
+        # one phone+apikey pair per user, stored directly on the users row
+        # like google_token_json rather than its own table.
+        for column in ("whatsapp_phone", "whatsapp_apikey"):
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
 
 @contextmanager
 def _connect():
@@ -231,6 +242,31 @@ def get_push_subscriptions(user_id: str) -> list[dict]:
             (user_id,),
         ).fetchall()
     return [{"endpoint": r[0], "p256dh": r[1], "auth": r[2]} for r in rows]
+
+
+def save_whatsapp_settings(user_id: str, phone: str, apikey: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE users SET whatsapp_phone = ?, whatsapp_apikey = ? WHERE id = ?",
+            (phone, apikey, user_id),
+        )
+
+
+def get_whatsapp_settings(user_id: str) -> dict | None:
+    """None if never configured OR explicitly cleared — either way there's
+    nothing to send to, same shape as get_google_token's None case."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT whatsapp_phone, whatsapp_apikey FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if not row or not (row[0] and row[1]):
+        return None
+    return {"phone": row[0], "apikey": row[1]}
+
+
+def clear_whatsapp_settings(user_id: str) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE users SET whatsapp_phone = NULL, whatsapp_apikey = NULL WHERE id = ?", (user_id,))
 
 
 def delete_push_subscription(endpoint: str) -> None:
