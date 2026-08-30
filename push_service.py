@@ -91,12 +91,19 @@ CONFIGURED = bool(VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY)
 # process actually received the new value or something is still stale/
 # different from what the dashboard shows was saved.
 if _raw_private_key_env:
-    logger.info(
-        f"push_service: VAPID_PRIVATE_KEY env var is {len(_raw_private_key_env)} chars, "
-        f"starts with {_raw_private_key_env[:12]!r}, ends with {_raw_private_key_env[-12:]!r}, "
-        f"unwrap {'succeeded (looks like a PEM)' if VAPID_PRIVATE_KEY.startswith('-----BEGIN') else 'did NOT produce a PEM'}."
+    # Same shape info as the log line below, kept as a module-level string
+    # too (not just logged) so a failed test-send can hand it straight back
+    # to whoever clicked the button — going to find this in Render's log
+    # dashboard was itself the bottleneck across several previous rounds of
+    # this exact "Could not deserialize key data" error.
+    KEY_SHAPE_DIAGNOSTIC = (
+        f"אבחון מפתח: VAPID_PRIVATE_KEY הוא {len(_raw_private_key_env)} תווים, "
+        f"מתחיל ב-{_raw_private_key_env[:12]!r}, מסתיים ב-{_raw_private_key_env[-12:]!r}, "
+        f"פענוח (unwrap) {'הצליח — נראה כמו PEM תקין' if VAPID_PRIVATE_KEY.startswith('-----BEGIN') else 'נכשל — לא הפיק PEM תקין, כנראה שהערך ב-Render עדיין עטוף/פגום'}."
     )
+    logger.info(f"push_service: {KEY_SHAPE_DIAGNOSTIC}")
 else:
+    KEY_SHAPE_DIAGNOSTIC = "VAPID_PRIVATE_KEY ריק או לא מוגדר ב-Render."
     logger.info("push_service: VAPID_PRIVATE_KEY env var is empty or unset.")
 
 if CONFIGURED:
@@ -190,5 +197,10 @@ def send_test_push(user_id: str, title: str, body: str) -> tuple:
         elif status in (404, 410):
             users.delete_push_subscription(sub["endpoint"])
             message = "המנוי הזה כבר לא תקף (הוסר) — לחץ שוב על 'הפעל התראות' כדי ליצור מנוי חדש ונסה שוב."
+        elif "deserialize" in message.lower() or "asn.1" in message.lower():
+            # This exact failure mode (bad/corrupted VAPID_PRIVATE_KEY) has
+            # recurred multiple times — the shape diagnostic is what
+            # actually settles it instead of another round of screenshots.
+            message = f"{message}\n\n{KEY_SHAPE_DIAGNOSTIC}"
         messages.append(message)
     return any_ok, "; ".join(messages)
