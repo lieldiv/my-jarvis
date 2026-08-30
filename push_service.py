@@ -106,8 +106,31 @@ else:
     KEY_SHAPE_DIAGNOSTIC = "VAPID_PRIVATE_KEY ריק או לא מוגדר ב-Render."
     logger.info("push_service: VAPID_PRIVATE_KEY env var is empty or unset.")
 
+_VAPID = None
 if CONFIGURED:
     from pywebpush import webpush, WebPushException
+    from py_vapid import Vapid
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+    # webpush()'s vapid_private_key accepts EITHER a string (routed straight
+    # into py_vapid's Vapid.from_string(), which strips only newlines and
+    # then base64url-decodes what's left) OR a ready-made Vapid object,
+    # used as-is. VAPID_PRIVATE_KEY here is a FULL PEM — including the
+    # literal "-----BEGIN PRIVATE KEY-----"/"-----END...-----" marker
+    # lines — and from_string() has no idea those markers exist: it tries
+    # to base64url-decode the ENTIRE string, markers included, which
+    # produces corrupt/wrong-length bytes and fails exactly as
+    # "Could not deserialize key data ... ASN.1 parsing error: invalid
+    # length" — reproduced locally byte-for-byte against this exact
+    # production error. Building the Vapid object ourselves with
+    # cryptography's own (marker-aware) PEM loader and handing webpush()
+    # that object sidesteps from_string() entirely — confirmed working via
+    # a real signed VAPID JWT before this shipped.
+    try:
+        _VAPID = Vapid(private_key=load_pem_private_key(VAPID_PRIVATE_KEY.encode(), password=None))
+        logger.info("push_service: VAPID private key loaded successfully.")
+    except Exception as e:
+        logger.error(f"push_service: failed to load VAPID private key: {e}")
 else:
     logger.info("push_service: VAPID_PRIVATE_KEY/VAPID_PUBLIC_KEY not set — push notifications disabled, reminders still email.")
 
@@ -117,11 +140,13 @@ def _deliver(subscription_info: dict, payload: str) -> tuple:
     returns (ok, message, status_code); status_code is None unless the
     provider itself returned an HTTP error, so callers can single out
     404/410 (dead subscription, clean it up) from everything else."""
+    if _VAPID is None:
+        return False, f"מפתח ה-VAPID לא נטען בהצלחה בשרת. {KEY_SHAPE_DIAGNOSTIC}", None
     try:
         webpush(
             subscription_info=subscription_info,
             data=payload,
-            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_private_key=_VAPID,
             vapid_claims={"sub": VAPID_SUBJECT},
             # pywebpush defaults ttl to 0 when omitted, which per RFC 8030
             # means "deliver this instant or discard it" — the push service
