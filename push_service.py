@@ -105,6 +105,35 @@ else:
     logger.info("push_service: VAPID_PRIVATE_KEY/VAPID_PUBLIC_KEY not set — push notifications disabled, reminders still email.")
 
 
+def _deliver(subscription_info: dict, payload: str) -> tuple:
+    """One webpush() attempt against one subscription. Never raises — always
+    returns (ok, message, status_code); status_code is None unless the
+    provider itself returned an HTTP error, so callers can single out
+    404/410 (dead subscription, clean it up) from everything else."""
+    try:
+        webpush(
+            subscription_info=subscription_info,
+            data=payload,
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_SUBJECT},
+            # pywebpush defaults ttl to 0 when omitted, which per RFC 8030
+            # means "deliver this instant or discard it" — the push service
+            # will NOT hold it for a device that isn't reachable right now
+            # (asleep, app fully closed, briefly offline). It still returns
+            # success to us either way, so this was a genuinely silent drop:
+            # no exception, no log line, nothing. One hour gives real slack
+            # for that without reminders showing up so late they're useless.
+            ttl=3600,
+        )
+        return True, "התקבל אצל ספק ההתראות (Apple/Google).", None
+    except WebPushException as e:
+        status = getattr(e.response, "status_code", None)
+        body = getattr(e.response, "text", "") if e.response is not None else str(e)
+        return False, f"נדחה על ידי הספק ({status}): {body[:200]}", status
+    except Exception as e:
+        return False, f"שגיאת רשת: {e}", None
+
+
 def send_push(user_id: str, title: str, body: str) -> None:
     """Best-effort — never raises. Called from daily_briefing.py alongside
     (not instead of) the existing email delivery, so a push failure here
@@ -120,34 +149,46 @@ def send_push(user_id: str, title: str, body: str) -> None:
             "endpoint": sub["endpoint"],
             "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
         }
-        try:
-            webpush(
-                subscription_info=subscription_info,
-                data=payload,
-                vapid_private_key=VAPID_PRIVATE_KEY,
-                vapid_claims={"sub": VAPID_SUBJECT},
-                # pywebpush defaults ttl to 0 when omitted, which per RFC
-                # 8030 means "deliver this instant or discard it" — the
-                # push service will NOT hold it for a device that isn't
-                # reachable right now (asleep, app fully closed, briefly
-                # offline). It still returns success to US either way, so
-                # this was a genuinely silent drop: no exception, no log
-                # line, nothing — a reminder fired while the phone happened
-                # to be locked just vanished between Apple's relay and the
-                # device. One hour gives real slack for that without
-                # reminders showing up so late they're useless.
-                ttl=3600,
-            )
+        ok, message, status = _deliver(subscription_info, payload)
+        if ok:
             logger.info(f"Push sent for user {user_id} (accepted by provider).")
-        except WebPushException as e:
-            status = getattr(e.response, "status_code", None)
-            if status in (404, 410):
-                # Provider is telling us this subscription is dead (browser
-                # profile removed, site data cleared, etc.) — not a
-                # transient failure, so clean it up instead of retrying it
-                # forever on every future reminder.
-                users.delete_push_subscription(sub["endpoint"])
-            else:
-                logger.error(f"Push failed for user {user_id} ({status}): {e}")
-        except Exception as e:
-            logger.error(f"Push failed for user {user_id} (transport error): {e}")
+        elif status in (404, 410):
+            # Provider is telling us this subscription is dead (browser
+            # profile removed, site data cleared, etc.) — not a transient
+            # failure, so clean it up instead of retrying it forever.
+            users.delete_push_subscription(sub["endpoint"])
+        else:
+            logger.error(f"Push failed for user {user_id} ({status}): {message}")
+
+
+def send_test_push(user_id: str, title: str, body: str) -> tuple:
+    """Manual 'send test notification' action from Settings. Unlike
+    send_push's silent best-effort loop (fine for the background scheduler,
+    where nobody's watching in real time), this hands the actual per-attempt
+    result back to whoever clicked the button — without it, debugging push
+    means digging through live Render logs on every single retry, which is
+    exactly what made this so slow to root-cause the first four times.
+    Returns (ok, message)."""
+    if not CONFIGURED:
+        return False, "התראות פוש לא הוגדרו בצד השרת (VAPID keys חסרים ב-Render)."
+    subs = users.get_push_subscriptions(user_id)
+    if not subs:
+        return False, "אין מנוי התראות רשום למכשיר הזה — לחץ קודם על 'הפעל התראות בדפדפן'."
+
+    import json
+    payload = json.dumps({"title": title, "body": body})
+    messages = []
+    any_ok = False
+    for sub in subs:
+        subscription_info = {
+            "endpoint": sub["endpoint"],
+            "keys": {"p256dh": sub["p256dh"], "auth": sub["auth"]},
+        }
+        ok, message, status = _deliver(subscription_info, payload)
+        if ok:
+            any_ok = True
+        elif status in (404, 410):
+            users.delete_push_subscription(sub["endpoint"])
+            message = "המנוי הזה כבר לא תקף (הוסר) — לחץ שוב על 'הפעל התראות' כדי ליצור מנוי חדש ונסה שוב."
+        messages.append(message)
+    return any_ok, "; ".join(messages)

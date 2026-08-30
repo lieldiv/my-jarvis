@@ -762,6 +762,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="settings-sub">◂ התראות</div>
             <div class="voice-info-block" id="push-status-text">תזכורות נשלחות כברירת מחדל במייל. ניתן גם לקבל אותן כהתראה אמיתית בדפדפן/בטלפון, גם כשהאתר סגור.</div>
             <button class="mic-btn show" id="push-enable-btn" onclick="enablePushNotifications()">🔔 הפעל התראות בדפדפן</button>
+            <button class="mic-btn show" id="push-test-btn" onclick="sendTestPush()">🧪 שלח הודעת בדיקה עכשיו</button>
 
             <div class="warn-block">⚠ המערכת עדיין בשלב בדיקות (Testing) — נגישה רק לחשבונות שאושרו מראש.</div>
 
@@ -2508,6 +2509,19 @@ async function enablePushNotifications(){
         }
     } catch (err) {
         showToast('לא הצלחתי להפעיל התראות — נסה שוב.', true);
+    }
+}
+async function sendTestPush(){
+    const btn = $('push-test-btn');
+    btn.disabled = true; btn.innerText = 'שולח…';
+    try {
+        const res = await fetch('/api/push/test', { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message, !data.ok);
+    } catch (err) {
+        showToast('הבקשה נכשלה — נסה שוב.', true);
+    } finally {
+        btn.disabled = false; btn.innerText = '🧪 שלח הודעת בדיקה עכשיו';
     }
 }
 

@@ -1574,6 +1574,18 @@ def push_subscribe():
     return jsonify({"ok": True})
 
 
+@app.route("/api/push/test", methods=["POST"])
+def push_test():
+    """Fires one real push immediately and reports the real outcome back —
+    without this, the only way to know why a push isn't arriving is to set
+    a reminder, wait up to a minute, then dig through Render's live logs."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    ok, message = push_service.send_test_push(user_id, "בדיקת J.A.R.V.I.S", "זו הודעת בדיקה — אם הגיעה, ההתראות עובדות! ✅")
+    return jsonify({"ok": ok, "message": message})
+
+
 @app.route("/api/calendar/cancel-request", methods=["POST"])
 def calendar_cancel_request():
     """Backs the ✖ בטל button on each upcoming-events widget item. Unlike
