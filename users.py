@@ -196,6 +196,19 @@ def list_active_reminders(user_id: str) -> list[dict]:
     return [{"id": r[0], "text": r[1], "remind_at": r[2], "recurrence": r[3]} for r in rows]
 
 
+def update_reminder(reminder_id: int, user_id: str, text: str, remind_at: float, recurrence: str | None) -> bool:
+    """Scoped by user_id like delete_reminder. Resets delivered back to 0 —
+    editing a one-time reminder that already fired (or is being pushed
+    later than its original time) should reactivate it, not leave it
+    silently marked done."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE reminders SET text = ?, remind_at = ?, recurrence = ?, delivered = 0 WHERE id = ? AND user_id = ?",
+            (text, remind_at, recurrence, reminder_id, user_id),
+        )
+        return cur.rowcount > 0
+
+
 def delete_reminder(reminder_id: int, user_id: str) -> bool:
     """Scoped by user_id so one user can't cancel another's reminder by
     guessing an id — there's no ownership check anywhere else in this path

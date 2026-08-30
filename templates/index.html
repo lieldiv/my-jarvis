@@ -818,6 +818,40 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
           <div class="sheet-submit gold" id="compose-send-btn" style="display:none;" onclick="sendComposeEmail()">📤 שלח</div>
         </div>
 
+        <!-- Reminder edit sheet -->
+        <div class="sheet-overlay cyan" id="reminder-edit-sheet">
+          <div class="sheet-header"><span class="title">עריכת תזכורת</span><button class="sheet-close" onclick="closeReminderEditSheet()">✕</button></div>
+          <div class="sheet-fields">
+            <div><div class="field-label">טקסט התזכורת</div><input class="input-field" id="reminder-edit-text" placeholder="לצאת עם הכלבה"></div>
+            <div class="sheet-row-3" style="grid-template-columns:1fr 1fr;">
+              <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="reminder-edit-mode" value="once" onchange="toggleReminderEditMode()"> פעם אחת</label>
+              <label style="display:flex; align-items:center; gap:6px;"><input type="radio" name="reminder-edit-mode" value="weekly" onchange="toggleReminderEditMode()"> כל שבוע</label>
+            </div>
+            <div id="reminder-edit-once-fields">
+              <div class="field-label">תאריך ושעה</div>
+              <input class="input-field" id="reminder-edit-datetime" type="datetime-local">
+            </div>
+            <div id="reminder-edit-weekly-fields" style="display:none;">
+              <div class="field-label">יום בשבוע</div>
+              <select class="input-field" id="reminder-edit-weekday">
+                <option value="6">ראשון</option>
+                <option value="0">שני</option>
+                <option value="1">שלישי</option>
+                <option value="2">רביעי</option>
+                <option value="3">חמישי</option>
+                <option value="4">שישי</option>
+                <option value="5">שבת</option>
+              </select>
+              <div class="sheet-row-3" style="grid-template-columns:1fr 1fr;">
+                <div><div class="field-label">שעה</div><input class="input-field" id="reminder-edit-hour" type="number" min="0" max="23" style="direction:ltr; text-align:center;" placeholder="15"></div>
+                <div><div class="field-label">דקה</div><input class="input-field" id="reminder-edit-minute" type="number" min="0" max="59" style="direction:ltr; text-align:center;" placeholder="0"></div>
+              </div>
+            </div>
+          </div>
+          <div class="sheet-spacer"></div>
+          <div class="sheet-submit" onclick="saveReminderEdit()">💾 שמור</div>
+        </div>
+
         <!-- Tool panel sheet (stocks / qa / places / current) -->
         <div class="sheet-overlay cyan" id="tool-panel-sheet">
           <div class="sheet-header"><span class="title" id="tool-panel-title">◂ חיפוש מניה</span><button class="sheet-close" onclick="closeToolPanel()">✕</button></div>
@@ -1573,11 +1607,70 @@ function renderReminders(reminders){
         const row = el('div','event-row');
         const t = el('span','t'); t.textContent = (r.recurring ? '🔁 ' : '') + r.label;
         const s = el('span','s'); s.textContent = r.text;
-        const btn = el('button','cancel-x'); btn.innerText = '✕'; btn.title = 'מחק תזכורת';
-        btn.onclick = (e) => { e.stopPropagation(); deleteReminderRow(r.id); };
-        row.append(t, s, btn);
+        const editBtn = el('button','cancel-x'); editBtn.innerText = '✎'; editBtn.title = 'ערוך תזכורת';
+        editBtn.onclick = (e) => { e.stopPropagation(); openReminderEditSheet(r); };
+        const delBtn = el('button','cancel-x'); delBtn.innerText = '✕'; delBtn.title = 'מחק תזכורת';
+        delBtn.onclick = (e) => { e.stopPropagation(); deleteReminderRow(r.id); };
+        row.append(t, s, editBtn, delBtn);
         container.appendChild(row);
     });
+}
+let reminderEditId = null;
+function toDatetimeLocalValue(epochSeconds){
+    const d = new Date(epochSeconds * 1000);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function openReminderEditSheet(r){
+    reminderEditId = r.id;
+    $('reminder-edit-text').value = r.text;
+    if (r.recurring) {
+        document.querySelector('input[name="reminder-edit-mode"][value="weekly"]').checked = true;
+        $('reminder-edit-weekday').value = String(r.weekday);
+        $('reminder-edit-hour').value = r.hour;
+        $('reminder-edit-minute').value = r.minute;
+        $('reminder-edit-datetime').value = toDatetimeLocalValue(r.remind_at);
+    } else {
+        document.querySelector('input[name="reminder-edit-mode"][value="once"]').checked = true;
+        $('reminder-edit-datetime').value = toDatetimeLocalValue(r.remind_at);
+        $('reminder-edit-weekday').value = '2';
+        $('reminder-edit-hour').value = 15;
+        $('reminder-edit-minute').value = 0;
+    }
+    toggleReminderEditMode();
+    $('reminder-edit-sheet').classList.add('show');
+}
+function closeReminderEditSheet(){ $('reminder-edit-sheet').classList.remove('show'); reminderEditId = null; }
+function toggleReminderEditMode(){
+    const weekly = document.querySelector('input[name="reminder-edit-mode"]:checked')?.value === 'weekly';
+    $('reminder-edit-once-fields').style.display = weekly ? 'none' : '';
+    $('reminder-edit-weekly-fields').style.display = weekly ? '' : 'none';
+}
+async function saveReminderEdit(){
+    if (!reminderEditId) return;
+    const text = $('reminder-edit-text').value.trim();
+    if (!text) { showToast('צריך טקסט לתזכורת.', true); return; }
+    const weekly = document.querySelector('input[name="reminder-edit-mode"]:checked')?.value === 'weekly';
+    const body = { text };
+    if (weekly) {
+        body.weekday = parseInt($('reminder-edit-weekday').value, 10);
+        body.hour = parseInt($('reminder-edit-hour').value, 10);
+        body.minute = parseInt($('reminder-edit-minute').value || '0', 10);
+    } else {
+        const dtVal = $('reminder-edit-datetime').value;
+        if (!dtVal) { showToast('צריך תאריך ושעה.', true); return; }
+        body.remind_at_iso = dtVal;
+    }
+    try {
+        const res = await fetch(`/api/reminders/${reminderEditId}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        showToast(data.message || (data.ok ? 'עודכן.' : 'העדכון נכשל.'), !data.ok);
+        if (data.ok) { closeReminderEditSheet(); loadReminders(); }
+    } catch (e) {
+        showToast('לא הצלחתי להתחבר לשרת.', true);
+    }
 }
 async function deleteReminderRow(id){
     try {

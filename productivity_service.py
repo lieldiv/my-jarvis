@@ -642,3 +642,82 @@ def request_set_recurring_reminder(user_id: str, text: str, weekday: int, hour: 
         "status": "ok",
         "message": f"I'll remind you to {text} every {WEEKDAY_NAMES[weekday]} at {hour:02d}:{minute:02d}, sir.",
     }
+
+
+def request_update_reminder(
+    user_id: str, reminder_id: int | None = None, text_hint: str = "",
+    new_text: str | None = None, remind_at_iso: str | None = None,
+    weekday: int | None = None, hour: int | None = None, minute: int | None = None,
+) -> dict:
+    """Changes an existing reminder in place instead of delete+recreate —
+    same no-confirmation, note-to-self reasoning as request_set_reminder
+    (nothing external happens). Two callers, one function: the Settings UI
+    already knows the exact reminder_id from its own list and skips
+    straight to it; a voice request only has a spoken description ('the dog
+    reminder'), so it resolves text_hint against the user's active
+    reminders the same way request_update_calendar_event resolves
+    summary_hint against real calendar events — exact id wins when given,
+    otherwise fuzzy-match, otherwise fall back to 'the only one' if there's
+    just a single active reminder. Only fields actually passed change;
+    everything else carries over from the current row. Passing
+    remind_at_iso switches the reminder to one-time even if it was
+    recurring before; passing weekday/hour does the reverse — whichever the
+    caller actually supplies wins."""
+    if reminder_id is not None:
+        current = next((r for r in users.list_active_reminders(user_id) if r["id"] == reminder_id), None)
+    else:
+        candidates = users.list_active_reminders(user_id)
+        hint = (text_hint or "").strip().lower()
+        if hint:
+            matches = [r for r in candidates if hint in r["text"].lower()]
+        else:
+            # No hint given — only guess when there's exactly one active
+            # reminder, same "don't silently pick among several" reasoning
+            # request_update_calendar_event uses for an unspecified meeting.
+            matches = candidates if len(candidates) == 1 else []
+        if not matches:
+            return {"status": "refused", "message": "I couldn't find a matching reminder, sir — could you say which one?"}
+        if len(matches) > 1:
+            names = ", ".join(f"'{r['text']}'" for r in matches[:4])
+            return {"status": "refused", "message": f"I found more than one match, sir: {names}. Which one did you mean?"}
+        current = matches[0]
+
+    if not current:
+        return {"status": "error", "message": "I couldn't find that reminder, sir."}
+
+    final_text = new_text if new_text is not None else current["text"]
+
+    if remind_at_iso is not None:
+        try:
+            dt = datetime.fromisoformat(remind_at_iso)
+        except (ValueError, TypeError):
+            return {"status": "error", "message": "I couldn't understand that time, sir."}
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=LOCAL_TZ)
+        users.update_reminder(current["id"], user_id, final_text, dt.timestamp(), None)
+        when_label = dt.astimezone(LOCAL_TZ).strftime("%A, %B %d at %H:%M")
+        return {"status": "ok", "message": f"Updated — I'll remind you to {final_text} on {when_label}, sir."}
+
+    if weekday is not None or hour is not None:
+        cur_weekday = cur_hour = cur_minute = None
+        if current["recurrence"]:
+            cur_weekday, cur_hour, cur_minute = (int(p) for p in current["recurrence"].split(":"))
+        final_weekday = weekday if weekday is not None else cur_weekday
+        final_hour = hour if hour is not None else cur_hour
+        final_minute = minute if minute is not None else (cur_minute if cur_minute is not None else 0)
+        if final_weekday is None or final_hour is None:
+            return {"status": "error", "message": "I need both a day and a time for a weekly reminder, sir."}
+        if not (0 <= final_weekday <= 6 and 0 <= final_hour <= 23 and 0 <= final_minute <= 59):
+            return {"status": "error", "message": "That doesn't look like a valid day or time, sir."}
+        next_fire = next_weekday_occurrence(final_weekday, final_hour, final_minute)
+        recurrence = f"{final_weekday}:{final_hour}:{final_minute}"
+        users.update_reminder(current["id"], user_id, final_text, next_fire.timestamp(), recurrence)
+        return {
+            "status": "ok",
+            "message": f"Updated — I'll remind you to {final_text} every {WEEKDAY_NAMES[final_weekday]} at {final_hour:02d}:{final_minute:02d}, sir.",
+        }
+
+    # Neither a new time nor a new recurrence was given — keep the existing
+    # timing/recurrence as-is, only the text (or nothing) actually changes.
+    users.update_reminder(current["id"], user_id, final_text, current["remind_at"], current["recurrence"])
+    return {"status": "ok", "message": f"Updated the reminder to: {final_text}, sir."}

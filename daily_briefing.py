@@ -70,7 +70,10 @@ def _check_due_reminders():
         # is itself what turns email off for future reminders.
         has_push = push_service.CONFIGURED and bool(users.get_push_subscriptions(reminder["user_id"]))
         if has_push:
-            push_service.send_push(reminder["user_id"], "תזכורת מ-J.A.R.V.I.S", reminder["text"])
+            push_service.send_push(
+                reminder["user_id"], "תזכורת מ-J.A.R.V.I.S", reminder["text"],
+                tag=f"jarvis-reminder-{reminder['id']}",
+            )
         else:
             try:
                 _send_user_email(

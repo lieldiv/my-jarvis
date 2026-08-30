@@ -166,15 +166,20 @@ def _deliver(subscription_info: dict, payload: str) -> tuple:
         return False, f"שגיאת רשת: {e}", None
 
 
-def send_push(user_id: str, title: str, body: str) -> None:
+def send_push(user_id: str, title: str, body: str, tag: str = "jarvis-reminder") -> None:
     """Best-effort — never raises. Called from daily_briefing.py alongside
     (not instead of) the existing email delivery, so a push failure here
-    should never be the reason a reminder doesn't reach the user at all."""
+    should never be the reason a reminder doesn't reach the user at all.
+    tag should be unique per reminder (e.g. f"jarvis-reminder-{id}") — the
+    service worker uses it as the OS notification's grouping key, and a
+    shared tag across different reminders let one replace/coalesce with
+    another in the notification center, which looked like "the wrong text
+    showed up" even though the payload sent each time was correct."""
     if not CONFIGURED:
         return
 
     import json
-    payload = json.dumps({"title": title, "body": body})
+    payload = json.dumps({"title": title, "body": body, "tag": tag})
 
     for sub in users.get_push_subscriptions(user_id):
         subscription_info = {
@@ -208,7 +213,10 @@ def send_test_push(user_id: str, title: str, body: str) -> tuple:
         return False, "אין מנוי התראות רשום למכשיר הזה — לחץ קודם על 'הפעל התראות בדפדפן'."
 
     import json
-    payload = json.dumps({"title": title, "body": body})
+    # Distinct tag from real reminders (jarvis-reminder-<id>) so a test send
+    # can never collapse/coalesce with an actual reminder notification in
+    # the OS notification center, or vice versa.
+    payload = json.dumps({"title": title, "body": body, "tag": "jarvis-test"})
     messages = []
     any_ok = False
     for sub in subs:

@@ -238,7 +238,13 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || '',
-      tag: 'jarvis-reminder',
+      // A hardcoded shared tag here meant EVERY push (the manual test send
+      // included) collapsed into the same OS notification slot -- a stale
+      // notification still sitting in the notification center could get
+      // mistaken for a brand new one that reused its tag. push_service.py
+      // now sends a distinct tag per notification (test vs. each specific
+      // reminder id), so only truly-the-same reminder firing twice coalesces.
+      tag: data.tag || 'jarvis-reminder',
     })
   );
 });
@@ -842,6 +848,33 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "update_reminder",
+            "description": (
+                "Change an EXISTING reminder — its text, its time, or switch it "
+                "between one-time and weekly. Do NOT use this to create a new "
+                "reminder — that's set_reminder/set_recurring_reminder. Give "
+                "text_hint from how the user referred to it (e.g. 'the dog "
+                "reminder'); leave it empty only if there's clearly just one "
+                "active reminder. Give only the field(s) that actually change — "
+                "leave the rest blank to keep them as they are."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text_hint": {"type": "string", "description": "How the user referred to the reminder, e.g. 'walk the dog'. Leave blank if unspecified."},
+                    "new_text": {"type": "string", "description": "New reminder text. Leave blank to keep the current text."},
+                    "new_remind_at_iso": {"type": "string", "description": "New one-time date/time, ISO 8601 with local offset — switches the reminder to one-time even if it was weekly. Leave blank if not changing to a specific one-time moment."},
+                    "new_weekday": {"type": "integer", "description": "Day of week for a weekly change: Monday=0 ... Sunday=6. Switches the reminder to weekly even if it was one-time."},
+                    "new_hour": {"type": "integer", "description": "Hour in 24h local time, 0-23, for a weekly change."},
+                    "new_minute": {"type": "integer", "description": "Minute, 0-59, for a weekly change. Defaults to 0."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "find_nearby_places",
             "description": (
                 "Propose a Google Maps search for nearby places — restaurants, "
@@ -1095,6 +1128,16 @@ def _set_recurring_reminder(user_id, args):
     return result["message"]
 
 
+def _update_reminder(user_id, args):
+    result = productivity_service.request_update_reminder(
+        user_id, text_hint=args.get("text_hint", ""),
+        new_text=args.get("new_text") or None,
+        remind_at_iso=args.get("new_remind_at_iso") or None,
+        weekday=args.get("new_weekday"), hour=args.get("new_hour"), minute=args.get("new_minute"),
+    )
+    return result["message"]
+
+
 # Fallback for _find_nearby_places below: on mobile, plain request/response
 # (the LLM's text reply) reliably arrives but the SSE push carrying the
 # confirmation sometimes doesn't — mobile browsers are far more aggressive
@@ -1160,6 +1203,7 @@ def _build_tool_impl(user_id: str) -> dict:
         "send_email": lambda args: _send_email(user_id, args),
         "set_reminder": lambda args: _set_reminder(user_id, args),
         "set_recurring_reminder": lambda args: _set_recurring_reminder(user_id, args),
+        "update_reminder": lambda args: _update_reminder(user_id, args),
         "find_nearby_places": lambda args: _find_nearby_places(user_id, args),
         "computer_use": lambda args: _computer_use(user_id, args),
         "write_and_test_code": lambda args: _write_and_test_code(user_id, args),
@@ -1517,14 +1561,40 @@ def list_reminders():
     reminders = users.list_active_reminders(user_id)
     out = []
     for r in reminders:
+        # weekday/hour/minute/remind_at are the raw values (not just the
+        # rendered label) so the Settings/Agenda edit sheet can pre-fill
+        # itself accurately instead of re-parsing a human-readable string.
+        weekday = hour = minute = None
         if r["recurrence"]:
             weekday, hour, minute = (int(p) for p in r["recurrence"].split(":"))
             label = f"Every {productivity_service.WEEKDAY_NAMES[weekday]} at {hour:02d}:{minute:02d}"
         else:
             dt = datetime.fromtimestamp(r["remind_at"], tz=productivity_service.LOCAL_TZ)
             label = dt.strftime("%a %b %d, %H:%M")
-        out.append({"id": r["id"], "text": r["text"], "label": label, "recurring": bool(r["recurrence"])})
+        out.append({
+            "id": r["id"], "text": r["text"], "label": label, "recurring": bool(r["recurrence"]),
+            "remind_at": r["remind_at"], "weekday": weekday, "hour": hour, "minute": minute,
+        })
     return jsonify({"reminders": out})
+
+
+@app.route("/api/reminders/<int:reminder_id>", methods=["PATCH"])
+def edit_reminder(reminder_id):
+    """Backs the edit (✎) button on the Agenda tab's reminders list — the UI
+    already knows the exact reminder_id, so this skips request_update_reminder's
+    fuzzy text_hint matching (that's only needed for a spoken 'the dog
+    reminder' with no id in hand) and goes straight to it."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    data = request.get_json(silent=True) or {}
+    result = productivity_service.request_update_reminder(
+        user_id, reminder_id=reminder_id,
+        new_text=data.get("text") or None,
+        remind_at_iso=data.get("remind_at_iso") or None,
+        weekday=data.get("weekday"), hour=data.get("hour"), minute=data.get("minute"),
+    )
+    return jsonify({"ok": result["status"] == "ok", "message": result["message"]})
 
 
 @app.route("/api/reminders/<int:reminder_id>", methods=["DELETE"])
