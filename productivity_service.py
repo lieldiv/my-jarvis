@@ -707,6 +707,10 @@ def request_update_reminder(
         final_minute = minute if minute is not None else (cur_minute if cur_minute is not None else 0)
         if final_weekday is None or final_hour is None:
             return {"status": "error", "message": "I need both a day and a time for a weekly reminder, sir."}
+        try:
+            final_weekday, final_hour, final_minute = int(final_weekday), int(final_hour), int(final_minute)
+        except (TypeError, ValueError):
+            return {"status": "error", "message": "That doesn't look like a valid day or time, sir."}
         if not (0 <= final_weekday <= 6 and 0 <= final_hour <= 23 and 0 <= final_minute <= 59):
             return {"status": "error", "message": "That doesn't look like a valid day or time, sir."}
         next_fire = next_weekday_occurrence(final_weekday, final_hour, final_minute)
