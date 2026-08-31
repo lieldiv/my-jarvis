@@ -362,8 +362,12 @@ def send_email(user_id: str, to: str, subject: str, body: str, attachments: list
                 message.attach(part)
         else:
             message = MIMEText(body)
-        message["to"] = to
-        message["subject"] = subject
+        # Same reasoning as the attachment filename above — Python's email
+        # policy doesn't strip embedded CR/LF from a header value assigned
+        # this way, so an unsanitized to/subject could inject extra header
+        # lines (e.g. a stray Bcc:) into the outgoing message.
+        message["to"] = re.sub(r"[\r\n]", " ", to)
+        message["subject"] = re.sub(r"[\r\n]", " ", subject)
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
         svc.users().messages().send(userId="me", body={"raw": raw}).execute()
         return f"Sent the email to {to}, sir."
