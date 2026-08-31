@@ -1020,6 +1020,13 @@ ACTIVE_TOOLS = TOOLS if DESKTOP_TOOLS_ENABLED else [
 ]
 
 def _computer_use(user_id, args):
+    # Mirrors open_application/close_application's explicit check rather
+    # than relying only on vision_action.py's VISION_DEPS_AVAILABLE (whether
+    # pyautogui/Pillow happened to import) -- that's an accident of what's
+    # installed, not an intentional gate, and this cloud build's Linux
+    # container has no display for computer_use to control regardless.
+    if not DESKTOP_TOOLS_ENABLED:
+        return "I can't control the screen from here, sir — this is the cloud-hosted build, there's no desktop for me to see or click on."
     return vision_action.vision_action_loop(
         groq_client, args.get("goal", ""),
         on_step=lambda evt: event_stream.push_event(evt, user_id=user_id),
