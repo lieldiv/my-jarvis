@@ -1,22 +1,22 @@
 """
 event_stream.py — a tiny in-process pub/sub used to push live progress
-events (vision-action steps, self-heal attempts, confirmation requests) to
-the HUD over Server-Sent Events, instead of the HUD polling an endpoint.
+events (vision-action steps, confirmation requests) to the HUD over
+Server-Sent Events, instead of the HUD polling an endpoint.
 
 SSE rather than a full WebSocket: one-directional (backend -> HUD) is all
 this needs, it's plain HTTP so nothing new to install (no flask-socketio,
 no separate ASGI server), and the browser's built-in EventSource handles
 reconnects for you. If you later want the HUD to push things back over the
 same connection (vs. the existing POST /api/command), swap this for
-flask-socketio without changing anything in vision_action.py or
-self_healing.py — they only ever call push_event().
+flask-socketio without changing anything in vision_action.py — it only
+ever calls push_event().
 
 MULTI-USER BUILD: subscribers are now keyed by user_id. The original
 single-tenant version broadcast every event to every connected tab — fine
 with one account, but in the multi-user build it meant one user's proposed
-calendar event, drafted email, or self-heal progress was pushed to every
-*other* signed-in user's browser too. push_event() now requires a user_id
-and only reaches that user's own subscribed tab(s).
+calendar event or drafted email was pushed to every *other* signed-in
+user's browser too. push_event() now requires a user_id and only reaches
+that user's own subscribed tab(s).
 """
 
 import json

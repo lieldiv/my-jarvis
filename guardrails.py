@@ -1,10 +1,10 @@
 """
 guardrails.py — the safety layer every new JARVIS capability goes through.
 
-Nothing in vision_action.py, self_healing.py, or file_tools.py touches the
-filesystem, a process, or the OS directly. They all call through here first.
-That's deliberate: one audited module is easier to trust than "we remembered
-to check" scattered across three files.
+Nothing in vision_action.py or file_tools.py touches the filesystem, a
+process, or the OS directly. They all call through here first. That's
+deliberate: one audited module is easier to trust than "we remembered to
+check" scattered across multiple files.
 
 Three protections live here:
   1. Sandboxing      — resolve_safe_path() confines all file work to a single
@@ -52,7 +52,7 @@ def _touches_denylist(real_path: str) -> bool:
 
 
 def ensure_workspace():
-    """Create the workspace (and a sandbox_scripts subfolder) if missing."""
+    """Create the workspace if missing."""
     if _touches_denylist(WORKSPACE_DIR):
         raise SystemExit(
             f"\n[J.A.R.V.I.S cannot start]\n"
@@ -61,7 +61,6 @@ def ensure_workspace():
             "(set JARVIS_WORKSPACE in .env), then try again.\n"
         )
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
-    os.makedirs(os.path.join(WORKSPACE_DIR, "sandbox_scripts"), exist_ok=True)
     os.makedirs(os.path.join(WORKSPACE_DIR, "tmp"), exist_ok=True)
 
 
@@ -79,10 +78,9 @@ def _safe_user_segment(user_id: str) -> str:
 def user_workspace_dir(user_id: str) -> str:
     """Multi-user build: every signed-in user gets their own subtree under
     WORKSPACE_DIR (users/<id>/) instead of all sharing WORKSPACE_DIR itself
-    — without this, one user's write_workspace_file/write_and_test_code
-    calls would be readable, overwritable, and deletable by every other
-    signed-in user, since file_tools.py and self_healing.py have no other
-    concept of "whose" file something is."""
+    — without this, one user's write_workspace_file calls would be readable,
+    overwritable, and deletable by every other signed-in user, since
+    file_tools.py has no other concept of "whose" file something is."""
     base = os.path.realpath(os.path.join(WORKSPACE_DIR, "users", _safe_user_segment(user_id)))
     if os.path.commonpath([base, WORKSPACE_DIR]) != WORKSPACE_DIR:
         raise SandboxViolation("Invalid user id.")
@@ -92,7 +90,6 @@ def user_workspace_dir(user_id: str) -> str:
 def ensure_user_workspace(user_id: str) -> str:
     base = user_workspace_dir(user_id)
     os.makedirs(base, exist_ok=True)
-    os.makedirs(os.path.join(base, "sandbox_scripts"), exist_ok=True)
     return base
 
 
@@ -104,8 +101,7 @@ def resolve_safe_path(user_path: str, user_id: str = None) -> str:
     """Resolve user_path relative to the sandbox root and guarantee the
     result is still inside it. Raises SandboxViolation otherwise. This is
     the ONLY function in the codebase allowed to turn a user/LLM-supplied
-    path string into a real filesystem path for file_tools or self_healing
-    to use.
+    path string into a real filesystem path for file_tools to use.
 
     `user_id`, when given, confines resolution to that user's own subtree
     (see user_workspace_dir) rather than the shared WORKSPACE_DIR root —

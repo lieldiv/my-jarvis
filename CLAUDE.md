@@ -30,9 +30,18 @@ device for a cloud server to control:
    automation (`JARVIS_DESKTOP_TOOLS=false` on Render — `open_application`/
    `close_application`/`computer_use` are omitted from the tool list sent to
    Groq entirely when this is false, not just refused at call time — saves
-   tokens against the free-tier rate limit too). What's left: calculate,
-   get_weather, write_and_test_code + file tools (now per-user sandboxed,
-   see below), the schedule/email/reminder tools, `find_nearby_places`
+   tokens against the free-tier rate limit too). Also removed:
+   `write_and_test_code` — an OWASP audit found it ran LLM-generated Python
+   with the full parent process environment (every API key/secret this app
+   holds) and no filesystem/network boundary beyond the script's own
+   working directory, on a deployment where more than one Google account
+   can be signed in; unlike every other write-capable tool it also wasn't
+   gated behind confirm-to-act. Removed outright rather than patched —
+   see git history (commit removing self_healing.py) if this ever needs
+   reviving, but any revival needs real OS-level sandboxing first, not
+   just an env allowlist. What's left: calculate, get_weather + file tools
+   (now per-user sandboxed, see below), the schedule/email/reminder tools,
+   `find_nearby_places`
    (confirm-to-open Google Maps search, see below), `get_market_summary`
    (free market-index lookup, no AI involved, see below), and
    `get_current_info` (general news/current-events lookup via
@@ -82,8 +91,8 @@ device for a cloud server to control:
   (`id` = Google's `sub`), replacing the single-tenant `.google_cache/token.json`.
   Also holds the `reminders` table.
 - [guardrails.py](guardrails.py) — `user_workspace_dir(user_id)` confines
-  `write_and_test_code`/file tools to a per-user subtree
-  (`WORKSPACE_DIR/users/<id>/`) instead of one shared folder — **this was a
+  the file tools to a per-user subtree (`WORKSPACE_DIR/users/<id>/`)
+  instead of one shared folder — **this was a
   real cross-user bug**: before the fix, any signed-in user could read/
   overwrite/delete any other user's files. `resolve_safe_path(path, user_id=...)`
   is now the required form for any multi-user caller.

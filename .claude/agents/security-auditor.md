@@ -21,7 +21,7 @@ Discover the real module list with Glob (`*.py`, `templates/*.html`) rather than
 - `productivity_service.py` — the business logic tying tools to services
 - `push_service.py` — VAPID/Web Push (key handling, encryption)
 - `daily_briefing.py` — the background scheduler
-- `self_healing.py` / `file_tools.py` — code execution and filesystem access (the highest-blast-radius surface in this app)
+- `file_tools.py` — filesystem access (the highest-blast-radius surface remaining in this app; `self_healing.py`, its code-execution counterpart, was removed by a prior audit — check it hasn't been reintroduced, and if it has, treat it with the same scrutiny this note describes)
 - `templates/index.html` — the entire frontend: DOM rendering, fetch calls, service worker
 
 Group tightly-coupled files into one "part" when a vulnerability class only makes sense across their boundary (e.g., a Flask route in `app.py` plus the `users.py` query it calls is one access-control question, not two).

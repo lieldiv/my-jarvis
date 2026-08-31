@@ -95,11 +95,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("jarvis")
 
-# --- Computer-use / self-healing / sandboxing additions ---------------------
+# --- Computer-use / sandboxing additions ------------------------------------
 from guardrails import refuse_if_elevated, ensure_workspace, resolve_confirmation, get_pending_meta, list_pending_for_user
 import file_tools
 import vision_action
-import self_healing
 import event_stream
 
 refuse_if_elevated()   # exits the process if launched as admin/root
@@ -347,8 +346,7 @@ SYSTEM_PROMPT = (
     "language the user described it in.\n\n"
     "Beyond that, you are a general-purpose agent for whatever the user "
     "needs." + _DESKTOP_CONTROL_GUIDANCE +
-    " Also available: get_weather and calculate. Use write_and_test_code "
-    "when asked to write and verify a script. find_nearby_places is "
+    " Also available: get_weather and calculate. find_nearby_places is "
     "narrow and deliberately so — only for an explicit 'find me X near me' "
     "request, never as a general web-search fallback and never just "
     "because you're unsure of an answer. get_current_info is equally "
@@ -956,25 +954,6 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "write_and_test_code",
-            "description": (
-                "Write a Python script to accomplish a goal, run it in the "
-                "sandbox, and automatically fix and re-run it if it errors, "
-                "until it succeeds or the retry limit is reached."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "goal": {"type": "string"},
-                    "initial_code": {"type": "string", "description": "First draft of the script"},
-                },
-                "required": ["goal", "initial_code"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "list_workspace",
             "description": "List files in the JARVIS workspace (or a subfolder of it).",
             "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
@@ -1038,17 +1017,6 @@ def _computer_use(user_id, args):
         groq_client, args.get("goal", ""),
         on_step=lambda evt: event_stream.push_event(evt, user_id=user_id),
     )
-
-
-def _write_and_test_code(user_id, args):
-    outcome = self_healing.self_healing_code_loop(
-        groq_client, MODEL_NAME, args.get("goal", ""), args.get("initial_code", ""),
-        on_attempt=lambda evt: event_stream.push_event(evt, user_id=user_id),
-        user_id=user_id,
-    )
-    if outcome["success"]:
-        return f"Succeeded after {outcome['attempts']} attempt(s), sir. Output: {outcome['stdout'][:300]}"
-    return f"Couldn't get it working after {outcome['attempts']} attempts, sir. Last error: {outcome['stderr'][-300:]}"
 
 
 def _delete_workspace_path(user_id, args):
@@ -1177,9 +1145,9 @@ def _find_nearby_places(user_id, args):
 # Every tool dispatch entry is now built fresh per request, closing over
 # that request's signed-in user_id — including the ones below that don't
 # touch calendar/mail data. They used to live in a shared, static dict, but
-# computer_use/write_and_test_code/the workspace file tools all needed
-# user_id too (per-user sandboxing, per-user event_stream delivery), so at
-# that point there was nothing left that was actually safe to share.
+# computer_use/the workspace file tools all needed user_id too (per-user
+# sandboxing, per-user event_stream delivery), so at that point there was
+# nothing left that was actually safe to share.
 _STATIC_TOOL_IMPL = {
     "get_weather": lambda args: get_live_weather(args.get("location", "")),
     "open_application": lambda args: open_application(args.get("app_name", "")),
@@ -1206,7 +1174,6 @@ def _build_tool_impl(user_id: str) -> dict:
         "update_reminder": lambda args: _update_reminder(user_id, args),
         "find_nearby_places": lambda args: _find_nearby_places(user_id, args),
         "computer_use": lambda args: _computer_use(user_id, args),
-        "write_and_test_code": lambda args: _write_and_test_code(user_id, args),
         "list_workspace": lambda args: file_tools.list_dir(args.get("path", "."), user_id=user_id),
         "read_workspace_file": lambda args: file_tools.read_file(args.get("path", ""), user_id=user_id),
         "write_workspace_file": lambda args: file_tools.write_file(args.get("path", ""), args.get("content", ""), user_id=user_id),

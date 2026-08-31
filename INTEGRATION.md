@@ -1,8 +1,19 @@
 # Wiring the new modules into `app.py`
 
-Drop `guardrails.py`, `vision_action.py`, `self_healing.py`, and
-`file_tools.py` into the project root, next to `app.py`. Add `psutil` to
-`requirements.txt`. Then:
+Drop `guardrails.py`, `vision_action.py`, and `file_tools.py` into the
+project root, next to `app.py`. Add `psutil` to `requirements.txt`. Then:
+
+> **`self_healing.py` (the `write_and_test_code` tool it backed) was
+> removed from this fork by a deliberate security decision, not an
+> oversight** — an OWASP audit found it ran LLM-generated Python with the
+> full parent process environment (every API key/secret this app holds)
+> and no filesystem/network boundary beyond the script's own working
+> directory, on a deployment where more than one Google account can sign
+> in. Unlike every other write-capable tool here it also wasn't gated
+> behind confirm-to-act. Do not re-add it from this doc without first
+> giving it real OS-level sandboxing (a container/unprivileged-user per
+> execution) — an env allowlist alone is not enough on a multi-tenant
+> deployment.
 
 ## 1. Startup — refuse to run elevated, ensure the workspace exists
 
@@ -10,7 +21,7 @@ At the very top of `app.py`, right after the existing imports:
 
 ```python
 from guardrails import refuse_if_elevated, ensure_workspace
-import file_tools, vision_action, self_healing
+import file_tools, vision_action
 
 refuse_if_elevated()   # raises and exits if launched as admin/root
 ensure_workspace()
@@ -40,25 +51,6 @@ Append to the existing `TOOLS` list (same schema as your current entries):
             "type": "object",
             "properties": {"goal": {"type": "string"}},
             "required": ["goal"],
-        },
-    },
-},
-{
-    "type": "function",
-    "function": {
-        "name": "write_and_test_code",
-        "description": (
-            "Write a Python script to accomplish a goal, run it in the "
-            "sandbox, and automatically fix and re-run it if it errors, "
-            "until it succeeds or the retry limit is reached."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "goal": {"type": "string"},
-                "initial_code": {"type": "string", "description": "First draft of the script"},
-            },
-            "required": ["goal", "initial_code"],
         },
     },
 },
@@ -115,14 +107,6 @@ def _computer_use(args):
     result = vision_action.vision_action_loop(groq_client, args.get("goal", ""))
     return result
 
-def _write_and_test_code(args):
-    outcome = self_healing.self_healing_code_loop(
-        groq_client, MODEL_NAME, args.get("goal", ""), args.get("initial_code", "")
-    )
-    if outcome["success"]:
-        return f"Succeeded after {outcome['attempts']} attempt(s), sir. Output: {outcome['stdout'][:300]}"
-    return f"Couldn't get it working after {outcome['attempts']} attempts, sir. Last error: {outcome['stderr'][-300:]}"
-
 def _delete_workspace_path(args):
     result = file_tools.delete_path(args.get("path", ""))
     if result["status"] == "confirmation_required":
@@ -131,7 +115,6 @@ def _delete_workspace_path(args):
 
 TOOL_IMPL.update({
     "computer_use": _computer_use,
-    "write_and_test_code": _write_and_test_code,
     "list_workspace": lambda args: file_tools.list_dir(args.get("path", ".")),
     "read_workspace_file": lambda args: file_tools.read_file(args.get("path", "")),
     "write_workspace_file": lambda args: file_tools.write_file(args.get("path", ""), args.get("content", "")),
@@ -139,11 +122,10 @@ TOOL_IMPL.update({
 })
 ```
 
-Note `write_and_test_code` and `computer_use` can each take several seconds
-to tens of seconds (multiple screenshots or multiple sandbox runs) — the
-existing `MAX_TOOL_ROUNDS` cap on chained tool calls still applies on top of
-this, so a confused model can't compound a slow loop with more slow loops
-indefinitely.
+Note `computer_use` can take several seconds to tens of seconds (multiple
+screenshots per loop) — the existing `MAX_TOOL_ROUNDS` cap on chained tool
+calls still applies on top of this, so a confused model can't compound a
+slow loop with more slow loops indefinitely.
 
 ## 3. Confirmation endpoint
 
@@ -167,10 +149,9 @@ back in its response) and show a confirm/cancel prompt that POSTs to
 
 ## 4. Streaming progress into the HUD's terminal log — SSE
 
-`event_stream.py` is a small in-process pub/sub. `vision_action_loop` and
-`self_healing_code_loop` both take an optional `on_step` / `on_attempt`
-callback — point both at `event_stream.push_event` and every step becomes a
-push to any connected HUD tab, no polling.
+`event_stream.py` is a small in-process pub/sub. `vision_action_loop` takes
+an optional `on_step` callback — point it at `event_stream.push_event` and
+every step becomes a push to any connected HUD tab, no polling.
 
 ```python
 import event_stream
@@ -179,13 +160,6 @@ def _computer_use(args):
     return vision_action.vision_action_loop(
         groq_client, args.get("goal", ""), on_step=event_stream.push_event
     )
-
-def _write_and_test_code(args):
-    outcome = self_healing.self_healing_code_loop(
-        groq_client, MODEL_NAME, args.get("goal", ""), args.get("initial_code", ""),
-        on_attempt=event_stream.push_event,
-    )
-    ...
 ```
 
 Add the SSE route:
