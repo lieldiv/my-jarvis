@@ -57,6 +57,29 @@ STDERR / TRACEBACK:
 """
 
 
+# subprocess.run() with no env= argument inherits the FULL parent process
+# environment by default -- every secret this app holds (GROQ_API_KEY,
+# GOOGLE_CLIENT_SECRET, FLASK_SECRET_KEY, VAPID_PRIVATE_KEY, MS_CLIENT_ID/
+# SECRET, TAVILY_API_KEY) was handed straight to whatever code the LLM
+# wrote for write_and_test_code, on a codebase where more than one Google
+# account can be signed in. Explicit allowlist of only what a bare Python
+# interpreter needs to start correctly on Windows and Linux -- nothing
+# app-specific. This closes the cheapest, most direct part of the exposure
+# (reading os.environ), but is NOT a full sandbox: the timeout/cwd
+# confinement above still don't stop the script from opening an absolute
+# path (e.g. users.db, which stores every signed-in user's plaintext
+# Google OAuth token) or making outbound network calls. Real containment
+# of that needs OS-level isolation (a container/unprivileged-user per
+# execution), which this patch deliberately does not attempt.
+_SANDBOX_ENV_ALLOWLIST = {
+    "PATH", "SYSTEMROOT", "SYSTEMDRIVE", "TEMP", "TMP", "PATHEXT", "HOME", "LANG", "LC_ALL", "COMSPEC",
+}
+
+
+def _sandboxed_env() -> dict:
+    return {k: v for k, v in os.environ.items() if k.upper() in _SANDBOX_ENV_ALLOWLIST}
+
+
 def run_in_sandbox(code: str, user_id: str = None) -> dict:
     """Write `code` to a fresh file under sandbox_scripts and execute it.
     Returns {"success": bool, "stdout": str, "stderr": str, "returncode": int}.
@@ -84,6 +107,7 @@ def run_in_sandbox(code: str, user_id: str = None) -> dict:
             capture_output=True,
             text=True,
             timeout=EXEC_TIMEOUT_SECONDS,
+            env=_sandboxed_env(),
         )
         return {
             "success": proc.returncode == 0,
