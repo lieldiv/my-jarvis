@@ -143,6 +143,13 @@ app.config.update(
     # local `python app.py`/gunicorn dev runs are plain http:// and a Secure
     # cookie there would just never get sent back, breaking login locally).
     SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER")),
+    # Without this, Flask/Werkzeug fully buffers a request body of ANY size
+    # before a route even runs — including before an auth check — on a
+    # single-worker/512MB free-tier instance shared by every user. 24MB
+    # covers the largest legitimate request with real headroom: 3 email
+    # attachments (see MAX_ATTACHMENTS/MAX_ATTACHMENT_BYTES below) at 4MB
+    # raw each, base64-encoded (~4/3 inflation) is ~16MB, plus JSON overhead.
+    MAX_CONTENT_LENGTH=24 * 1024 * 1024,
 )
 
 
@@ -1710,16 +1717,20 @@ def inbox_draft_reply():
 
 @app.route("/api/inbox/send-reply", methods=["POST"])
 def inbox_send_reply():
+    # Auth checked before request.json is even touched — every other route
+    # in this file does it in this order; this one previously parsed the
+    # body first, so an anonymous caller could still make the server buffer/
+    # parse an arbitrary JSON payload before ever hitting the 401.
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Please sign in first, sir."}), 401
+
     data = request.json or {}
     to = (data.get("to") or "").strip()
     subject = (data.get("subject") or "").strip()
     body = (data.get("body") or "").strip()
     if not to or not body:
         return jsonify({"error": "Missing recipient or message body."}), 400
-
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"error": "Please sign in first, sir."}), 401
 
     reply_subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
     # Same confirm-gated path every other write in this app uses — this
