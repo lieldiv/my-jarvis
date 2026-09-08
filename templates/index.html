@@ -1637,7 +1637,9 @@ function renderReminders(reminders){
     reminders.forEach(r => {
         const row = el('div','event-row');
         const t = el('span','t'); t.textContent = (r.recurring ? '🔁 ' : '') + r.label;
-        const s = el('span','s'); s.textContent = r.text;
+        // Same emoji the notification itself will carry — makes the list read
+        // like the reminders you actually get, not a separate abstract list.
+        const s = el('span','s'); s.textContent = (r.emoji ? r.emoji + ' ' : '') + r.text;
         const editBtn = el('button','cancel-x'); editBtn.innerText = '✎'; editBtn.title = 'ערוך תזכורת';
         editBtn.onclick = (e) => { e.stopPropagation(); openReminderEditSheet(r); };
         const delBtn = el('button','cancel-x'); delBtn.innerText = '✕'; delBtn.title = 'מחק תזכורת';

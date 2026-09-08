@@ -60,6 +60,23 @@ def _send_user_email(user_id: str, subject: str, body: str) -> None:
     logger.info(f"Email '{subject}' to user {user_id}: {result}")
 
 
+def _reminder_notification(reminder: dict) -> tuple:
+    """(title, body) for one due reminder. The emoji/flourish were written
+    by the LLM back when the user ASKED for the reminder (see app.py's
+    set_reminder tool schema) — nothing here calls an LLM, deliberately, so
+    an expired/rate-limited Groq key can't stop reminders going out. Both
+    are optional and fall back cleanly: a reminder saved before this
+    existed, or one the model didn't decorate, still delivers as plain
+    text rather than showing a stray separator or an empty title."""
+    text = reminder["text"]
+    emoji = (reminder.get("emoji") or "").strip()
+    flourish = (reminder.get("flourish") or "").strip()
+
+    title = f"{emoji} {text}".strip() if emoji else text
+    body = flourish or "תזכורת מ-J.A.R.V.I.S"
+    return title, body
+
+
 def _check_due_reminders():
     for reminder in users.get_due_reminders(time.time()):
         # Push if the user has it set up (an actual device notification,
@@ -69,17 +86,18 @@ def _check_due_reminders():
         # this needs no new preference to manage: enabling push in Settings
         # is itself what turns email off for future reminders.
         has_push = push_service.CONFIGURED and bool(users.get_push_subscriptions(reminder["user_id"]))
+        title, body = _reminder_notification(reminder)
         if has_push:
             push_service.send_push(
-                reminder["user_id"], "תזכורת מ-J.A.R.V.I.S", reminder["text"],
+                reminder["user_id"], title, body,
                 tag=f"jarvis-reminder-{reminder['id']}",
             )
         else:
             try:
                 _send_user_email(
                     reminder["user_id"],
-                    "Reminder from J.A.R.V.I.S.",
-                    f"Sir, this is your reminder: {reminder['text']}",
+                    f"{title} — J.A.R.V.I.S",
+                    f"{title}\n\n{body}",
                 )
             except Exception as e:
                 logger.error(f"Failed to deliver reminder {reminder['id']}: {e}")

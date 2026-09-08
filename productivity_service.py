@@ -581,7 +581,8 @@ def edit_pending_email(token: str, to: str, subject: str, body: str, attachments
     }
 
 
-def request_set_reminder(user_id: str, text: str, remind_at_iso: str) -> dict:
+def request_set_reminder(user_id: str, text: str, remind_at_iso: str,
+                         emoji: str = "", flourish: str = "") -> dict:
     """Reminders don't go through the confirm-to-act gate that calendar
     events/emails do — unlike those, nothing external happens and nobody
     else is affected; it's a note-to-self stored in our own database, not
@@ -601,7 +602,7 @@ def request_set_reminder(user_id: str, text: str, remind_at_iso: str) -> dict:
     if remind_at_epoch <= time.time():
         return {"status": "error", "message": "That time is already in the past, sir."}
 
-    users.add_reminder(user_id, text, remind_at_epoch)
+    users.add_reminder(user_id, text, remind_at_epoch, emoji=emoji, flourish=flourish)
     when_label = dt.astimezone(LOCAL_TZ).strftime("%A, %B %d at %H:%M")
     return {"status": "ok", "message": f"I'll remind you to {text} on {when_label}, sir."}
 
@@ -624,7 +625,8 @@ def next_weekday_occurrence(weekday: int, hour: int, minute: int, after: datetim
     return candidate
 
 
-def request_set_recurring_reminder(user_id: str, text: str, weekday: int, hour: int, minute: int = 0) -> dict:
+def request_set_recurring_reminder(user_id: str, text: str, weekday: int, hour: int, minute: int = 0,
+                                   emoji: str = "", flourish: str = "") -> dict:
     """Weekly reminder — 'every Wednesday at 3pm, remind me to walk the
     dog'. Same no-confirmation, note-to-self reasoning as
     request_set_reminder; the only difference is daily_briefing.py
@@ -637,7 +639,8 @@ def request_set_recurring_reminder(user_id: str, text: str, weekday: int, hour: 
 
     first_fire = next_weekday_occurrence(weekday, hour, minute)
     recurrence = f"{weekday}:{hour}:{minute}"
-    users.add_reminder(user_id, text, first_fire.timestamp(), recurrence=recurrence)
+    users.add_reminder(user_id, text, first_fire.timestamp(), recurrence=recurrence,
+                       emoji=emoji, flourish=flourish)
     return {
         "status": "ok",
         "message": f"I'll remind you to {text} every {WEEKDAY_NAMES[weekday]} at {hour:02d}:{minute:02d}, sir.",
@@ -648,6 +651,7 @@ def request_update_reminder(
     user_id: str, reminder_id: int | None = None, text_hint: str = "",
     new_text: str | None = None, remind_at_iso: str | None = None,
     weekday: int | None = None, hour: int | None = None, minute: int | None = None,
+    emoji: str | None = None, flourish: str | None = None,
 ) -> dict:
     """Changes an existing reminder in place instead of delete+recreate —
     same no-confirmation, note-to-self reasoning as request_set_reminder
@@ -686,6 +690,12 @@ def request_update_reminder(
         return {"status": "error", "message": "I couldn't find that reminder, sir."}
 
     final_text = new_text if new_text is not None else current["text"]
+    # Carry the existing notification flavour forward unless this call is
+    # explicitly replacing it — users.update_reminder writes whatever it's
+    # given, so not doing this would silently blank the emoji/flourish on
+    # every "just move it to 4pm" edit.
+    final_emoji = emoji if emoji is not None else current.get("emoji")
+    final_flourish = flourish if flourish is not None else current.get("flourish")
 
     if remind_at_iso is not None:
         try:
@@ -694,7 +704,8 @@ def request_update_reminder(
             return {"status": "error", "message": "I couldn't understand that time, sir."}
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=LOCAL_TZ)
-        users.update_reminder(current["id"], user_id, final_text, dt.timestamp(), None)
+        users.update_reminder(current["id"], user_id, final_text, dt.timestamp(), None,
+                              emoji=final_emoji, flourish=final_flourish)
         when_label = dt.astimezone(LOCAL_TZ).strftime("%A, %B %d at %H:%M")
         return {"status": "ok", "message": f"Updated — I'll remind you to {final_text} on {when_label}, sir."}
 
@@ -715,7 +726,8 @@ def request_update_reminder(
             return {"status": "error", "message": "That doesn't look like a valid day or time, sir."}
         next_fire = next_weekday_occurrence(final_weekday, final_hour, final_minute)
         recurrence = f"{final_weekday}:{final_hour}:{final_minute}"
-        users.update_reminder(current["id"], user_id, final_text, next_fire.timestamp(), recurrence)
+        users.update_reminder(current["id"], user_id, final_text, next_fire.timestamp(), recurrence,
+                              emoji=final_emoji, flourish=final_flourish)
         return {
             "status": "ok",
             "message": f"Updated — I'll remind you to {final_text} every {WEEKDAY_NAMES[final_weekday]} at {final_hour:02d}:{final_minute:02d}, sir.",
@@ -723,5 +735,6 @@ def request_update_reminder(
 
     # Neither a new time nor a new recurrence was given — keep the existing
     # timing/recurrence as-is, only the text (or nothing) actually changes.
-    users.update_reminder(current["id"], user_id, final_text, current["remind_at"], current["recurrence"])
+    users.update_reminder(current["id"], user_id, final_text, current["remind_at"], current["recurrence"],
+                          emoji=final_emoji, flourish=final_flourish)
     return {"status": "ok", "message": f"Updated the reminder to: {final_text}, sir."}

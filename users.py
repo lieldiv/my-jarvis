@@ -52,8 +52,10 @@ def _init_db():
                 remind_at REAL NOT NULL,   -- epoch seconds, UTC — next (or only) fire time
                 created_at REAL NOT NULL,
                 delivered INTEGER NOT NULL DEFAULT 0,
-                recurrence TEXT             -- NULL for one-time; "weekday:hour:minute"
+                recurrence TEXT,            -- NULL for one-time; "weekday:hour:minute"
                                              -- (weekday: Monday=0..Sunday=6, local time) for weekly
+                emoji TEXT,                 -- one emoji matching what the reminder is about
+                flourish TEXT               -- short contextual line ("בהצלחה באימון!")
             )
             """
         )
@@ -67,6 +69,19 @@ def _init_db():
             conn.execute("ALTER TABLE reminders ADD COLUMN recurrence TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
+
+        # Notification flavour, filled in by the LLM at the moment the user
+        # ASKS for the reminder (see app.py's set_reminder tool schema), not
+        # when it fires: daily_briefing.py's delivery path is deliberately
+        # LLM-free so an expired/rate-limited Groq key can't take reminders
+        # down, and the model is already in the loop at request time anyway.
+        # Both are optional — a reminder with neither still delivers, just
+        # without the flourish (also covers rows created before this existed).
+        for column in ("emoji", "flourish"):
+            try:
+                conn.execute(f"ALTER TABLE reminders ADD COLUMN {column} TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
         # Browser push subscriptions (see push_service.py) — one row per
         # device/browser a user has granted notification permission on
@@ -153,11 +168,13 @@ def list_connected_user_ids() -> list[str]:
     return [r[0] for r in rows]
 
 
-def add_reminder(user_id: str, text: str, remind_at: float, recurrence: str | None = None) -> int:
+def add_reminder(user_id: str, text: str, remind_at: float, recurrence: str | None = None,
+                 emoji: str | None = None, flourish: str | None = None) -> int:
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO reminders (user_id, text, remind_at, created_at, delivered, recurrence) VALUES (?, ?, ?, ?, 0, ?)",
-            (user_id, text, remind_at, time.time(), recurrence),
+            "INSERT INTO reminders (user_id, text, remind_at, created_at, delivered, recurrence, emoji, flourish)"
+            " VALUES (?, ?, ?, ?, 0, ?, ?, ?)",
+            (user_id, text, remind_at, time.time(), recurrence, emoji or None, flourish or None),
         )
         return cur.lastrowid
 
@@ -165,10 +182,15 @@ def add_reminder(user_id: str, text: str, remind_at: float, recurrence: str | No
 def get_due_reminders(now: float) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, user_id, text, remind_at, recurrence FROM reminders WHERE delivered = 0 AND remind_at <= ?",
+            "SELECT id, user_id, text, remind_at, recurrence, emoji, flourish"
+            " FROM reminders WHERE delivered = 0 AND remind_at <= ?",
             (now,),
         ).fetchall()
-    return [{"id": r[0], "user_id": r[1], "text": r[2], "remind_at": r[3], "recurrence": r[4]} for r in rows]
+    return [
+        {"id": r[0], "user_id": r[1], "text": r[2], "remind_at": r[3], "recurrence": r[4],
+         "emoji": r[5], "flourish": r[6]}
+        for r in rows
+    ]
 
 
 def mark_reminder_delivered(reminder_id: int) -> None:
@@ -190,21 +212,33 @@ def list_active_reminders(user_id: str) -> list[dict]:
     see reschedule_reminder), one-time ones drop off once sent."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, text, remind_at, recurrence FROM reminders WHERE user_id = ? AND delivered = 0 ORDER BY remind_at",
+            "SELECT id, text, remind_at, recurrence, emoji, flourish"
+            " FROM reminders WHERE user_id = ? AND delivered = 0 ORDER BY remind_at",
             (user_id,),
         ).fetchall()
-    return [{"id": r[0], "text": r[1], "remind_at": r[2], "recurrence": r[3]} for r in rows]
+    return [
+        {"id": r[0], "text": r[1], "remind_at": r[2], "recurrence": r[3], "emoji": r[4], "flourish": r[5]}
+        for r in rows
+    ]
 
 
-def update_reminder(reminder_id: int, user_id: str, text: str, remind_at: float, recurrence: str | None) -> bool:
+def update_reminder(reminder_id: int, user_id: str, text: str, remind_at: float, recurrence: str | None,
+                    emoji: str | None = None, flourish: str | None = None) -> bool:
     """Scoped by user_id like delete_reminder. Resets delivered back to 0 —
     editing a one-time reminder that already fired (or is being pushed
     later than its original time) should reactivate it, not leave it
-    silently marked done."""
+    silently marked done.
+
+    emoji/flourish are passed through as given, including None — callers
+    that only change the time are expected to carry the existing values
+    forward themselves (see request_update_reminder), since "leave it
+    alone" and "clear it" are both legitimate edits and this layer can't
+    tell them apart."""
     with _connect() as conn:
         cur = conn.execute(
-            "UPDATE reminders SET text = ?, remind_at = ?, recurrence = ?, delivered = 0 WHERE id = ? AND user_id = ?",
-            (text, remind_at, recurrence, reminder_id, user_id),
+            "UPDATE reminders SET text = ?, remind_at = ?, recurrence = ?, emoji = ?, flourish = ?,"
+            " delivered = 0 WHERE id = ? AND user_id = ?",
+            (text, remind_at, recurrence, emoji or None, flourish or None, reminder_id, user_id),
         )
         return cur.rowcount > 0
 

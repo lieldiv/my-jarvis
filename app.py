@@ -804,21 +804,42 @@ TOOLS = [
         "function": {
             "name": "set_reminder",
             "description": (
-                "Set a reminder for a future time — delivered by email at that "
-                "time (there's no other reliable way to reach the user later if "
-                "they're not looking at the HUD right then). Executes immediately, "
-                "no approval needed — it's a private note-to-self, not an action "
-                "on anyone's real calendar or mailbox. Use ISO 8601 with the local "
-                "UTC offset given in the current-time system message, same as "
-                "create_calendar_event."
+                "Set a reminder for a future time — delivered later as a phone "
+                "notification (or email if the user hasn't enabled notifications). "
+                "Executes immediately, no approval needed — it's a private "
+                "note-to-self, not an action on anyone's real calendar or mailbox. "
+                "Use ISO 8601 with the local UTC offset given in the current-time "
+                "system message, same as create_calendar_event. Always fill in "
+                "emoji and flourish too — they're what makes the notification feel "
+                "like it understood the request instead of a generic alarm."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "What to be reminded of, e.g. 'call the dentist'."},
                     "remind_at_iso": {"type": "string"},
+                    "emoji": {
+                        "type": "string",
+                        "description": (
+                            "Exactly ONE emoji that matches what this reminder is actually about — "
+                            "gym/workout 💪, dog walk 🐕, trash 🗑️, dentist/doctor 🦷, birthday 🎂, "
+                            "flight ✈️, groceries 🛒, call 📞, medication 💊, study 📚. Pick the one "
+                            "that fits THIS reminder; don't default to ⏰ unless nothing else fits."
+                        ),
+                    },
+                    "flourish": {
+                        "type": "string",
+                        "description": (
+                            "One SHORT warm line shown under the reminder on the lock screen — proof "
+                            "it understood, not a restatement of the text. Gym -> 'בהצלחה באימון!'; "
+                            "dog walk -> 'תהנו בחוץ 🐾'; dentist -> 'בהצלחה, יהיה בסדר'; flight -> "
+                            "'נסיעה טובה!'. MUST be in the same language the user used for the "
+                            "reminder itself (Hebrew request -> Hebrew line). Max ~6 words. Never "
+                            "just repeat the reminder text back."
+                        ),
+                    },
                 },
-                "required": ["text", "remind_at_iso"],
+                "required": ["text", "remind_at_iso", "emoji", "flourish"],
             },
         },
     },
@@ -831,9 +852,10 @@ TOOLS = [
                 "remind me to walk the dog'. Use this instead of set_reminder "
                 "whenever the user says 'every <day>' / 'each week' / any "
                 "repeating cadence, rather than a single one-off moment. "
-                "Same delivery mechanism as set_reminder (emailed when due), "
-                "except this one keeps firing every week instead of once. "
-                "Executes immediately, no approval needed."
+                "Same delivery mechanism as set_reminder (a phone notification "
+                "when due), except this one keeps firing every week instead of "
+                "once. Executes immediately, no approval needed. Always fill in "
+                "emoji and flourish too — same rules as set_reminder."
             ),
             "parameters": {
                 "type": "object",
@@ -845,8 +867,25 @@ TOOLS = [
                     },
                     "hour": {"type": "integer", "description": "Hour in 24h local time, 0-23."},
                     "minute": {"type": "integer", "description": "Minute, 0-59. Defaults to 0 if not given."},
+                    "emoji": {
+                        "type": "string",
+                        "description": (
+                            "Exactly ONE emoji matching what this reminder is about — gym/workout 💪, "
+                            "dog walk 🐕, trash 🗑️, medication 💊, call 📞, groceries 🛒. Pick what fits "
+                            "THIS reminder; don't default to ⏰ unless nothing else fits."
+                        ),
+                    },
+                    "flourish": {
+                        "type": "string",
+                        "description": (
+                            "One SHORT warm line shown under the reminder on the lock screen, proving it "
+                            "understood — gym -> 'בהצלחה באימון!', dog walk -> 'תהנו בחוץ 🐾'. MUST match "
+                            "the language the user used for the reminder itself. Max ~6 words. Never just "
+                            "repeat the reminder text back."
+                        ),
+                    },
                 },
-                "required": ["text", "weekday", "hour"],
+                "required": ["text", "weekday", "hour", "emoji", "flourish"],
             },
         },
     },
@@ -861,7 +900,10 @@ TOOLS = [
                 "text_hint from how the user referred to it (e.g. 'the dog "
                 "reminder'); leave it empty only if there's clearly just one "
                 "active reminder. Give only the field(s) that actually change — "
-                "leave the rest blank to keep them as they are."
+                "leave the rest blank to keep them as they are. One exception: if "
+                "new_text changes what the reminder is actually ABOUT (gym -> "
+                "dentist), send new_emoji and new_flourish too, or the "
+                "notification keeps the old subject's emoji and encouragement."
             ),
             "parameters": {
                 "type": "object",
@@ -872,6 +914,8 @@ TOOLS = [
                     "new_weekday": {"type": "integer", "description": "Day of week for a weekly change: Monday=0 ... Sunday=6. Switches the reminder to weekly even if it was one-time."},
                     "new_hour": {"type": "integer", "description": "Hour in 24h local time, 0-23, for a weekly change."},
                     "new_minute": {"type": "integer", "description": "Minute, 0-59, for a weekly change. Defaults to 0."},
+                    "new_emoji": {"type": "string", "description": "Replacement emoji, only when the subject changed. Leave blank to keep the current one."},
+                    "new_flourish": {"type": "string", "description": "Replacement encouragement line, only when the subject changed. Same language as the reminder. Leave blank to keep the current one."},
                 },
                 "required": [],
             },
@@ -1098,6 +1142,7 @@ def _send_email(user_id, args):
 def _set_reminder(user_id, args):
     result = productivity_service.request_set_reminder(
         user_id, text=args.get("text", ""), remind_at_iso=args.get("remind_at_iso", ""),
+        emoji=args.get("emoji", ""), flourish=args.get("flourish", ""),
     )
     return result["message"]
 
@@ -1106,6 +1151,7 @@ def _set_recurring_reminder(user_id, args):
     result = productivity_service.request_set_recurring_reminder(
         user_id, text=args.get("text", ""), weekday=args.get("weekday", -1),
         hour=args.get("hour", -1), minute=args.get("minute", 0),
+        emoji=args.get("emoji", ""), flourish=args.get("flourish", ""),
     )
     return result["message"]
 
@@ -1116,6 +1162,7 @@ def _update_reminder(user_id, args):
         new_text=args.get("new_text") or None,
         remind_at_iso=args.get("new_remind_at_iso") or None,
         weekday=args.get("new_weekday"), hour=args.get("new_hour"), minute=args.get("new_minute"),
+        emoji=args.get("new_emoji") or None, flourish=args.get("new_flourish") or None,
     )
     return result["message"]
 
@@ -1555,6 +1602,7 @@ def list_reminders():
         out.append({
             "id": r["id"], "text": r["text"], "label": label, "recurring": bool(r["recurrence"]),
             "remind_at": r["remind_at"], "weekday": weekday, "hour": hour, "minute": minute,
+            "emoji": r.get("emoji") or "", "flourish": r.get("flourish") or "",
         })
     return jsonify({"reminders": out})
 
