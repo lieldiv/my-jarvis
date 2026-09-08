@@ -1347,6 +1347,23 @@ function isSpeaking(){ return !!(currentAudio && !currentAudio.paused && !curren
    muted to catch the wake phrase, so keying off it would make a tap in the
    resting state read as "stop" and appear to do nothing. */
 function isListening(){ return isAwake && !micMuted && SPEECH_RECOGNITION_SUPPORTED && !textOnlyMode; }
+/* Whether the microphone is genuinely open (or about to be), as opposed to
+   isListening() above, which is only the press-to-talk INTENT.
+
+   They come apart exactly when it matters. iOS kills a recognition session
+   on any interruption, and the unprompted restart in recognition.onend can
+   land too far from a user gesture for Safari to allow it — in which case
+   start() opens nothing and fires no error. micMuted is still false, so
+   isListening() still says "listening" and the orb keeps claiming to hear
+   the user while the mic is dead.
+
+   The tap handler has to know the difference. A tap while genuinely live
+   means stop; a tap while the orb only THINKS it is live has to restart the
+   session — and it is the one moment when a restart is guaranteed to be
+   inside a user gesture, which is precisely what Safari requires. Visuals
+   deliberately keep using intent, so the orb reacts on the tap instead of
+   flickering through 'ready' for the 150ms until onstart fires. */
+function micIsLive(){ return recognitionActive || recognitionStartTimer !== null; }
 function orbVisualState(){
     if (!isAwake) return 'sleeping';
     if (isSpeaking()) return 'speaking';
@@ -1424,7 +1441,9 @@ function cancelPendingRecognitionStart(){
 function orbTap(){
     if (!isAwake) { triggerWake(); return; }
     if (isSpeaking()) { stopSpeaking(); return; }
-    if (isListening()) { stopListening(); return; }
+    // Live -> stop. Claiming to listen but actually dead -> fall through to
+    // startListening() below, which revives it from inside this very tap.
+    if (isListening() && micIsLive()) { stopListening(); return; }
     // Mid-request there is nothing safe to cancel - the command is already
     // with the server - but the tap must not feel dead either. Nudge instead.
     if (voiceState === 'processing' || voiceState === 'tool') { nudgeBusy(); return; }
@@ -1472,9 +1491,19 @@ function playTapBurst(kind){
     if (kind === 'stop') stage.classList.add('burst-stop');
     setTimeout(() => stage.classList.remove('tap-burst', 'burst-stop'), 750);
 }
+/* One AudioContext for the life of the page, not one per beep. iOS caps how
+   many a page may create; past that, construction throws — and because beep()
+   swallows errors, that failed silently while also risking the shared audio
+   session that SpeechRecognition runs on. A single context also arrives
+   already unlocked after the first user gesture, so later beeps just play. */
+let _beepCtx = null;
 function beep(freq, dur){
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (!Ctor) return;
+        if (!_beepCtx) _beepCtx = new Ctor();
+        const ctx = _beepCtx;
+        if (ctx.state === 'suspended') ctx.resume();
         const osc = ctx.createOscillator(); const gain = ctx.createGain();
         osc.frequency.value = freq; osc.type = 'sine';
         gain.gain.setValueAtTime(0.12, ctx.currentTime);
@@ -1520,7 +1549,12 @@ function wakeJarvis(initialCommand){
     isAwake = true;
     micMuted = true; // press-to-talk: tap the orb before every command, including the first
     renderOrb();
-    sendCommand(initialCommand || 'Hello Jarvis');
+    // The very first exchange sets the tone, and Ultron greeting itself as
+    // "Jarvis" breaks the illusion before it has started. Same wake, minus
+    // the name.
+    let greeting = initialCommand || 'Hello Jarvis';
+    if (currentMode() === 'ultron') greeting = greeting.replace(/\s*Jarvis\s*/ig, ' ').trim() || 'Hello';
+    sendCommand(greeting);
 }
 function triggerStop(){
     isAwake = false;
@@ -1692,6 +1726,21 @@ function initSpeechRecognition(){
                 if (!recognitionActive && !micMuted) {
                     try {
                         recognition.start();
+                        // start() can also succeed into nothing here: no
+                        // exception, no error event, no onstart, the session
+                        // simply never opens. Verifying is the only way to
+                        // tell, so re-check shortly after and, if it did not
+                        // take, drop back to the resting state rather than
+                        // leaving the orb showing "מקשיב…" over a dead mic —
+                        // that silent lie is what "I talk and it doesn't hear
+                        // me" actually looks like from the user's side.
+                        setTimeout(() => {
+                            if (!recognitionActive && !micMuted) {
+                                micMuted = true;
+                                renderOrb();
+                                showToast('ההאזנה נקטעה — הקש על הכדור כדי להמשיך.', true);
+                            }
+                        }, 900);
                     } catch (e) {
                         // This restart isn't tied to a fresh user tap — it's
                         // fired from a plain JS timer. Some Android Chrome
