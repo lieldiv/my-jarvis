@@ -82,7 +82,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 @keyframes jm-burst-in { 0% { transform:scale(2.6); opacity:.85; } 100% { transform:scale(.55); opacity:0; } }
 @keyframes jm-burst-in2 { 0% { transform:scale(2.1); opacity:.7; } 100% { transform:scale(.6); opacity:0; } }
 @keyframes jm-burst-in3 { 0% { transform:scale(1.7); opacity:.5; } 100% { transform:scale(.65); opacity:0; } }
-@keyframes jm-ready-breathe { 0%,100% { box-shadow:0 0 12px rgba(0,243,255,.55), inset 0 0 16px rgba(0,243,255,.2); } 50% { box-shadow:0 0 26px rgba(0,243,255,.95), inset 0 0 24px rgba(0,243,255,.35); } }
+@keyframes jm-ready-breathe { 0%,100% { box-shadow:0 0 12px rgba(255,59,59,.45), inset 0 0 16px rgba(255,59,59,.18); } 50% { box-shadow:0 0 24px rgba(255,59,59,.8), inset 0 0 22px rgba(255,59,59,.3); } }
 @keyframes jm-livedot { 0%,100% { opacity:1; } 50% { opacity:.2; } }
 @keyframes jm-nudge { 0%,100% { transform:scale(1); } 30% { transform:scale(1.035); } 65% { transform:scale(.99); } }
 @keyframes jm-spark { 0% { transform:translate(0,0) scale(1); opacity:1; } 100% { transform:translate(var(--dx),var(--dy)) scale(0); opacity:0; } }
@@ -221,11 +221,19 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-stage.state-listening .orb-ring-svg.spin-a,.orb-stage.state-tool .orb-ring-svg.spin-a{ animation-duration:9s; }
 .orb-stage.state-listening .orb-ring-svg.spin-b,.orb-stage.state-tool .orb-ring-svg.spin-b{ animation-duration:14s; }
 .orb-stage.state-processing .orb-state-arc,.orb-stage.state-tool .orb-state-arc{ display:block; }
-/* Was: bright RED body + red rim + the label "מיקרופון מושתק". But muted-at-
-   rest IS the normal press-to-talk resting state, not a fault — so the orb
-   spent most of its life dressed as an error. Now it breathes calmly in cyan:
-   reads as "ready, press me", which is what it actually means. */
-.orb-stage.state-ready .orb-rim{ animation:jm-ready-breathe 3.2s ease-in-out infinite; }
+/* Red at rest, cyan when live. Red here is NOT an error colour - across the
+   whole orb it means exactly one thing, "the mic is off", the same thing the
+   red slash on any mute button means. Which also fixes a contradiction the
+   first pass introduced: the chip was showing a red dot while LISTENING, the
+   opposite of what red means everywhere else.
+   So the orb has two unmistakable modes at a glance, from across the room:
+       red  = not hearing you
+       cyan = hearing you right now
+   The rim breathes rather than sitting flat, so "off" still reads as standby
+   rather than as something broken. */
+.orb-stage.state-ready .orb-body{ background:radial-gradient(circle,#2a0a0a 0%,#150505 70%,transparent 100%); }
+.orb-stage.state-ready .orb-rim{ border-color:rgba(255,59,59,.85); animation:jm-ready-breathe 3.2s ease-in-out infinite; }
+.orb-stage.state-ready .orb-wordmark{ text-shadow:0 0 12px rgba(255,59,59,.7); }
 .orb-stage.state-listening .orb-rim{ border-color:rgba(0,243,255,1); box-shadow:0 0 22px rgba(0,243,255,1), inset 0 0 22px rgba(0,243,255,.4); }
 /* The status chip beside the orb: a read-out, not a second control. It says
    at a glance what JARVIS is doing, and a click on it deliberately has NO
@@ -238,7 +246,8 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-status-chip{ position:absolute; bottom:14px; left:25px; width:40px; height:40px; border-radius:50%; background:rgba(0,243,255,.1); border:1px solid rgba(0,243,255,.4); display:flex; align-items:center; justify-content:center; font-size:16px; z-index:3; cursor:pointer; transition:background .2s ease, border-color .2s ease, transform .15s ease; }
 .orb-status-chip:hover{ transform:scale(1.09); }
 .orb-stage.state-sleeping .orb-status-chip{ background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.2); }
-.orb-stage.state-listening .orb-status-chip{ background:rgba(255,59,59,.16); border-color:rgba(255,59,59,.65); animation:jm-livedot 1.1s ease-in-out infinite; }
+.orb-stage.state-ready .orb-status-chip{ background:rgba(255,59,59,.16); border-color:rgba(255,59,59,.65); }
+.orb-stage.state-listening .orb-status-chip{ background:rgba(0,243,255,.18); border-color:rgba(0,243,255,.8); animation:jm-livedot 1.1s ease-in-out infinite; }
 .orb-stage.state-processing .orb-status-chip,.orb-stage.state-tool .orb-status-chip{ background:rgba(255,200,0,.14); border-color:rgba(255,200,0,.55); }
 .orb-stage.state-speaking .orb-status-chip{ background:rgba(0,255,136,.14); border-color:rgba(0,255,136,.55); }
 .orb-stage.state-sleeping .orb-body{ filter:brightness(.4) grayscale(.4); }
@@ -247,7 +256,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-state-label.listening,.orb-state-label.processing{ color:var(--color-cyan); }
 .orb-state-label.tool{ color:var(--color-gold); }
 .orb-state-label.done{ color:var(--color-green); }
-.orb-state-label.ready{ color:var(--color-cyan); }
+.orb-state-label.ready{ color:var(--color-red); font-weight:700; }
 .orb-state-label.speaking{ color:var(--color-green); }
 .orb-waveform{ display:none; align-items:flex-end; gap:4px; height:22px; margin-top:12px; }
 .orb-waveform.show{ display:flex; }
@@ -269,8 +278,12 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-cta{ display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--color-cyan); text-shadow:0 0 8px rgba(0,243,255,.5); opacity:.9; transition:opacity .25s ease; unicode-bidi:plaintext; text-align:center; line-height:1.35; }
 .orb-stage.state-processing .orb-cta,.orb-stage.state-tool .orb-cta{ opacity:.5; }
 .orb-stage.state-sleeping .orb-cta{ color:rgba(255,255,255,.72); text-shadow:none; }
+/* On the red resting body, cyan caption text fights the ground - near-white
+   keeps "how do I turn this on" the most readable thing on the orb. */
+.orb-stage.state-ready .orb-cta{ color:rgba(255,255,255,.94); text-shadow:0 0 10px rgba(255,59,59,.6); }
 @media (prefers-reduced-motion: reduce){
     .orb-stage.state-ready .orb-rim,.orb-stage.busy-nudge .orb-body,.orb-stage.state-listening .orb-status-chip{ animation:none; }
+    .orb-stage.state-ready .orb-rim{ box-shadow:0 0 18px rgba(255,59,59,.6), inset 0 0 18px rgba(255,59,59,.24); }
     .orb-burst-ring{ display:none !important; }
 }
 
@@ -1249,13 +1262,13 @@ let editingApproval = false;
    ORB_CTA (inside the orb, under the wordmark) is the ACTION - what your
    next tap will do. Every state has both, so there is never a state where
    the orb is tappable but nothing tells you so. */
-const STATE_LABELS = { sleeping: 'המתנה — אמור "WAKE UP" או "בוקר טוב"', ready: 'מוכן', listening: 'מקשיב…', processing: 'מעבד…', tool: 'מבצע פעולה…', speaking: 'משיב…' };
+const STATE_LABELS = { sleeping: 'המתנה — אמור "WAKE UP" או "בוקר טוב"', ready: 'מיקרופון כבוי', listening: 'מקשיב…', processing: 'מעבד…', tool: 'מבצע פעולה…', speaking: 'משיב…' };
 const ORB_CTA = { sleeping: 'הקש להתחלה', ready: 'הקש כדי לדבר', listening: 'הקש כדי לעצור', processing: 'חושב…', tool: 'מבצע…', speaking: 'הקש להשתקה' };
 /* Third piece of copy, for the chip beside the orb: pure STATE, no action
    verb. The chip answers "what is it doing", the caption answers "what will
    my tap do", the label under the orb spells the state out in words. */
-const ORB_STATUS_ICON  = { sleeping: '💤', ready: '🎙', listening: '🔴', processing: '⏳', tool: '⚙️', speaking: '🔊' };
-const ORB_STATUS_TITLE = { sleeping: 'במצב המתנה', ready: 'מוכן להאזנה', listening: 'מקשיב לך עכשיו', processing: 'מעבד את הבקשה', tool: 'מבצע פעולה', speaking: 'JARVIS מדבר' };
+const ORB_STATUS_ICON  = { sleeping: '💤', ready: '🔇', listening: '🎙', processing: '⏳', tool: '⚙️', speaking: '🔊' };
+const ORB_STATUS_TITLE = { sleeping: 'במצב המתנה', ready: 'המיקרופון כבוי — הקש כדי לדבר', listening: 'מקשיב לך עכשיו', processing: 'מעבד את הבקשה', tool: 'מבצע פעולה', speaking: 'JARVIS מדבר' };
 
 function isSpeaking(){ return !!(currentAudio && !currentAudio.paused && !currentAudio.ended); }
 /* micMuted is the press-to-talk latch, not a user preference - it flips back
