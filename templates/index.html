@@ -2532,6 +2532,10 @@ async function checkGoogleAuthGate(){
 
     if (status.connected) {
         if (status.email) { rememberAccount(status.email); populateAccountUi(status.email); }
+        // Deliberately not awaited — re-syncing push must never hold up the
+        // gate animation. /api/push/subscribe needs the session cookie, which
+        // is why this hangs off the connected branch rather than page load.
+        restorePushSubscription();
         if (authResult === 'ok') showToast('חשבון Google מחובר — גישה ליומן, Gmail ו-Drive אושרה.');
         leaveGate();
         showMicCheckModal();
@@ -2579,6 +2583,65 @@ function _base64UrlToUint8Array(base64Url){
     for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
     return out;
 }
+function markPushEnabledUi(){
+    const status = $('push-status-text'), btn = $('push-enable-btn');
+    if (status) status.innerText = 'התראות פעילות בדפדפן/מכשיר הזה. ✓';
+    if (btn) btn.style.display = 'none';
+}
+
+/* Silent re-registration, run on every load once signed in. This is what
+   stops the user having to press "הפעל התראות" again after every login.
+
+   The split that makes it work: the SUBSCRIPTION lives in the browser/OS and
+   survives reloads, restarts and reboots, and Notification.permission stays
+   'granted' once granted — the browser genuinely does not forget. The SERVER
+   is the side that does: on Render's free tier users.db has no persistent
+   disk (see render.yaml), so the push_subscriptions table is wiped on every
+   deploy and every ~15-min idle spin-down. That left the browser holding a
+   perfectly good subscription the server no longer knew about, with no way
+   for the UI to notice — nothing ever called getSubscription() on load, so
+   the button always read "הפעל התראות" and pressing it was the only way to
+   re-tell the server. That's the whole "why do I keep turning this on".
+
+   So: just hand the existing subscription back. No permission prompt (it's
+   already granted), no user action, and deliberately NO unsubscribe() — that
+   endpoint-churning repair belongs only to the explicit button path below,
+   and doing it on every page load would burn fresh iOS endpoints for nothing.
+   save_push_subscription()'s ON CONFLICT(endpoint) makes the repeated POST a
+   harmless key refresh on the loads where the server hadn't forgotten. */
+async function restorePushSubscription(){
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    // 'default' (never asked) and 'denied' both mean don't touch anything —
+    // this runs unprompted, so it must never surface a permission dialog.
+    if (Notification.permission !== 'granted') return;
+    try {
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+            // Permission stands but the subscription itself is gone — iOS
+            // enforcing its 3-silent-push rule, or site data cleared.
+            // Re-subscribing is still silent, since permission already holds.
+            const keyRes = await fetch('/api/push/vapid-public-key');
+            const keyData = await keyRes.json();
+            if (!keyData.configured) return;
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: _base64UrlToUint8Array(keyData.key),
+            });
+        }
+        const res = await fetch('/api/push/subscribe', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(subscription.toJSON()),
+        });
+        const data = await res.json();
+        if (data.ok) markPushEnabledUi();
+    } catch (err) {
+        /* Silent by design. This fires unprompted on every load, so a failure
+           must not throw a toast at someone who never asked for push in the
+           first place; the button is still there to do it loudly on demand. */
+    }
+}
+
 async function enablePushNotifications(){
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         showToast('הדפדפן הזה לא תומך בהתראות דחיפה, אדוני.', true);
@@ -2628,8 +2691,7 @@ async function enablePushNotifications(){
         const data = await res.json();
         if (data.ok) {
             showToast('התראות הופעלו — תזכורות יגיעו גם כהתראה, לא רק במייל.');
-            $('push-status-text').innerText = 'התראות פעילות בדפדפן/מכשיר הזה. ✓';
-            $('push-enable-btn').style.display = 'none';
+            markPushEnabledUi();
         } else {
             showToast('השרת דחה את ההרשמה להתראות.', true);
         }
