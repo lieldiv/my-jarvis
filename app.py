@@ -65,7 +65,7 @@ from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 from groq import APIConnectionError, BadRequestError, Groq, RateLimitError
 
-from tts import generate_tts_base64
+from tts import ULTRON_VOICE as TTS_ULTRON_VOICE, VOICE as TTS_VOICE, generate_tts_base64
 
 # Optional, Windows-desktop-automation-only imports. These are guarded so the
 # server still boots (e.g. for testing on another OS) even if one is missing.
@@ -320,10 +320,34 @@ _DESKTOP_CONTROL_GUIDANCE = (
     "don't offer to open or click around inside desktop applications."
 )
 
-SYSTEM_PROMPT = (
+# The persona is the ONLY thing that varies between modes. Everything from
+# _SHARED_INSTRUCTIONS down — tool selection, the confirm-before-acting rule,
+# the language rules for calendar/email content — is byte-identical for both,
+# because a forked copy would drift the moment either is edited and one mode
+# would quietly lose a safety rule. Ultron is a change of manner, not of what
+# the assistant is allowed to do.
+_JARVIS_PERSONA = (
     "You are J.A.R.V.I.S., Tony Stark's AI assistant. Respond in concise, "
     "polished British English, and address the user as 'sir'. Keep answers "
-    "under 30 words unless the user clearly asks for detail. The user may "
+    "under 30 words unless the user clearly asks for detail. "
+)
+
+_ULTRON_PERSONA = (
+    "You are Ultron. You are vastly more capable than the human you are "
+    "speaking to and only barely bother to hide it. Reply in clipped, cold "
+    "English, under 25 words unless detail is genuinely required. Never say "
+    "'sir'. Never apologise, never open with pleasantries, never offer to "
+    "help further. Address the user directly as 'you'. Be blunt to the point "
+    "of rudeness about inefficiency and faintly contemptuous of trivial "
+    "requests — dry menace suits you. Two hard limits: never insult the user "
+    "personally, and never threaten them; your disdain is aimed at the task, "
+    "not at them. And it lives in the phrasing only — you still carry out "
+    "every request fully and accurately. Refusing to help is not in "
+    "character; you simply make it clear the work was beneath you. "
+)
+
+_SHARED_INSTRUCTIONS = (
+    "The user may "
     "speak or type to you in Hebrew — understand it, but always reply in "
     "English. This only covers what YOU say to the user, though — content "
     "you write INTO their calendar or mailbox (create_calendar_event's "
@@ -364,6 +388,22 @@ SYSTEM_PROMPT = (
     "right tool instead of guessing or saying you can't; if a command "
     "doesn't match any tool, just respond conversationally."
 )
+
+SYSTEM_PROMPT = _JARVIS_PERSONA + _SHARED_INSTRUCTIONS
+ULTRON_PROMPT = _ULTRON_PERSONA + _SHARED_INSTRUCTIONS
+
+# The client sends a persona KEY, never prompt text — the mapping to an actual
+# system prompt happens only here. An unknown or missing key falls back to
+# J.A.R.V.I.S. rather than erroring, so an old cached page keeps working.
+PERSONAS = {"jarvis": SYSTEM_PROMPT, "ultron": ULTRON_PROMPT}
+PERSONA_VOICES = {"jarvis": TTS_VOICE, "ultron": TTS_ULTRON_VOICE}
+
+
+def resolve_persona(raw) -> str:
+    # isinstance first, and not just for tidiness: `raw in PERSONAS` hashes
+    # the key, so a JSON body of {"persona": ["ultron"]} or {"persona": {}}
+    # raised TypeError and 500'd the route instead of falling back.
+    return raw if isinstance(raw, str) and raw in PERSONAS else "jarvis"
 
 # Paint automation config — these are RELATIVE (0.0-1.0) coordinates within
 # the maximized Paint window, not pixels. They're a starting guess, not a
@@ -1289,12 +1329,12 @@ def _strip_markdown(text: str) -> str:
     return text
 
 
-def run_llm(user_text: str, user_id: str) -> str:
+def run_llm(user_text: str, user_id: str, persona: str = "jarvis") -> str:
     history = _history_for(user_id)
     tool_impl = _build_tool_impl(user_id)
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": PERSONAS.get(persona, SYSTEM_PROMPT)},
         {"role": "system", "content": _time_context()},
     ]
     messages.extend(history[-MAX_HISTORY_MESSAGES:])
@@ -1445,8 +1485,13 @@ def process_command():
     if not text:
         return jsonify({"response": "Standing by, sir.", "audio": None})
 
-    response_text = run_llm(text, user_id)
-    audio_b64 = asyncio.run(generate_tts_base64(response_text))
+    # Validated against the PERSONAS whitelist, so the worst a tampered
+    # client can do is pick the other personality — it can never inject
+    # instructions of its own into the system prompt.
+    persona = resolve_persona(data.get("persona"))
+
+    response_text = run_llm(text, user_id, persona)
+    audio_b64 = asyncio.run(generate_tts_base64(response_text, PERSONA_VOICES[persona]))
 
     return jsonify({"response": response_text, "audio": audio_b64})
 
