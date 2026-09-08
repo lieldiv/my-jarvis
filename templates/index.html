@@ -77,6 +77,14 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 @keyframes jm-burst { 0% { transform:scale(.3); opacity:.9; } 100% { transform:scale(4.2); opacity:0; } }
 @keyframes jm-burst2 { 0% { transform:scale(.5); opacity:.8; } 100% { transform:scale(2.8); opacity:0; } }
 @keyframes jm-burst3 { 0% { transform:scale(.4); opacity:.6; } 100% { transform:scale(3.6); opacity:0; } }
+/* Stopping collapses inward — the mirror of the three blooming rings above,
+   so start and stop don't merely feel different, they read different. */
+@keyframes jm-burst-in { 0% { transform:scale(2.6); opacity:.85; } 100% { transform:scale(.55); opacity:0; } }
+@keyframes jm-burst-in2 { 0% { transform:scale(2.1); opacity:.7; } 100% { transform:scale(.6); opacity:0; } }
+@keyframes jm-burst-in3 { 0% { transform:scale(1.7); opacity:.5; } 100% { transform:scale(.65); opacity:0; } }
+@keyframes jm-ready-breathe { 0%,100% { box-shadow:0 0 12px rgba(0,243,255,.55), inset 0 0 16px rgba(0,243,255,.2); } 50% { box-shadow:0 0 26px rgba(0,243,255,.95), inset 0 0 24px rgba(0,243,255,.35); } }
+@keyframes jm-livedot { 0%,100% { opacity:1; } 50% { opacity:.2; } }
+@keyframes jm-nudge { 0%,100% { transform:scale(1); } 30% { transform:scale(1.035); } 65% { transform:scale(.99); } }
 @keyframes jm-spark { 0% { transform:translate(0,0) scale(1); opacity:1; } 100% { transform:translate(var(--dx),var(--dy)) scale(0); opacity:0; } }
 @keyframes jm-sealpop { 0% { transform:scale(0); opacity:0; } 55% { transform:scale(1.1); opacity:1; } 100% { transform:scale(1); opacity:1; } }
 @keyframes jm-gatein { 0% { opacity:0; } 100% { opacity:1; } }
@@ -183,13 +191,13 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 /* ===== Home tab: orb =========================================================== */
 .orb-home{ display:flex; flex-direction:column; align-items:center; padding-top:10px; }
 .orb-stage-row{ margin:0 -20px; display:flex; justify-content:center; }
-.orb-stage{ position:relative; width:300px; height:300px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.orb-stage{ position:relative; width:300px; height:300px; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; }
 .orb-bloom-far{ position:absolute; width:454px; height:454px; border-radius:50%; background:radial-gradient(circle, transparent 40%, rgba(0,243,255,.1) 58%, transparent 76%); filter:blur(10px); pointer-events:none; }
 .orb-bloom-near{ position:absolute; width:234px; height:234px; border-radius:50%; background:radial-gradient(circle, transparent 52%, rgba(0,243,255,.34) 74%, transparent 92%); filter:blur(8px); animation:jm-pulse 4.4s ease-in-out infinite; pointer-events:none; }
 .orb-ring-svg{ position:absolute; width:300px; height:300px; overflow:visible; pointer-events:none; }
 .orb-ring-svg.spin-a{ animation:jm-spin 22s linear infinite; }
 .orb-ring-svg.spin-b{ animation:jm-spin 32s linear infinite reverse; }
-.orb-body{ position:relative; z-index:2; width:200px; height:200px; border-radius:50%; overflow:hidden; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 50%, #01060d 0%, #010a14 62%, rgba(0,243,255,.1) 100%); box-shadow:0 0 15px rgba(0,243,255,.65), inset 0 0 30px rgba(0,243,255,.14); transition:width .3s ease,height .3s ease,box-shadow .3s ease; }
+.orb-body{ position:relative; z-index:2; width:200px; height:200px; border-radius:50%; overflow:hidden; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 50%, #01060d 0%, #010a14 62%, rgba(0,243,255,.1) 100%); box-shadow:0 0 15px rgba(0,243,255,.65), inset 0 0 30px rgba(0,243,255,.14); transition:width .3s ease,height .3s ease,box-shadow .2s ease,transform .12s ease; }
 .orb-rim{ position:absolute; inset:0; border-radius:50%; pointer-events:none; border:1.5px solid rgba(0,243,255,.85); box-shadow:0 0 15px rgba(0,243,255,.8), inset 0 0 18px rgba(0,243,255,.28); }
 .orb-wordmark{ position:relative; z-index:3; font-family:var(--font-display); font-size:20px; font-weight:400; letter-spacing:.42em; text-indent:.42em; color:rgba(255,255,255,.95); text-shadow:0 0 12px rgba(0,243,255,.7); }
 .orb-state-arc{ position:absolute; width:222px; height:222px; border-radius:50%; border:2px solid transparent; border-top-color:rgba(0,243,255,1); border-right-color:rgba(0,243,255,.3); animation:jm-spin 1s linear infinite; display:none; pointer-events:none; }
@@ -200,22 +208,37 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-burst-ring.r1{ border:2px solid rgba(0,243,255,.9); animation:jm-burst .65s ease-out both; }
 .orb-burst-ring.r2{ border:1.5px solid rgba(0,243,255,.6); animation:jm-burst2 .75s ease-out .09s both; }
 .orb-burst-ring.r3{ border:1px solid rgba(0,243,255,.4); animation:jm-burst3 .85s ease-out .18s both; }
-.orb-mute-btn{ position:absolute; bottom:14px; left:25px; width:40px; height:40px; border-radius:50%; background:rgba(0,243,255,.1); border:1px solid rgba(0,243,255,.4); display:flex; align-items:center; justify-content:center; font-size:17px; cursor:pointer; z-index:3; transition:all .2s; }
-.orb-mute-btn.muted{ background:rgba(255,59,59,.15); border-color:rgba(255,59,59,.5); }
+.orb-stage.tap-burst.burst-stop .orb-burst-ring.r1{ animation:jm-burst-in .5s ease-out both; }
+.orb-stage.tap-burst.burst-stop .orb-burst-ring.r2{ animation:jm-burst-in2 .58s ease-out .07s both; }
+.orb-stage.tap-burst.burst-stop .orb-burst-ring.r3{ animation:jm-burst-in3 .66s ease-out .14s both; }
+/* The orb is now the only control, so it has to feel like a button under the
+   finger. .pressing is set from pointerdown rather than :active, which iOS
+   Safari fires unreliably on a non-<button> element. */
+.orb-stage.pressing .orb-body{ transform:scale(.94); box-shadow:0 0 34px rgba(0,243,255,.95), inset 0 0 30px rgba(0,243,255,.2); }
+.orb-stage.busy-nudge .orb-body{ animation:jm-nudge .45s ease; }
 .orb-stage.state-listening .orb-body,.orb-stage.state-tool .orb-body{ box-shadow:0 0 26px rgba(0,243,255,.9), inset 0 0 30px rgba(0,243,255,.14); }
 .orb-stage.state-listening .orb-bloom-near,.orb-stage.state-tool .orb-bloom-near{ animation-duration:2.4s; }
 .orb-stage.state-listening .orb-ring-svg.spin-a,.orb-stage.state-tool .orb-ring-svg.spin-a{ animation-duration:9s; }
 .orb-stage.state-listening .orb-ring-svg.spin-b,.orb-stage.state-tool .orb-ring-svg.spin-b{ animation-duration:14s; }
 .orb-stage.state-processing .orb-state-arc,.orb-stage.state-tool .orb-state-arc{ display:block; }
-.orb-stage.state-muted .orb-body{ background:radial-gradient(circle,#2a0a0a 0%,#150505 70%,transparent 100%); box-shadow:0 0 20px rgba(255,59,59,.3); }
-.orb-stage.state-muted .orb-rim{ border-color:rgba(255,59,59,.85); box-shadow:0 0 15px rgba(255,59,59,.6); }
+/* Was: bright RED body + red rim + the label "מיקרופון מושתק". But muted-at-
+   rest IS the normal press-to-talk resting state, not a fault — so the orb
+   spent most of its life dressed as an error. Now it breathes calmly in cyan:
+   reads as "ready, press me", which is what it actually means. */
+.orb-stage.state-ready .orb-rim{ animation:jm-ready-breathe 3.2s ease-in-out infinite; }
+.orb-stage.state-listening .orb-rim{ border-color:rgba(0,243,255,1); box-shadow:0 0 22px rgba(0,243,255,1), inset 0 0 22px rgba(0,243,255,.4); }
+/* The one conventional red on the orb: a recording dot, shown only while
+   actually capturing. Small and blinking, so it reads as "live", not "error". */
+.orb-live-dot{ display:none; width:7px; height:7px; border-radius:50%; background:var(--color-red); box-shadow:0 0 8px var(--color-red); animation:jm-livedot 1.1s ease-in-out infinite; flex-shrink:0; }
+.orb-stage.state-listening .orb-live-dot{ display:block; }
 .orb-stage.state-sleeping .orb-body{ filter:brightness(.4) grayscale(.4); }
 .orb-stage.state-sleeping .orb-bloom-near,.orb-stage.state-sleeping .orb-bloom-far{ opacity:.35; }
 .orb-state-label{ margin-top:22px; font-family:var(--font-display); font-weight:600; font-size:14px; letter-spacing:var(--tracking-wide); text-align:center; min-height:18px; color:var(--color-text-dim); }
 .orb-state-label.listening,.orb-state-label.processing{ color:var(--color-cyan); }
 .orb-state-label.tool{ color:var(--color-gold); }
 .orb-state-label.done{ color:var(--color-green); }
-.orb-state-label.muted{ color:var(--color-red); font-weight:700; }
+.orb-state-label.ready{ color:var(--color-cyan); }
+.orb-state-label.speaking{ color:var(--color-green); }
 .orb-waveform{ display:none; align-items:flex-end; gap:4px; height:22px; margin-top:12px; }
 .orb-waveform.show{ display:flex; }
 .orb-wave-bar{ width:4px; height:20px; border-radius:2px; background:#00f3ff; transform-origin:bottom; animation:jm-wave .7s ease-in-out infinite; }
@@ -227,8 +250,19 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-tool-label.show{ display:inline-block; }
 .orb-response{ margin-top:14px; max-width:300px; text-align:center; font-size:14.5px; font-weight:500; line-height:1.6; color:var(--color-cyan); background:var(--color-cyan-soft); border:var(--border-default); border-radius:var(--radius-md); padding:14px 16px; display:none; }
 .orb-response.show{ display:block; }
-.orb-idle-hint{ margin-top:6px; font-size:13px; font-weight:500; color:var(--color-text-dim); display:block; }
-.orb-idle-hint.hide{ display:none; }
+/* The caption lives INSIDE the orb, under the wordmark: what this tap will
+   do, written on the thing you tap. It replaces the old detached
+   "הקש על הכדור כדי לדבר" line, which only appeared in one of the five
+   states — leaving the other four (listening most of all) with nothing
+   saying a tap would do anything at all. */
+.orb-body-inner{ position:relative; z-index:3; display:flex; flex-direction:column; align-items:center; gap:9px; padding:0 18px; }
+.orb-cta{ display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--color-cyan); text-shadow:0 0 8px rgba(0,243,255,.5); opacity:.9; transition:opacity .25s ease; unicode-bidi:plaintext; text-align:center; line-height:1.35; }
+.orb-stage.state-processing .orb-cta,.orb-stage.state-tool .orb-cta{ opacity:.5; }
+.orb-stage.state-sleeping .orb-cta{ color:rgba(255,255,255,.72); text-shadow:none; }
+@media (prefers-reduced-motion: reduce){
+    .orb-stage.state-ready .orb-rim,.orb-live-dot,.orb-stage.busy-nudge .orb-body{ animation:none; }
+    .orb-burst-ring{ display:none !important; }
+}
 
 /* Quick actions */
 .quick-actions-row{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:26px; }
@@ -606,7 +640,10 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
                   <svg class="orb-ring-svg spin-b" viewBox="0 0 300 300"><path id="orb-arc-b" fill="none" stroke="rgba(0,243,255,0.75)" stroke-width="1.4" stroke-linecap="round" style="filter:drop-shadow(0 0 4px rgba(0,243,255,.6));"></path></svg>
                   <div class="orb-body" id="orb-body">
                     <div class="orb-rim"></div>
-                    <span class="orb-wordmark">JARVIS</span>
+                    <div class="orb-body-inner">
+                      <span class="orb-wordmark">JARVIS</span>
+                      <span class="orb-cta" id="orb-cta"><i class="orb-live-dot"></i><span id="orb-cta-text">הקש להתחלה</span></span>
+                    </div>
                   </div>
                   <div class="orb-state-arc"></div>
                   <div class="orb-crosshair-v"></div>
@@ -614,7 +651,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
                   <div class="orb-burst-ring r1"></div>
                   <div class="orb-burst-ring r2"></div>
                   <div class="orb-burst-ring r3"></div>
-                  <div class="orb-mute-btn" id="orb-mute-btn">🎙</div>
                 </div>
               </div>
               <div class="orb-state-label" id="orb-state-label">המתנה</div>
@@ -624,7 +660,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
               <div class="orb-transcript" id="orb-transcript"></div>
               <div class="orb-tool-label" id="orb-tool-label"></div>
               <div class="orb-response" id="orb-response" dir="auto"></div>
-              <div class="orb-idle-hint" id="orb-idle-hint">הקש על הכדור כדי לדבר</div>
             </div>
 
             <div class="quick-actions-row" id="quick-actions-row"></div>
@@ -1198,25 +1233,51 @@ let pendingConfirmToken = null;
 let pendingConfirmEvt = null;
 let editingApproval = false;
 
-const STATE_LABELS = { idle: 'ממתין לפקודה', listening: 'מקשיב…', processing: 'מעבד…', tool: 'מבצע פעולה…', done: 'תשובה', sleeping: 'המתנה — אמור "WAKE UP" או "בוקר טוב"', muted: 'מיקרופון מושתק' };
+/* Two lines of copy per state, saying deliberately different things:
+   STATE_LABELS (under the orb) is STATUS - what JARVIS is doing right now.
+   ORB_CTA (inside the orb, under the wordmark) is the ACTION - what your
+   next tap will do. Every state has both, so there is never a state where
+   the orb is tappable but nothing tells you so. */
+const STATE_LABELS = { sleeping: 'המתנה — אמור "WAKE UP" או "בוקר טוב"', ready: 'מוכן', listening: 'מקשיב…', processing: 'מעבד…', tool: 'מבצע פעולה…', speaking: 'משיב…' };
+const ORB_CTA = { sleeping: 'הקש להתחלה', ready: 'הקש כדי לדבר', listening: 'הקש כדי לעצור', processing: 'חושב…', tool: 'מבצע…', speaking: 'הקש להשתקה' };
+
+function isSpeaking(){ return !!(currentAudio && !currentAudio.paused && !currentAudio.ended); }
+/* micMuted is the press-to-talk latch, not a user preference - it flips back
+   to true the instant an utterance is captured (recognition.onresult) and
+   stays true through processing and speaking. So "awake and not muted" is
+   exactly the window where the mic is really capturing the user, which makes
+   it the one honest definition of "listening" for both the visuals and the
+   tap toggle. recognitionActive is NOT that: recognition also runs while
+   muted to catch the wake phrase, so keying off it would make a tap in the
+   resting state read as "stop" and appear to do nothing. */
+function isListening(){ return isAwake && !micMuted && SPEECH_RECOGNITION_SUPPORTED && !textOnlyMode; }
+function orbVisualState(){
+    if (!isAwake) return 'sleeping';
+    if (isSpeaking()) return 'speaking';
+    if (isListening()) return 'listening';
+    if (voiceState === 'processing') return 'processing';
+    if (voiceState === 'tool') return 'tool';
+    return 'ready';   // includes voiceState 'done' with no audio (text-only reply)
+}
 
 function renderOrb(){
+    const visualState = orbVisualState();
     const stage = $('orb-stage');
-    stage.className = 'orb-stage';
-    let visualState = voiceState;
-    if (!isAwake) visualState = 'sleeping';
-    else if (micMuted && voiceState === 'idle') visualState = 'muted';
-    stage.classList.add('state-' + visualState);
+    // Keep the transient interaction classes. renderOrb runs on every state
+    // change, and a bare `className =` mid-tap would wipe .tap-burst/.pressing
+    // the instant they were added, killing the feedback they exist for.
+    const transient = ['pressing','tap-burst','burst-stop','busy-nudge'].filter(c => stage.classList.contains(c));
+    stage.className = ['orb-stage', 'state-' + visualState].concat(transient).join(' ');
 
     const label = $('orb-state-label');
     label.className = 'orb-state-label ' + visualState;
     label.innerText = STATE_LABELS[visualState] || '';
 
-    $('orb-mute-btn').classList.toggle('muted', micMuted && isAwake);
-    $('orb-mute-btn').innerText = (micMuted && isAwake) ? '🔇' : '🎙';
+    let cta = ORB_CTA[visualState] || '';
+    if (visualState === 'ready' && (!SPEECH_RECOGNITION_SUPPORTED || textOnlyMode)) cta = 'הקש כדי להקליד';
+    $('orb-cta-text').innerText = cta;
 
-    $('orb-waveform').classList.toggle('show', voiceState === 'listening');
-    $('orb-idle-hint').classList.toggle('hide', !(isAwake && !micMuted && voiceState === 'idle'));
+    $('orb-waveform').classList.toggle('show', visualState === 'listening');
 }
 renderOrb();
 
@@ -1231,26 +1292,86 @@ renderOrb();
 // user-activation window (doesn't break gesture-gated mic permission
 // reuse), and every call site gets the same not-silent failure handling
 // instead of five different ad-hoc try/catches.
+let recognitionStartTimer = null;
 function startRecognitionSafely(){
     if (!recognition || recognitionActive) return;
-    setTimeout(() => {
+    clearTimeout(recognitionStartTimer);
+    recognitionStartTimer = setTimeout(() => {
+        recognitionStartTimer = null;
         if (!recognition || recognitionActive) return;
         try { recognition.start(); }
         catch (e) { showToast('ההאזנה לא התחילה — הקש שוב.', true); }
     }, 150);
 }
+/* Now that a second tap means "stop", that 150ms settle is long enough for a
+   quick double-tap to land inside it. At that instant recognition.start()
+   has not run yet, so recognitionActive is still false and stopListening's
+   recognition.stop() is a no-op - the mic would switch itself on a moment
+   later, against the user's most recent instruction, while the orb sat
+   showing "ready". Cancelling the pending start is the only thing that
+   actually stops it in that window. */
+function cancelPendingRecognitionStart(){
+    clearTimeout(recognitionStartTimer);
+    recognitionStartTimer = null;
+}
+/* ONE control. Every tap does the obvious thing for the state the orb is in,
+   and the caption inside the orb names that thing before you tap.
+
+   What was wrong: a second tap while listening hit `if (voiceState !== 'idle')
+   return;` and did literally nothing, so the only way to stop was the small
+   mic button tucked into the orb's lower-left corner. Two controls with
+   overlapping meaning, one of them easy to miss - that was the confusion.
+   The button is gone and the orb absorbed its job. */
 function orbTap(){
     if (!isAwake) { triggerWake(); return; }
-    if (micMuted) { toggleMicMute(); return; }
-    if (voiceState !== 'idle') return;
+    if (isSpeaking()) { stopSpeaking(); return; }
+    if (isListening()) { stopListening(); return; }
+    // Mid-request there is nothing safe to cancel - the command is already
+    // with the server - but the tap must not feel dead either. Nudge instead.
+    if (voiceState === 'processing' || voiceState === 'tool') { nudgeBusy(); return; }
     if (!SPEECH_RECOGNITION_SUPPORTED || textOnlyMode) { $('cmd-input').focus(); return; }
-    playTapBurst();
+    startListening();
+}
+function startListening(){
+    micMuted = false;
+    renderOrb();
+    playTapBurst('start'); beep(660, 0.12); haptic(14);
     startRecognitionSafely();
 }
-function playTapBurst(){
+function stopListening(){
+    // micMuted BEFORE stop(): recognition.onend restarts itself 400ms later
+    // unless muted, so stopping without setting this first just starts it
+    // again and the orb visibly refuses to turn off.
+    micMuted = true;
+    cancelPendingRecognitionStart();
+    clearTimeout(recognitionSafetyTimer);
+    if (recognition && recognitionActive) { try { recognition.stop(); } catch(e){} }
+    if (voiceState === 'listening') voiceState = 'idle';
+    renderOrb();
+    playTapBurst('stop'); beep(330, 0.14); haptic([10, 35, 10]);
+}
+function stopSpeaking(){
+    if (currentAudio) { try { currentAudio.pause(); currentAudio.currentTime = 0; } catch(e){} }
+    voiceState = 'idle';
+    micMuted = true;   // land back in the resting state, not straight into a hot mic
+    renderOrb();
+    playTapBurst('stop'); beep(330, 0.12); haptic([10, 35, 10]);
+}
+function nudgeBusy(){
     const stage = $('orb-stage');
+    stage.classList.remove('busy-nudge'); void stage.offsetWidth;
+    stage.classList.add('busy-nudge');
+    setTimeout(() => stage.classList.remove('busy-nudge'), 500);
+    haptic(8);
+}
+function haptic(pattern){ try { if (navigator.vibrate) navigator.vibrate(pattern); } catch(e){} }
+function playTapBurst(kind){
+    const stage = $('orb-stage');
+    stage.classList.remove('tap-burst', 'burst-stop');
+    void stage.offsetWidth;   // reflow, so a fast re-tap replays the animation instead of ignoring it
     stage.classList.add('tap-burst');
-    setTimeout(() => stage.classList.remove('tap-burst'), 700);
+    if (kind === 'stop') stage.classList.add('burst-stop');
+    setTimeout(() => stage.classList.remove('tap-burst', 'burst-stop'), 750);
 }
 function beep(freq, dur){
     try {
@@ -1263,20 +1384,14 @@ function beep(freq, dur){
         osc.start(); osc.stop(ctx.currentTime + (dur || 0.15));
     } catch(e) {}
 }
-function toggleMicMute(){
-    if (!isAwake) return;
-    micMuted = !micMuted;
-    if (micMuted) {
-        if (recognition && recognitionActive) { try { recognition.stop(); } catch(e){} }
-        beep(320, 0.12);
-    } else {
-        if (SPEECH_RECOGNITION_SUPPORTED) startRecognitionSafely();
-        beep(660, 0.12);
-    }
-    renderOrb();
-}
-$('orb-stage').addEventListener('click', (e) => { if (e.target.closest('#orb-mute-btn')) return; orbTap(); });
-$('orb-mute-btn').addEventListener('click', (e) => { e.stopPropagation(); toggleMicMute(); });
+const _orbStage = $('orb-stage');
+_orbStage.addEventListener('click', orbTap);
+// Press-and-hold visual, so the orb answers the finger before it answers the
+// tap. pointerleave/cancel matter on touch: dragging off the orb cancels the
+// click, and without them the orb would stay stuck looking pressed.
+_orbStage.addEventListener('pointerdown', () => _orbStage.classList.add('pressing'));
+['pointerup','pointercancel','pointerleave'].forEach(ev =>
+    _orbStage.addEventListener(ev, () => _orbStage.classList.remove('pressing')));
 
 function setOrbTranscript(text){
     const box = $('orb-transcript');
