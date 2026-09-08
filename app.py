@@ -62,7 +62,8 @@ os.chdir(_APP_DIR)
 import cert_bootstrap  # noqa: F401 — must run before any HTTPS-making import below
 import requests
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from flask import (Flask, Response, jsonify, make_response, redirect, render_template,
+                   request, session, url_for)
 from groq import APIConnectionError, BadRequestError, Groq, RateLimitError
 
 from tts import (ULTRON_PROSODY as TTS_ULTRON_PROSODY, ULTRON_VOICE as TTS_ULTRON_VOICE,
@@ -1420,7 +1421,21 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis") -> str:
 # ---------------------------------------------------------------------------
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # "no-cache" means revalidate-before-use, not "don't store" — the browser
+    # may keep its copy, it just has to ask us first, so the usual answer is a
+    # cheap 304.
+    #
+    # This page shipped with NO Cache-Control at all, which does not mean "do
+    # not cache": with no directive, browsers fall back to heuristic caching
+    # and decide for themselves how long to reuse a response. Safari is the
+    # most willing to, and a page added to the iOS home screen most of all —
+    # so a phone could keep running yesterday's JavaScript for hours after a
+    # fix shipped, showing no sign anything was stale. Every fix in this file
+    # lives inside this one template (CSS and JS are inlined), so a stale copy
+    # here means a stale copy of everything.
+    resp = make_response(render_template("index.html"))
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 # --- Google sign-in gate ----------------------------------------------------
