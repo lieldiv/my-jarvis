@@ -65,7 +65,8 @@ from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 from groq import APIConnectionError, BadRequestError, Groq, RateLimitError
 
-from tts import ULTRON_VOICE as TTS_ULTRON_VOICE, VOICE as TTS_VOICE, generate_tts_base64
+from tts import (ULTRON_PROSODY as TTS_ULTRON_PROSODY, ULTRON_VOICE as TTS_ULTRON_VOICE,
+                 VOICE as TTS_VOICE, generate_tts_base64)
 
 # Optional, Windows-desktop-automation-only imports. These are guarded so the
 # server still boots (e.g. for testing on another OS) even if one is missing.
@@ -410,7 +411,12 @@ ULTRON_PROMPT = _ULTRON_PERSONA + _SHARED_INSTRUCTIONS
 # system prompt happens only here. An unknown or missing key falls back to
 # J.A.R.V.I.S. rather than erroring, so an old cached page keeps working.
 PERSONAS = {"jarvis": SYSTEM_PROMPT, "ultron": ULTRON_PROMPT}
-PERSONA_VOICES = {"jarvis": TTS_VOICE, "ultron": TTS_ULTRON_VOICE}
+# (voice, prosody) per persona. Ultron shares JARVIS's voice and differs
+# only in delivery — see tts.py for why a separate voice sounded robotic.
+PERSONA_VOICES = {
+    "jarvis": (TTS_VOICE, None),
+    "ultron": (TTS_ULTRON_VOICE, TTS_ULTRON_PROSODY),
+}
 
 
 def resolve_persona(raw) -> str:
@@ -1505,7 +1511,8 @@ def process_command():
     persona = resolve_persona(data.get("persona"))
 
     response_text = run_llm(text, user_id, persona)
-    audio_b64 = asyncio.run(generate_tts_base64(response_text, PERSONA_VOICES[persona]))
+    voice, prosody = PERSONA_VOICES[persona]
+    audio_b64 = asyncio.run(generate_tts_base64(response_text, voice, prosody))
 
     return jsonify({"response": response_text, "audio": audio_b64})
 
