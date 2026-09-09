@@ -884,6 +884,21 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="settings-sub">◂ קול</div>
             <div class="voice-info-block">לחיצה לדיבור · מדבר בעברית · JARVIS עונה באנגלית<br/>אישור לפני פעולה: פעיל — כל שינוי ביומן או שליחת מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
 
+            <div class="settings-sub">◂ שעון מעורר</div>
+            <div class="voice-info-block">
+              כדי ש-JARVIS יוכל לכוון לך <b>מעורר אמיתי</b> שמצלצל ומעיר — צריך
+              להגדיר קיצור פעם אחת. אפל לא מאפשרת לאתר לגעת באפליקציית השעון
+              ישירות, וקיצור הוא הדרך היחידה שנשארה.
+              <br/><br/>
+              1. פתח את אפליקציית <b>Shortcuts</b> (קיצורים) ← ➕<br/>
+              2. הוסף פעולה <b>Get dates from</b>, ובשדה שלה בחר <b>Shortcut Input</b><br/>
+              3. הוסף פעולה <b>Create Alarm</b>, ובשדה השעה בחר את הפלט של הפעולה הקודמת<br/>
+              4. שנה את שם הקיצור בדיוק ל-<b>JARVIS Alarm</b> — כולל אותיות גדולות ורווח<br/>
+              5. זהו. תגיד "תעיר אותי ב-7" ותקיש על הכרטיס.
+              <br/><br/>
+              אם לא קורה כלום בלחיצה — כמעט תמיד השם לא תואם במדויק.
+            </div>
+
             <div class="settings-sub">◂ מראה</div>
             <div class="theme-row" id="theme-row"></div>
             <div class="voice-info-block" id="appearance-note">בחר צבע ל-J.A.R.V.I.S. הבחירה נשמרת במכשיר הזה בלבד.</div>
@@ -2534,8 +2549,15 @@ function renderConfirmReadFields(evt){
         fieldRow(box, 'אל', d.to); fieldRow(box, 'נושא', d.subject); fieldRow(box, 'הודעה', d.body);
         fieldRow(box, 'קבצים', (d.attachments || []).join(', ')); fieldRow(box, 'דרך', d.provider);
     } else if (evt.kind === 'phone_app' && d) {
-        fieldRow(box, 'יעד', d.target);
-        fieldRow(box, 'אפליקציה', d.label);
+        // One kind, two actions — the mechanism is identical (a URL the
+        // approve TAP opens), only the wording changes.
+        if (d.action === 'alarm') {
+            fieldRow(box, 'שעה', d.target);
+            fieldRow(box, 'דרך', 'קיצור ' + d.label);
+        } else {
+            fieldRow(box, 'יעד', d.target);
+            fieldRow(box, 'אפליקציה', d.label);
+        }
     } else if (evt.kind === 'web_search' && d) {
         fieldRow(box, 'חיפוש', d.query);
     } else if (evt.kind === 'calendar_event_delete' && d) {
@@ -2734,13 +2756,16 @@ async function resolveConfirmation(approve){
         const isNav = evt.kind === 'phone_app';
         pendingConfirmToken = null;
         hideConfirmModal();
+        const isAlarm = evt.kind === 'phone_app' && evt.details.action === 'alarm';
         if (approve) {
             openPhoneLink(evt.details.url);
-            showToast(isNav
-                ? `פותח ${evt.details.label} — נסיעה טובה.`
-                : `פתחתי חיפוש עבור '${evt.details.query}'.`);
+            showToast(isAlarm ? `מכוון שעון מעורר ל-${evt.details.target}.`
+                    : isNav   ? `פותח ${evt.details.label} — נסיעה טובה.`
+                              : `פתחתי חיפוש עבור '${evt.details.query}'.`);
         } else {
-            showToast(isNav ? 'בסדר, לא ניווטתי.' : 'בסדר, לא חיפשתי.');
+            showToast(isAlarm ? 'בסדר, בלי מעורר.'
+                    : isNav   ? 'בסדר, לא ניווטתי.'
+                              : 'בסדר, לא חיפשתי.');
         }
         if (evt.logId != null) updateActivityStatus(evt.logId, approve ? 'confirmed' : 'cancelled');
         return;

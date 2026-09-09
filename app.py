@@ -324,7 +324,10 @@ _DESKTOP_CONTROL_GUIDANCE = (
     "navigate_to opens Waze or Google Maps on it with a route running. "
     "The sentence above is about this server having no desktop; it does "
     "not restrict navigate_to, so never refuse a navigation request on "
-    "grounds that you cannot open applications."
+    "grounds that you cannot open applications. set_alarm reaches the phone "
+    "the same way. Keep it apart from set_reminder: an alarm RINGS and wakes "
+    "someone, a reminder is a silent notification that will not — so 'wake me "
+    "at 7' is set_alarm, and 'remind me to call Dana' is set_reminder."
 )
 
 # The persona is the ONLY thing that varies between modes. Everything from
@@ -990,6 +993,44 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "set_alarm",
+            "description": (
+                "Set a REAL alarm in the iPhone's Clock app — one that rings "
+                "out loud and wakes the user, overriding silent mode. Use this "
+                "whenever they ask to be WOKEN UP or say the word alarm "
+                "('wake me at 7', 'תעיר אותי ב-7', 'תכניס לי שעון מעורר'). "
+                "This is NOT set_reminder: a reminder is a silent notification "
+                "from J.A.R.V.I.S. that will not wake anyone, so it is the "
+                "wrong tool for waking up and the right one for 'remind me "
+                "to...'. Requires a one-time shortcut the user sets up once "
+                "under Settings; if they say nothing happened, point them "
+                "there. Puts the alarm on their HUD to tap, so don't ask for "
+                "confirmation yourself."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hour": {
+                        "type": "integer",
+                        "description": (
+                            "Hour on a 24-hour clock, 0-23. 'seven in the "
+                            "morning' is 7, 'seven in the evening' is 19. If "
+                            "the user just says a bare number with no part of "
+                            "day, assume the one that is soonest."
+                        ),
+                    },
+                    "minute": {
+                        "type": "integer",
+                        "description": "Minutes past the hour, 0-59. Use 0 for a whole hour.",
+                    },
+                },
+                "required": ["hour", "minute"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "navigate_to",
             "description": (
                 "Start driving navigation on the user's PHONE to a specific "
@@ -1309,6 +1350,57 @@ _NAV_APPS = {
 }
 
 
+# The Clock app has no URL of its own — verified on a real iPhone, where both
+# clock-alarm:// and clock-timer:// did nothing at all from Safari while a Waze
+# link in the same test opened fine. Apple has never documented those schemes
+# and has been closing them off (every App-Prefs URL died in iOS 18).
+#
+# Shortcuts, by contrast, has a documented one that DID work in that same test,
+# and it is the better route anyway: it creates the alarm outright instead of
+# just opening an empty Clock app for the user to finish by hand.
+# See https://support.apple.com/guide/shortcuts/run-a-shortcut-from-a-url-apd624386f42/ios
+ALARM_SHORTCUT_NAME = "JARVIS Alarm"
+
+
+def _alarm_time_text(hour: int, minute: int) -> str:
+    """A 12-hour string like '7:00 AM'.
+
+    The format is not cosmetic. Shortcuts' date parsing is the fragile link in
+    this chain — 'Create Alarm failed because Shortcuts couldn't convert from
+    Text to Date' is a well-known error, and it turns on shape: '1:15pm'
+    parses, '155pm' does not. Building the string here from integers, rather
+    than letting the model write a time however it likes, is what keeps that
+    variance out. 12-hour with an explicit AM/PM also stays unambiguous on a
+    phone whose locale would not otherwise expect a 24-hour clock.
+    """
+    suffix = "AM" if hour < 12 else "PM"
+    display_hour = hour % 12 or 12
+    return f"{display_hour}:{minute:02d} {suffix}"
+
+
+def _set_alarm(user_id, args):
+    try:
+        hour, minute = int(args.get("hour")), int(args.get("minute", 0))
+    except (TypeError, ValueError):
+        return "What time should I set the alarm for, sir?"
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return "That isn't a valid time of day, sir."
+
+    time_text = _alarm_time_text(hour, minute)
+    url = (f"shortcuts://run-shortcut?name={requests.utils.quote(ALARM_SHORTCUT_NAME)}"
+           f"&input=text&text={requests.utils.quote(time_text)}")
+
+    details = {"action": "alarm", "label": ALARM_SHORTCUT_NAME, "target": time_text,
+               "url": url, "ts": time.time()}
+    _PENDING_PHONE_LINK[user_id] = details
+    event_stream.push_event({
+        "type": "confirmation_required", "kind": "phone_app",
+        "message": f"Set an alarm for {time_text}?",
+        "details": details,
+    }, user_id=user_id)
+    return f"Alarm for {time_text} is ready on the HUD, sir — tap to set it."
+
+
 def _navigate_to(user_id, args):
     """Proposes a route; the user's tap on the HUD's approve button is what
     actually opens it. Nothing here opens anything server-side — see
@@ -1324,7 +1416,8 @@ def _navigate_to(user_id, args):
     label, template = _NAV_APPS.get(app_key, _NAV_APPS["waze"])
     url = template.format(q=requests.utils.quote(destination))
 
-    details = {"label": label, "target": destination, "url": url, "ts": time.time()}
+    details = {"action": "navigate", "label": label, "target": destination,
+               "url": url, "ts": time.time()}
     _PENDING_PHONE_LINK[user_id] = details
     event_stream.push_event({
         "type": "confirmation_required", "kind": "phone_app",
@@ -1390,6 +1483,7 @@ def _build_tool_impl(user_id: str) -> dict:
         "set_reminder": lambda args: _set_reminder(user_id, args),
         "set_recurring_reminder": lambda args: _set_recurring_reminder(user_id, args),
         "update_reminder": lambda args: _update_reminder(user_id, args),
+        "set_alarm": lambda args: _set_alarm(user_id, args),
         "navigate_to": lambda args: _navigate_to(user_id, args),
         "find_nearby_places": lambda args: _find_nearby_places(user_id, args),
         "computer_use": lambda args: _computer_use(user_id, args),
@@ -1827,26 +1921,6 @@ def service_worker():
         # update checks against a script response that itself looks cacheable.
         headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
     )
-
-
-@app.route("/scheme-probe")
-def scheme_probe():
-    """TEMPORARY diagnostic — delete once the alarm question is settled.
-
-    Answers one thing we cannot determine from documentation: whether iOS
-    still hands clock-alarm:// to the Clock app when the link is tapped in
-    Safari. Apple has never documented that scheme, and has been steadily
-    breaking private ones (App-Prefs URLs all stopped working in iOS 18), so
-    the only reliable source is a real iPhone.
-
-    It lives here rather than anywhere else simply because this is a page the
-    user's phone can already reach. Deliberately unauthenticated: it is static
-    markup with no inputs and no access to any user data, and requiring a
-    session would only add a way for the test itself to fail.
-    """
-    resp = make_response(render_template("scheme_probe.html"))
-    resp.headers["Cache-Control"] = "no-cache"
-    return resp
 
 
 @app.route("/api/push/vapid-public-key")
