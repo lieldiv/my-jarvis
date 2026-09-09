@@ -22,6 +22,7 @@ Major changes from the original version:
 
 import ast
 import asyncio
+import difflib
 import json
 import logging
 import operator
@@ -317,11 +318,13 @@ def _shortcuts_context(shortcuts: list) -> str:
              for sc in shortcuts]
     return (
         "Shortcuts the user has told you about, callable with run_shortcut. "
-        "Use a name EXACTLY as written here, character for character — a name "
-        "off by one character opens the Shortcuts app and just sits there, "
-        "which looks broken. This list is a convenience, not a limit: if the "
-        "user names some other shortcut of theirs out loud, pass that name "
-        "through as they said it.\n" + "\n".join(lines)
+        "COPY a name from this list character for character — do not rewrite "
+        "it, do not drop or add a Hebrew article (ה), do not translate it and "
+        "do not tidy up its spacing. iOS matches these exactly and reports "
+        "nothing back when it fails, so a paraphrase is a silent dead end. "
+        "This list is a convenience, not a limit: if the user names some other "
+        "shortcut of theirs out loud, pass that name through as they said "
+        "it.\n" + "\n".join(lines)
     )
 
 
@@ -1530,6 +1533,52 @@ def _play_music(user_id, args):
     return f"'{query}' is on the HUD, sir — tap to play it."
 
 
+# Observed on a real phone: the shortcut is called "פתיחת המצלמה", the model
+# asked for "פתיחת מצלמה", and iOS answered "הקובץ אינו קיים" — one missing
+# letter. Models paraphrase names; they drop articles, normalise spacing, and
+# wrap things in quotes. Since iOS matches byte-for-byte and reports failure
+# only to itself, a paraphrase is an invisible dead end.
+#
+# So the name is repaired here rather than trusted. Normalising strips what
+# the model adds (quotes, a trailing full stop, doubled spaces), and a
+# similarity match then recovers the real name when the wording drifts.
+_NAME_NOISE_RE = re.compile(r"[\"'\u201c\u201d\u2018\u2019]")
+_SHORTCUT_FUZZ_CUTOFF = 0.75   # "פתיחת מצלמה" vs "פתיחת המצלמה" scores ~0.96
+
+
+def normalize_shortcut_name(raw: str) -> str:
+    text = _CONTROL_CHARS_RE.sub(" ", str(raw or ""))
+    text = _NAME_NOISE_RE.sub("", text)
+    text = text.strip().strip(".,;:!?\u05be").strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def resolve_shortcut_name(requested: str, allowed: list):
+    """(name_to_run, corrected_from) — corrected_from is set only when the
+    model's wording had to be repaired, so the HUD can show what happened.
+    Returns (None, None) when there is a list and nothing in it comes close."""
+    req = normalize_shortcut_name(requested)
+    if not req:
+        return None, None
+    if not allowed:
+        # Nothing to match against: the user must have named it themselves, so
+        # pass it through. iOS will say so if it's wrong.
+        return req, None
+
+    by_norm = {normalize_shortcut_name(sc["name"]): sc["name"] for sc in allowed}
+    if req in by_norm:
+        return by_norm[req], None
+
+    folded = {k.casefold(): v for k, v in by_norm.items()}
+    if req.casefold() in folded:
+        return folded[req.casefold()], req
+
+    close = difflib.get_close_matches(req, list(by_norm), n=1, cutoff=_SHORTCUT_FUZZ_CUTOFF)
+    if close:
+        return by_norm[close[0]], req
+    return None, None
+
+
 def _shortcut_url(name: str, text: str = "") -> str:
     url = f"shortcuts://run-shortcut?name={requests.utils.quote(name)}"
     if text:
@@ -1545,18 +1594,19 @@ def _run_shortcut(user_id, args, allowed):
     Shortcuts to an error the user has to decode. Refusing here lets it say
     something useful instead.
     """
-    name = (args.get("name") or "").strip()
-    if not name:
+    requested = (args.get("name") or "").strip()
+    if not requested:
         return "Which shortcut should I run, sir?"
 
-    # Unlisted names are allowed through on purpose. The list is there so the
-    # model can act on "set a timer" without being told the name every time —
-    # not to restrict what the user may run on their own phone. iOS is the
-    # real check: a name that doesn't exist opens Shortcuts and stops there,
-    # which is visible and harmless, and the card below shows the exact name
-    # being called so a mismatch is obvious rather than mysterious.
+    name, corrected_from = resolve_shortcut_name(requested, allowed)
+    if name is None:
+        names = ", ".join(f"'{sc['name']}'" for sc in allowed)
+        return (f"I can't find a shortcut matching '{requested}', sir. "
+                f"What I know about is: {names}.")
+
     text = (args.get("input") or "").strip()
     details = {"action": "shortcut", "label": name, "target": text or "—",
+               "corrected_from": corrected_from,
                "url": _shortcut_url(name, text), "ts": time.time()}
     _PENDING_PHONE_LINK[user_id] = details
     event_stream.push_event({
@@ -1564,6 +1614,9 @@ def _run_shortcut(user_id, args, allowed):
         "message": f"Run the shortcut '{name}'?",
         "details": details,
     }, user_id=user_id)
+    if corrected_from:
+        return (f"'{corrected_from}' isn't quite its name — I've queued "
+                f"'{name}' on the HUD instead, sir. Tap to run it.")
     return f"'{name}' is queued on the HUD, sir — tap to run it."
 
 

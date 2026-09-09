@@ -2605,6 +2605,9 @@ function renderConfirmReadFields(evt){
             // The exact name, so a mismatch is visible here rather than as a
             // Shortcuts app that opens and mysteriously does nothing.
             fieldRow(box, 'קיצור', d.label);
+            // Shown when the model's wording had to be repaired — if the
+            // correction guessed wrong, this is where you'd catch it.
+            if (d.corrected_from) fieldRow(box, 'תוקן מ־', d.corrected_from);
             if (d.target && d.target !== '—') fieldRow(box, 'עם', d.target);
         } else if (d.action === 'music') {
             fieldRow(box, 'לנגן', d.target);
