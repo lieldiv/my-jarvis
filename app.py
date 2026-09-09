@@ -1055,10 +1055,21 @@ TOOLS = [
             "name": "play_music",
             "description": (
                 "Open Spotify on the user's phone at a song, artist, album or "
-                "playlist they asked for. Use this for any 'play me…' / "
-                "'תנגן לי…' request. Needs no shortcut and no setup — it is a "
-                "direct Spotify link — so prefer it over run_shortcut for "
-                "music."
+                "playlist. Needs no shortcut and no setup, so prefer it over "
+                "run_shortcut for music.\n\n"
+                "DO NOT call this the moment music comes up. BOTH of these "
+                "must be true first:\n"
+                "(1) They explicitly asked to HEAR it — 'play me', 'put on', "
+                "'תשמיע לי', 'תנגן לי'. Saying a song's name, quoting lyrics, "
+                "singing, or talking ABOUT a song is NOT a request to play it. "
+                "If someone says 'שרה שרה שיר שמח' they are saying words, not "
+                "asking for Spotify. When in doubt, they were not asking.\n"
+                "(2) You already offered in an earlier message and they "
+                "agreed. On their FIRST request, call no tool at all — reply "
+                "with a short question naming what you'd play, such as "
+                "'להשמיע את <שיר> בספוטיפיי?', and stop there.\n\n"
+                "Then, once they say yes, call this immediately — do not ask a "
+                "second time. If they say no, drop it and don't offer again."
             ),
             "parameters": {
                 "type": "object",
