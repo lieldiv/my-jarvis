@@ -936,6 +936,8 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="settings-sub">◂ קול</div>
             <div class="voice-info-block">לחיצה לדיבור · מדבר בעברית · JARVIS עונה באנגלית<br/>אישור לפני פעולה: פעיל — כל שינוי ביומן או שליחת מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
 
+            <div id="standalone-warning"></div>
+
             <div class="settings-sub">◂ הקיצורים שלי</div>
             <div id="shortcut-registry"></div>
 
@@ -1379,6 +1381,17 @@ let currentAudio = null;
 let recognition = null;
 let recognitionActive = false;
 let recognitionSafetyTimer = null;  // forces recognition.stop() if the browser's own end-of-speech detection never fires (see onstart)
+let audioCaptureStarted = false;    // did onaudiostart actually fire for this session?
+let audioCaptureWatchdog = null;
+
+/* iPadOS reports itself as a Mac, hence the touch-point check. */
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+/* Added to the home screen, i.e. running without Safari around it. WebKit
+   treats that as a different context, and speech recognition is one of the
+   things that does not survive the move — see the note on micCaptureFailed. */
+const IS_STANDALONE = window.navigator.standalone === true ||
+    !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
 let micInitialized = false;
 const SPEECH_RECOGNITION_SUPPORTED = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 let textOnlyMode = false;
@@ -1698,8 +1711,52 @@ function initSpeechRecognition(){
     recognition.interimResults = false;
     recognition.lang = 'he-IL';
 
+    /* The microphone never actually opened, even though the session did.
+
+       iOS can start a recognition session and never attach the mic to it:
+       onstart fires, onaudiostart never does, and NO error event is raised.
+       The orb then sits on "מקשיב…" over a dead microphone while the user
+       talks into nothing — which is precisely the "sometimes it just doesn't
+       hear me" report, and why it feels random rather than broken.
+
+       The spec's order is onstart -> onaudiostart -> onsoundstart ->
+       onspeechstart, so a missing onaudiostart means capture never began. It
+       is not the same as a quiet room: silence would still fire onaudiostart.
+       That makes it a signal we can act on rather than guess at.
+
+       The most common cause has a name, and it is worth saying out loud
+       rather than making the user wonder: WebKit does not give a home-screen
+       web app the same speech access Safari has (documented on Apple's own
+       developer forums), so the very same page works in Safari and fails from
+       the home-screen icon — which is exactly what "sometimes" looks like
+       when you open it both ways. */
+    function micCaptureFailed(){
+        clearTimeout(audioCaptureWatchdog);
+        try { recognition.abort(); } catch (e) {}
+        recognitionActive = false;
+        micMuted = true;
+        voiceState = 'idle';
+        renderOrb();
+        showToast(IS_IOS && IS_STANDALONE
+            ? 'המיקרופון לא נפתח. באייפון, זיהוי דיבור לא עובד מהאפליקציה שנוספה למסך הבית — פתח את JARVIS ב-Safari.'
+            : 'המיקרופון לא נפתח — הקש שוב.', true);
+    }
+
+    recognition.onaudiostart = () => {
+        audioCaptureStarted = true;
+        clearTimeout(audioCaptureWatchdog);
+    };
+
     recognition.onstart = () => {
         recognitionActive = true;
+        audioCaptureStarted = false;
+        // 1.5s is generous: onaudiostart normally lands within a few hundred
+        // milliseconds of onstart, and waiting longer just extends how long
+        // the orb lies about listening.
+        clearTimeout(audioCaptureWatchdog);
+        audioCaptureWatchdog = setTimeout(() => {
+            if (!audioCaptureStarted && recognitionActive && !micMuted) micCaptureFailed();
+        }, 1500);
         if (isAwake && voiceState === 'idle') { voiceState = 'listening'; renderOrb(); }
         // Safety net for "never stops listening" with background noise.
         // continuous=false + interimResults=false means the BROWSER's own
@@ -1724,6 +1781,7 @@ function initSpeechRecognition(){
 
     recognition.onresult = (event) => {
         clearTimeout(recognitionSafetyTimer);
+        clearTimeout(audioCaptureWatchdog);
         if (micMuted) return;
         const transcript = event.results[0][0].transcript.toLowerCase().trim();
 
@@ -1749,6 +1807,7 @@ function initSpeechRecognition(){
 
     recognition.onerror = (event) => {
         clearTimeout(recognitionSafetyTimer);
+        clearTimeout(audioCaptureWatchdog);
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
             showToast('הגישה למיקרופון נחסמה — אפשר אותה בהגדרות הדפדפן, או השתמש בקלט הטקסט.', true);
         } else if (event.error === 'no-speech' && isAwake && !micMuted) {
@@ -1773,6 +1832,7 @@ function initSpeechRecognition(){
 
     recognition.onend = () => {
         clearTimeout(recognitionSafetyTimer);
+        clearTimeout(audioCaptureWatchdog);
         recognitionActive = false;
         // No result came in this round (no speech heard, network hiccup, the
         // mobile recognizer just timing out early — all common on phones) —
@@ -3318,6 +3378,25 @@ applyAppearance();
    Per device, like the alarm setup and for the same reason: shortcuts live on
    one phone. A different phone has different ones, and should say so.
    ================================================================================ */
+/* Shown only when the page is running as a home-screen app on iOS, where
+   WebKit withholds the speech access it grants in Safari. Standing text in
+   Settings rather than only a toast at the moment of failure: the failure is
+   intermittent by nature — you hit it, reopen from Safari, and it works —
+   so the explanation has to be somewhere you can go and find it. */
+function renderStandaloneWarning(){
+    const box = $('standalone-warning');
+    if (!box) return;
+    box.innerHTML = '';
+    if (!(IS_IOS && IS_STANDALONE)) return;
+    box.appendChild(Object.assign(el('div', 'settings-sub'), { innerText: '◂ שים לב' }));
+    const w = el('div', 'warn-block');
+    w.innerHTML = '⚠ JARVIS פתוח כרגע מ<b>מסך הבית</b>. באייפון, זיהוי הדיבור לא ' +
+        'מקבל שם את אותה גישה שיש לו ב-Safari — ולכן לפעמים הוא פשוט לא שומע. ' +
+        'לשימוש קולי, פתח את הכתובת ישירות ב-Safari.';
+    box.appendChild(w);
+}
+renderStandaloneWarning();
+
 const SHORTCUTS_KEY = 'jarvis_shortcuts';
 const MAX_SHORTCUTS = 12;   // mirrors the server's own cap
 
