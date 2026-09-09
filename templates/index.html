@@ -1525,10 +1525,15 @@ renderOrb();
 let recognitionStartTimer = null;
 function startRecognitionSafely(){
     if (!recognition || recognitionActive) return;
+    // Twice on purpose: once now, so the session has the whole settle delay
+    // to actually come free, and once at the last instant in case anything
+    // grabbed it in between.
+    releaseAudioSession();
     clearTimeout(recognitionStartTimer);
     recognitionStartTimer = setTimeout(() => {
         recognitionStartTimer = null;
         if (!recognition || recognitionActive) return;
+        releaseAudioSession();
         try { recognition.start(); }
         catch (e) { showToast('ההאזנה לא התחילה — הקש שוב.', true); }
     }, 150);
@@ -1567,7 +1572,13 @@ function orbTap(){
 function startListening(){
     micMuted = false;
     renderOrb();
-    playTapBurst('start'); beep(660, 0.12); haptic(14);
+    playTapBurst('start'); haptic(14);
+    // No beep here on iOS, deliberately. It would run the AudioContext in the
+    // 150ms immediately before the microphone opens — the exact collision
+    // above — and a confirmation chirp is not worth trading speech for. The
+    // burst and the orb changing state already say the tap registered. The
+    // STOP beep is kept everywhere: by then capture is over.
+    if (!IS_IOS) beep(660, 0.12);
     startRecognitionSafely();
 }
 function stopListening(){
@@ -1624,7 +1635,34 @@ function beep(freq, dur){
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (dur || 0.15));
         osc.connect(gain); gain.connect(ctx.destination);
         osc.start(); osc.stop(ctx.currentTime + (dur || 0.15));
+        // Hand the audio session straight back. A context left running holds
+        // iOS in playback mode, which is what starves the microphone — see
+        // releaseAudioSession. Suspending is cheap; the next beep resumes it.
+        osc.onended = () => { try { ctx.suspend(); } catch (e) {} };
     } catch(e) {}
+}
+
+/* Gives the shared audio session back before speech capture opens.
+
+   iOS gives a page ONE audio session. A running AudioContext holds it in
+   playback mode, and recognition opened against a playback session attaches
+   — onaudiostart fires — but then receives silence: no soundstart, no
+   speechstart, and eventually "aborted — No speech detected". That is
+   exactly the trace captured on the phone.
+
+   It was self-inflicted. The tap beep ran the context 150ms before
+   recognition.start(), and once that context became page-lifetime it never
+   released the session afterwards. Desktop has separate audio paths and
+   never shows any of this, which is why it looked like a phone problem. */
+function releaseAudioSession(){
+    let released = [];
+    try {
+        if (_beepCtx && _beepCtx.state === 'running') { _beepCtx.suspend(); released.push('audioctx'); }
+    } catch (e) {}
+    try {
+        if (ttsAudioEl && !ttsAudioEl.paused) { ttsAudioEl.pause(); released.push('tts'); }
+    } catch (e) {}
+    if (released.length) vlog('release-audio', released.join('+'));
 }
 const _orbStage = $('orb-stage');
 _orbStage.addEventListener('click', orbTap);
