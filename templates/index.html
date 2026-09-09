@@ -111,6 +111,33 @@
 .theme-swatch:hover{ transform:scale(1.09); }
 .theme-swatch.active{ border-color:var(--color-white); }
 .theme-swatch i{ width:26px; height:26px; border-radius:50%; background:rgb(var(--sw)); box-shadow:0 0 14px rgb(var(--sw)); }
+/* ===== Alarm setup (settings) ==========================================
+   Two states, because the instructions are worth reading exactly once. */
+.setup-steps{ counter-reset:step; display:flex; flex-direction:column; gap:9px; margin:12px 0 0; padding:0; list-style:none; }
+.setup-steps li{ display:flex; gap:10px; align-items:flex-start; font-size:13px; line-height:1.6; }
+.setup-steps li::before{
+    counter-increment:step; content:counter(step);
+    flex-shrink:0; width:21px; height:21px; border-radius:50%;
+    background:rgba(var(--accent-rgb),.12); border:1px solid rgba(var(--accent-rgb),.45);
+    color:rgb(var(--accent-rgb)); font-family:var(--font-mono); font-size:11px;
+    display:flex; align-items:center; justify-content:center; margin-top:1px;
+}
+.setup-steps b{ color:var(--color-white); font-weight:700; }
+.setup-steps .lit{ font-family:var(--font-mono); color:rgb(var(--accent-rgb)); unicode-bidi:plaintext; }
+.setup-done{
+    display:flex; align-items:center; gap:10px; padding:14px;
+    background:rgba(0,255,136,.08); border:1px solid rgba(0,255,136,.4);
+    border-radius:var(--radius-sm); font-size:13.5px; color:var(--color-white);
+}
+.setup-done .tick{ font-size:17px; line-height:1; }
+.setup-btn{
+    display:block; width:100%; margin-top:10px; padding:13px;
+    border-radius:var(--radius-sm); font-size:13px; font-weight:700; cursor:pointer;
+    background:var(--color-cyan-soft); border:1px solid rgba(var(--accent-rgb),.5);
+    color:var(--color-white); transition:border-color .2s ease, background .2s ease;
+}
+.setup-btn:hover{ border-color:rgba(var(--accent-rgb),.9); }
+.setup-btn.quiet{ background:none; border-color:rgba(255,255,255,.18); color:var(--color-text-dim); font-weight:500; }
 .ultron-btn{ display:block; width:100%; margin-top:10px; padding:13px; border-radius:var(--radius-sm); font-family:var(--font-display); font-size:13px; font-weight:800; letter-spacing:2px; cursor:pointer; border:1px solid rgba(255,45,45,.55); background:linear-gradient(140deg,rgba(60,64,72,.6),rgba(18,20,24,.92)); color:#ffe2e2; text-shadow:0 0 10px rgba(255,45,45,.8); transition:border-color .2s ease, box-shadow .2s ease; }
 .ultron-btn:hover{ border-color:rgba(255,45,45,.95); box-shadow:0 0 18px rgba(255,45,45,.35); }
 .ultron-btn.on{ background:linear-gradient(140deg,rgba(120,22,22,.72),rgba(30,10,10,.95)); }
@@ -885,19 +912,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="voice-info-block">לחיצה לדיבור · מדבר בעברית · JARVIS עונה באנגלית<br/>אישור לפני פעולה: פעיל — כל שינוי ביומן או שליחת מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
 
             <div class="settings-sub">◂ שעון מעורר</div>
-            <div class="voice-info-block">
-              כדי ש-JARVIS יוכל לכוון לך <b>מעורר אמיתי</b> שמצלצל ומעיר — צריך
-              להגדיר קיצור פעם אחת. אפל לא מאפשרת לאתר לגעת באפליקציית השעון
-              ישירות, וקיצור הוא הדרך היחידה שנשארה.
-              <br/><br/>
-              1. פתח את אפליקציית <b>Shortcuts</b> (קיצורים) ← ➕<br/>
-              2. הוסף פעולה <b>Get dates from</b>, ובשדה שלה בחר <b>Shortcut Input</b><br/>
-              3. הוסף פעולה <b>Create Alarm</b>, ובשדה השעה בחר את הפלט של הפעולה הקודמת<br/>
-              4. שנה את שם הקיצור בדיוק ל-<b>JARVIS Alarm</b> — כולל אותיות גדולות ורווח<br/>
-              5. זהו. תגיד "תעיר אותי ב-7" ותקיש על הכרטיס.
-              <br/><br/>
-              אם לא קורה כלום בלחיצה — כמעט תמיד השם לא תואם במדויק.
-            </div>
+            <div id="alarm-setup"></div>
 
             <div class="settings-sub">◂ מראה</div>
             <div class="theme-row" id="theme-row"></div>
@@ -2759,7 +2774,14 @@ async function resolveConfirmation(approve){
         const isAlarm = evt.kind === 'phone_app' && evt.details.action === 'alarm';
         if (approve) {
             openPhoneLink(evt.details.url);
-            showToast(isAlarm ? `מכוון שעון מעורר ל-${evt.details.target}.`
+            // Nothing here can detect a missing shortcut — iOS reports that to
+            // itself, not back to the page. But we do know whether the user
+            // ever marked the setup done, which is the likeliest reason an
+            // alarm goes nowhere, so say it up front instead of leaving them
+            // staring at a Shortcuts error.
+            showToast(isAlarm ? (alarmSetupDone()
+                        ? `מכוון שעון מעורר ל-${evt.details.target}.`
+                        : `מכוון ל-${evt.details.target} — אם לא קרה כלום, הקיצור עוד לא מוגדר (הגדרות ← שעון מעורר).`)
                     : isNav   ? `פותח ${evt.details.label} — נסיעה טובה.`
                               : `פתחתי חיפוש עבור '${evt.details.query}'.`);
         } else {
@@ -3213,6 +3235,88 @@ function tapStatusCard(){
 }
 
 applyAppearance();
+
+/* ================================================================================
+   Alarm setup — the one-time Shortcuts step, and remembering it was done.
+
+   In localStorage rather than users.db, and not merely for convenience: the
+   shortcut physically lives on ONE iPhone. "Set up" is a fact about this
+   device, not about the account, so a second device genuinely should still be
+   asked — which is exactly what per-device storage gives for free.
+
+   What can't be remembered is the ✅ on each alarm. That tap isn't our
+   confirmation step, it's the browser's: opening another app is only allowed
+   inside a user gesture, so there is no setting anywhere that could skip it.
+   Said plainly in the UI rather than left as a mystery.
+   ================================================================================ */
+const ALARM_SETUP_KEY = 'jarvis_alarm_setup_done';
+const ALARM_SHORTCUT_NAME = 'JARVIS Alarm';
+
+function alarmSetupDone(){ return lsGet(ALARM_SETUP_KEY, '0') === '1'; }
+
+function openShortcutsApp(){
+    // Same helper the confirmation cards use — this is a direct tap, so the
+    // gesture is live and the scheme opens. Verified on the user's iPhone:
+    // shortcuts:// works where clock-alarm:// does nothing.
+    openPhoneLink('shortcuts://');
+}
+
+function setAlarmSetupDone(done){
+    lsSet(ALARM_SETUP_KEY, done ? '1' : '0');
+    renderAlarmSetup();
+    if (done) { beep(700, 0.1); showToast('נשמר. לא אבקש שוב במכשיר הזה.'); }
+}
+
+function renderAlarmSetup(){
+    const box = $('alarm-setup');
+    if (!box) return;
+    box.innerHTML = '';
+
+    if (alarmSetupDone()) {
+        const done = el('div', 'setup-done');
+        done.innerHTML = '<span class="tick">✓</span><span>הקיצור מוכן. תגיד ' +
+            '<b>"תעיר אותי ב-7"</b> והקש על הכרטיס.</span>';
+        box.appendChild(done);
+
+        const open = el('button', 'setup-btn');
+        open.innerText = '📱 פתח את Shortcuts';
+        open.onclick = openShortcutsApp;
+        box.appendChild(open);
+
+        const again = el('button', 'setup-btn quiet');
+        again.innerText = 'הצג שוב את ההוראות';
+        again.onclick = () => setAlarmSetupDone(false);
+        box.appendChild(again);
+        return;
+    }
+
+    const intro = el('div', 'voice-info-block');
+    intro.innerHTML = 'כדי ש-JARVIS יכוון לך <b>מעורר אמיתי</b> שמצלצל ומעיר — צריך ' +
+        'קיצור אחד, פעם אחת. אפל חוסמת גישה ישירה לאפליקציית השעון, וזו הדרך שנשארה.';
+    box.appendChild(intro);
+
+    const steps = el('ol', 'setup-steps');
+    steps.innerHTML =
+        '<li>פתח את <b>Shortcuts</b> בכפתור למטה, ואז <b>➕</b></li>' +
+        '<li>הוסף פעולה <span class="lit">Get dates from</span> — ובשדה שלה בחר ' +
+            '<span class="lit">Shortcut Input</span></li>' +
+        '<li>הוסף פעולה <span class="lit">Create Alarm</span> — ובשדה השעה בחר את ' +
+            'הפלט של הפעולה הקודמת</li>' +
+        '<li>שנה את שם הקיצור בדיוק ל-<span class="lit">' + ALARM_SHORTCUT_NAME + '</span>. ' +
+            'שם שלא תואם לתו הוא כמעט תמיד הסיבה שכלום לא קורה.</li>';
+    box.appendChild(steps);
+
+    const open = el('button', 'setup-btn');
+    open.innerText = '📱 פתח את Shortcuts עכשיו';
+    open.onclick = openShortcutsApp;
+    box.appendChild(open);
+
+    const mark = el('button', 'setup-btn');
+    mark.innerText = '✓ סיימתי — אל תציג לי את זה שוב';
+    mark.onclick = () => setAlarmSetupDone(true);
+    box.appendChild(mark);
+}
+renderAlarmSetup();
 
 /* ---- Known-accounts switcher (client-side localStorage) ---- */
 const KNOWN_ACCOUNTS_KEY = 'jarvis_known_accounts';
