@@ -295,7 +295,7 @@ def sanitize_shortcuts(raw) -> list:
         does = _CONTROL_CHARS_RE.sub(" ", str(item.get("does", ""))).strip()[:MAX_SHORTCUT_FIELD]
         if not name:
             continue
-        out.append({"name": name, "does": does, "takes_input": bool(item.get("takes_input"))})
+        out.append({"name": name, "does": does})
     return out
 
 
@@ -308,21 +308,20 @@ def _shortcuts_context(shortcuts: list) -> str:
     above), so it goes there too.
     """
     if not shortcuts:
-        return ("The user has not registered any Shortcuts on this device. "
-                "run_shortcut has nothing it may call — if they ask for "
-                "something that would need one, tell them to add it under "
-                "Settings, and don't invent a shortcut name.")
-    lines = []
-    for sc in shortcuts:
-        takes = "takes a text input" if sc["takes_input"] else "takes NO input"
-        does = f" — {sc['does']}" if sc["does"] else ""
-        lines.append(f'  - "{sc["name"]}" ({takes}){does}')
+        return ("The user hasn't listed any Shortcuts, so you don't know what "
+                "they have. You may still call run_shortcut when they name a "
+                "shortcut themselves — pass the name through exactly as they "
+                "said it. Never guess a name they haven't mentioned; say you "
+                "don't know what shortcuts they have and ask.")
+    lines = [f'  - "{sc["name"]}"' + (f" — {sc['does']}" if sc["does"] else "")
+             for sc in shortcuts]
     return (
-        "Shortcuts the user has on their phone, callable with run_shortcut. "
-        "Use the name EXACTLY as written, character for character — a name "
-        "that differs by even one character silently does nothing. Never pass "
-        "an input to one marked as taking none, and never invent a name that "
-        "is not on this list:\n" + "\n".join(lines)
+        "Shortcuts the user has told you about, callable with run_shortcut. "
+        "Use a name EXACTLY as written here, character for character — a name "
+        "off by one character opens the Shortcuts app and just sits there, "
+        "which looks broken. This list is a convenience, not a limit: if the "
+        "user names some other shortcut of theirs out loud, pass that name "
+        "through as they said it.\n" + "\n".join(lines)
     )
 
 
@@ -1050,6 +1049,35 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "play_music",
+            "description": (
+                "Open Spotify on the user's phone at a song, artist, album or "
+                "playlist they asked for. Use this for any 'play me…' / "
+                "'תנגן לי…' request. Needs no shortcut and no setup — it is a "
+                "direct Spotify link — so prefer it over run_shortcut for "
+                "music."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "What to play, as the user said it — a song title, "
+                            "an artist, or both ('Bohemian Rhapsody Queen'). "
+                            "Keep their language and spelling; Spotify's own "
+                            "search handles Hebrew and transliteration better "
+                            "than a guess at the 'official' title would."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_shortcut",
             "description": (
                 "Run one of the user's own iPhone Shortcuts by name. The "
@@ -1475,6 +1503,33 @@ def _alarm_time_text(hour: int, minute: int) -> str:
     return f"{display_hour}:{minute:02d} {suffix}"
 
 
+def _play_music(user_id, args):
+    """Spotify's own https link, so no shortcut and no API credentials are
+    involved — iOS and Android hand open.spotify.com to the installed app,
+    and fall back to the web player when it isn't there.
+
+    It lands on search results rather than starting playback outright, which
+    costs one tap. Playing a specific track directly would need a track ID,
+    and getting one means calling Spotify's search API with app credentials —
+    a key to obtain, store and keep alive. That trade was declined
+    deliberately; this route works today with nothing to maintain.
+    """
+    query = (args.get("query") or "").strip()
+    if not query:
+        return "What would you like me to play, sir?"
+
+    url = f"https://open.spotify.com/search/{requests.utils.quote(query)}"
+    details = {"action": "music", "label": "Spotify", "target": query,
+               "url": url, "ts": time.time()}
+    _PENDING_PHONE_LINK[user_id] = details
+    event_stream.push_event({
+        "type": "confirmation_required", "kind": "phone_app",
+        "message": f"Open Spotify for '{query}'?",
+        "details": details,
+    }, user_id=user_id)
+    return f"'{query}' is on the HUD, sir — tap to play it."
+
+
 def _shortcut_url(name: str, text: str = "") -> str:
     url = f"shortcuts://run-shortcut?name={requests.utils.quote(name)}"
     if text:
@@ -1494,16 +1549,13 @@ def _run_shortcut(user_id, args, allowed):
     if not name:
         return "Which shortcut should I run, sir?"
 
-    match = next((sc for sc in allowed if sc["name"] == name), None)
-    if match is None:
-        if not allowed:
-            return ("There are no Shortcuts registered on this device yet, sir — "
-                    "they can be added under Settings.")
-        names = ", ".join(f"'{sc['name']}'" for sc in allowed)
-        return (f"I don't have a shortcut called '{name}', sir. What's set up "
-                f"is: {names}.")
-
-    text = (args.get("input") or "").strip() if match["takes_input"] else ""
+    # Unlisted names are allowed through on purpose. The list is there so the
+    # model can act on "set a timer" without being told the name every time —
+    # not to restrict what the user may run on their own phone. iOS is the
+    # real check: a name that doesn't exist opens Shortcuts and stops there,
+    # which is visible and harmless, and the card below shows the exact name
+    # being called so a mismatch is obvious rather than mysterious.
+    text = (args.get("input") or "").strip()
     details = {"action": "shortcut", "label": name, "target": text or "—",
                "url": _shortcut_url(name, text), "ts": time.time()}
     _PENDING_PHONE_LINK[user_id] = details
@@ -1619,6 +1671,7 @@ def _build_tool_impl(user_id: str, shortcuts: list = None) -> dict:
         "set_reminder": lambda args: _set_reminder(user_id, args),
         "set_recurring_reminder": lambda args: _set_recurring_reminder(user_id, args),
         "update_reminder": lambda args: _update_reminder(user_id, args),
+        "play_music": lambda args: _play_music(user_id, args),
         "run_shortcut": lambda args: _run_shortcut(user_id, args, shortcuts or []),
         "set_alarm": lambda args: _set_alarm(user_id, args),
         "navigate_to": lambda args: _navigate_to(user_id, args),

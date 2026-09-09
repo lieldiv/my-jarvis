@@ -2602,8 +2602,13 @@ function renderConfirmReadFields(evt){
             fieldRow(box, 'שעה', d.target);
             fieldRow(box, 'דרך', 'קיצור ' + d.label);
         } else if (d.action === 'shortcut') {
+            // The exact name, so a mismatch is visible here rather than as a
+            // Shortcuts app that opens and mysteriously does nothing.
             fieldRow(box, 'קיצור', d.label);
             if (d.target && d.target !== '—') fieldRow(box, 'עם', d.target);
+        } else if (d.action === 'music') {
+            fieldRow(box, 'לנגן', d.target);
+            fieldRow(box, 'איפה', d.label);
         } else {
             fieldRow(box, 'יעד', d.target);
             fieldRow(box, 'אפליקציה', d.label);
@@ -2807,12 +2812,17 @@ async function resolveConfirmation(approve){
         pendingConfirmToken = null;
         hideConfirmModal();
         const isAlarm = evt.kind === 'phone_app' && evt.details.action === 'alarm';
-        const isShortcut = evt.kind === 'phone_app' && evt.details.action === 'shortcut';
+        const isShortcut = evt.kind === 'phone_app' &&
+            (evt.details.action === 'shortcut' || evt.details.action === 'music');
         if (isShortcut) {
             pendingConfirmToken = null;
             hideConfirmModal();
-            if (approve) { openPhoneLink(evt.details.url); showToast(`מפעיל "${evt.details.label}".`); }
-            else { showToast('בסדר, לא הפעלתי.'); }
+            const isMusic = evt.details.action === 'music';
+            if (approve) {
+                openPhoneLink(evt.details.url);
+                showToast(isMusic ? `פותח את Spotify — ${evt.details.target}.`
+                                  : `מפעיל "${evt.details.label}".`);
+            } else { showToast(isMusic ? 'בסדר, בלי מוזיקה.' : 'בסדר, לא הפעלתי.'); }
             if (evt.logId != null) updateActivityStatus(evt.logId, approve ? 'confirmed' : 'cancelled');
             return;
         }
@@ -3322,9 +3332,9 @@ function addShortcut(){
     const list = getShortcuts();
     if (list.some(s => s.name === name)) { showToast('הקיצור הזה כבר רשום.', true); return; }
     if (list.length >= MAX_SHORTCUTS) { showToast(`מקסימום ${MAX_SHORTCUTS} קיצורים.`, true); return; }
-    list.push({ name, does: $('sc-does').value.trim(), takes_input: $('sc-input').checked });
+    list.push({ name, does: $('sc-does').value.trim() });
     saveShortcuts(list);
-    $('sc-name').value = ''; $('sc-does').value = ''; $('sc-input').checked = false;
+    $('sc-name').value = ''; $('sc-does').value = '';
     renderShortcutRegistry();
     beep(700, 0.09);
     showToast(`"${name}" נרשם — JARVIS יידע להפעיל אותו.`);
@@ -3343,9 +3353,10 @@ function renderShortcutRegistry(){
     const list = getShortcuts();
     const intro = el('div', 'voice-info-block');
     intro.innerHTML = list.length
-        ? 'JARVIS יכול להפעיל את הקיצורים האלה. השם חייב להיות <b>זהה בדיוק</b> לזה שבאפליקציית Shortcuts.'
-        : 'JARVIS לא רואה את הטלפון שלך — הוא לא יודע אילו קיצורים יש לך עד שתגיד לו. ' +
-          'הוסף קיצור כאן, והוא יוכל להפעיל אותו בפקודה קולית.';
+        ? 'JARVIS יפעיל את אלה גם בלי שתגיד את השם. השם חייב להיות <b>זהה בדיוק</b> לזה שבאפליקציית Shortcuts — אחרת Shortcuts רק נפתח ולא מריץ.'
+        : '<b>לא חובה למלא כאן כלום.</b> תמיד אפשר פשוט לומר ל-JARVIS את שם הקיצור ' +
+          '("תפעיל את הקיצור הפעלת מוזיקה"). הרשימה הזו רק חוסכת לך לומר את השם — ' +
+          'הוא יידע לבד מתי להפעיל אותו.';
     box.appendChild(intro);
 
     list.forEach(sc => {
@@ -3353,8 +3364,7 @@ function renderShortcutRegistry(){
         const info = el('div', 'sc-info');
         const nm = el('div', 'sc-name'); nm.innerText = sc.name;
         const meta = el('div', 'sc-meta');
-        meta.innerText = (sc.does ? sc.does + ' · ' : '') +
-            (sc.takes_input ? 'מקבל קלט' : 'בלי קלט');
+        meta.innerText = sc.does || 'קיצור';
         info.append(nm, meta);
         const del = el('button', 'sc-del');
         del.innerText = '✕';
@@ -3367,9 +3377,7 @@ function renderShortcutRegistry(){
     const form = el('div', 'sc-form');
     form.innerHTML =
         '<input type="text" id="sc-name" placeholder="שם הקיצור — בדיוק כמו באפליקציה" dir="auto">' +
-        '<input type="text" id="sc-does" placeholder="מה הוא עושה (למשל: ספירה לאחור)" dir="auto">' +
-        '<label class="sc-check"><input type="checkbox" id="sc-input">' +
-        'מקבל קלט (למשל משך זמן או שם שיר)</label>';
+        '<input type="text" id="sc-does" placeholder="מתי להשתמש בו (לא חובה)" dir="auto">';
     box.appendChild(form);
 
     const add = el('button', 'setup-btn');
