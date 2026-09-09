@@ -1737,8 +1737,13 @@ function initSpeechRecognition(){
         micMuted = true;
         voiceState = 'idle';
         renderOrb();
+        // Deliberately does NOT say "just use Safari". On iOS that would trade
+        // one broken thing for another: Web Push is Home-Screen-only, so
+        // moving to Safari for speech silently kills every reminder. The two
+        // requirements genuinely contradict each other — see the Settings
+        // note, which has room to explain the trade rather than half of it.
         showToast(IS_IOS && IS_STANDALONE
-            ? 'המיקרופון לא נפתח. באייפון, זיהוי דיבור לא עובד מהאפליקציה שנוספה למסך הבית — פתח את JARVIS ב-Safari.'
+            ? 'המיקרופון לא נפתח — באייפון זו מגבלה של מסך הבית. ראה "שים לב" בהגדרות.'
             : 'המיקרופון לא נפתח — הקש שוב.', true);
     }
 
@@ -3390,9 +3395,18 @@ function renderStandaloneWarning(){
     if (!(IS_IOS && IS_STANDALONE)) return;
     box.appendChild(Object.assign(el('div', 'settings-sub'), { innerText: '◂ שים לב' }));
     const w = el('div', 'warn-block');
-    w.innerHTML = '⚠ JARVIS פתוח כרגע מ<b>מסך הבית</b>. באייפון, זיהוי הדיבור לא ' +
-        'מקבל שם את אותה גישה שיש לו ב-Safari — ולכן לפעמים הוא פשוט לא שומע. ' +
-        'לשימוש קולי, פתח את הכתובת ישירות ב-Safari.';
+    w.innerHTML =
+        '⚠ JARVIS פתוח כרגע מ<b>מסך הבית</b>, ובאייפון זה קובע מה עובד:' +
+        '<br/><br/>' +
+        '🎙 <b>דיבור</b> — אפל לא נותנת לזיהוי דיבור את אותה גישה כאן שיש לו ב-Safari. ' +
+        'זו הסיבה שלפעמים הוא פשוט לא שומע.<br/>' +
+        '🔔 <b>התראות</b> — עובדות <b>רק</b> מהאפליקציה שבמסך הבית. ב-Safari הן לא קיימות כלל.' +
+        '<br/><br/>' +
+        'השניים סותרים זה את זה, וזו מגבלה של אפל — לא משהו שאפשר לתקן מהצד שלנו. ' +
+        '<b>ההמלצה: השאר את האייקון</b> (הוא מה שמביא לך את התזכורות), ופתח את הכתובת ' +
+        'ב-Safari כשאתה רוצה לדבר.' +
+        '<br/><br/>' +
+        'שים לב שהגדרות (צבע, קיצורים) נשמרות בנפרד בכל אחד מהם — iOS מפריד ביניהם.';
     box.appendChild(w);
 }
 renderStandaloneWarning();
