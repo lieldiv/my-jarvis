@@ -938,6 +938,9 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
             <div id="standalone-warning"></div>
 
+            <div class="settings-sub">◂ אבחון דיבור</div>
+            <div id="voice-diag"></div>
+
             <div class="settings-sub">◂ הקיצורים שלי</div>
             <div id="shortcut-registry"></div>
 
@@ -1384,6 +1387,42 @@ let recognitionSafetyTimer = null;  // forces recognition.stop() if the browser'
 let audioCaptureStarted = false;    // did onaudiostart actually fire for this session?
 let audioCaptureWatchdog = null;
 
+/* ================================================================================
+   Voice diagnostics.
+
+   Speech works on the desktop and intermittently on the phone, and every
+   explanation so far has been a hypothesis. The spec fires a fixed sequence —
+   start -> audiostart -> soundstart -> speechstart -> result -> speechend ->
+   soundend -> audioend -> end — so WHERE that sequence stops says which layer
+   failed, without guessing:
+
+     stops after start        the microphone never attached
+     stops after audiostart   mic is open, no sound is reaching it
+     stops after speechstart  speech heard, the recogniser returned nothing
+     error:<code>             iOS said why, and we can finally read it
+
+   Kept in memory only, capped, and shown in Settings so it can be sent back.
+   ================================================================================ */
+const RECOGNITION_LANG = 'he-IL';
+const VOICE_LOG_MAX = 40;
+const voiceLog = [];
+
+function vlog(event, detail){
+    voiceLog.push({ t: Date.now(), event, detail: detail || '' });
+    if (voiceLog.length > VOICE_LOG_MAX) voiceLog.shift();
+    renderVoiceLog();
+}
+
+function voiceLogText(){
+    if (!voiceLog.length) return 'עדיין אין אירועים. הקש על הכדור ודבר.';
+    const t0 = voiceLog[0].t;
+    const head = `platform: ${IS_IOS ? 'iOS' : 'other'} | ` +
+        `${IS_STANDALONE ? 'home-screen' : 'browser'} | lang: ${RECOGNITION_LANG}`;
+    return head + '\n' + voiceLog.map(e =>
+        `+${String(e.t - t0).padStart(5)}ms  ${e.event}${e.detail ? '  ' + e.detail : ''}`
+    ).join('\n');
+}
+
 /* iPadOS reports itself as a Mac, hence the touch-point check. */
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -1709,7 +1748,7 @@ function initSpeechRecognition(){
     recognition = new SpeechRecognitionCtor();
     recognition.continuous = false;
     recognition.interimResults = false;
-    recognition.lang = 'he-IL';
+    recognition.lang = RECOGNITION_LANG;
 
     /* The microphone never actually opened, even though the session did.
 
@@ -1750,17 +1789,27 @@ function initSpeechRecognition(){
     recognition.onaudiostart = () => {
         audioCaptureStarted = true;
         clearTimeout(audioCaptureWatchdog);
+        vlog('audiostart');
     };
+    // Logged only — these exist to show how far the chain got.
+    recognition.onsoundstart = () => vlog('soundstart');
+    recognition.onspeechstart = () => vlog('speechstart');
+    recognition.onspeechend = () => vlog('speechend');
+    recognition.onnomatch = () => vlog('nomatch', 'heard speech, recognised nothing');
 
     recognition.onstart = () => {
         recognitionActive = true;
         audioCaptureStarted = false;
+        vlog('start', `lang=${recognition.lang}`);
         // 1.5s is generous: onaudiostart normally lands within a few hundred
         // milliseconds of onstart, and waiting longer just extends how long
         // the orb lies about listening.
         clearTimeout(audioCaptureWatchdog);
         audioCaptureWatchdog = setTimeout(() => {
-            if (!audioCaptureStarted && recognitionActive && !micMuted) micCaptureFailed();
+            if (!audioCaptureStarted && recognitionActive && !micMuted) {
+                vlog('WATCHDOG', 'no audiostart within 1.5s');
+                micCaptureFailed();
+            }
         }, 1500);
         if (isAwake && voiceState === 'idle') { voiceState = 'listening'; renderOrb(); }
         // Safety net for "never stops listening" with background noise.
@@ -1787,8 +1836,17 @@ function initSpeechRecognition(){
     recognition.onresult = (event) => {
         clearTimeout(recognitionSafetyTimer);
         clearTimeout(audioCaptureWatchdog);
+        try { vlog('result', `"${event.results[0][0].transcript}"`); } catch (e) { vlog('result'); }
         if (micMuted) return;
-        const transcript = event.results[0][0].transcript.toLowerCase().trim();
+        // Guarded because an exception thrown from inside an event handler
+        // never reaches our own state machine: micMuted and voiceState would
+        // stay wherever they were, leaving the orb on "מקשיב…" with no way
+        // back short of a reload. A malformed result event is rare, but
+        // "rare" and "wedges the app" is a bad combination when the cost of
+        // ruling it out is three lines.
+        let transcript = '';
+        try { transcript = event.results[0][0].transcript.toLowerCase().trim(); } catch (e) {}
+        if (!transcript) { vlog('result', 'empty or malformed — ignored'); return; }
 
         if (pendingConfirmToken || pendingConfirmEvt) {
             // web_search/"places" confirmations are deliberately tokenless
@@ -1813,6 +1871,21 @@ function initSpeechRecognition(){
     recognition.onerror = (event) => {
         clearTimeout(recognitionSafetyTimer);
         clearTimeout(audioCaptureWatchdog);
+        vlog('ERROR', event.error + (event.message ? ' — ' + event.message : ''));
+
+        /* he-IL is not guaranteed to exist on every phone. Desktop browsers
+           recognise server-side and handle it happily; iOS leans on the
+           system's own dictation, which only offers the languages that
+           device actually has. When it says so, fall back to the device
+           default once rather than leaving the user with a mic that opens
+           and understands nothing. */
+        if (event.error === 'language-not-supported' && recognition.lang === RECOGNITION_LANG) {
+            recognition.lang = '';
+            vlog('lang-fallback', 'he-IL unsupported, retrying with device default');
+            showToast('העברית לא נתמכת בזיהוי הדיבור במכשיר הזה — עברתי לשפת ברירת המחדל.', true);
+            return;
+        }
+
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
             showToast('הגישה למיקרופון נחסמה — אפשר אותה בהגדרות הדפדפן, או השתמש בקלט הטקסט.', true);
         } else if (event.error === 'no-speech' && isAwake && !micMuted) {
@@ -1832,12 +1905,20 @@ function initSpeechRecognition(){
             // the orb quietly go idle and has no idea it needs a fresh tap
             // — indistinguishable from "stopped listening for no reason".
             showToast('ההאזנה נעצרה — הקש שוב כדי להמשיך.', true);
+        } else if (isAwake && !micMuted) {
+            /* Everything else used to fall off the end of this chain and say
+               nothing at all — which is how an unfamiliar iOS error code
+               became "it just doesn't hear me sometimes". The raw code is
+               shown deliberately: it is the one piece of information that
+               makes the next report actionable instead of a guess. */
+            showToast(`זיהוי הדיבור נכשל (${event.error}) — הקש שוב. הפרטים ב"אבחון דיבור" בהגדרות.`, true);
         }
     };
 
     recognition.onend = () => {
         clearTimeout(recognitionSafetyTimer);
         clearTimeout(audioCaptureWatchdog);
+        vlog('end');
         recognitionActive = false;
         // No result came in this round (no speech heard, network hiccup, the
         // mobile recognizer just timing out early — all common on phones) —
@@ -3410,6 +3491,44 @@ function renderStandaloneWarning(){
     box.appendChild(w);
 }
 renderStandaloneWarning();
+
+function renderVoiceLog(){
+    const pre = $('voice-diag-log');
+    if (pre) pre.innerText = voiceLogText();
+}
+
+function renderVoiceDiag(){
+    const box = $('voice-diag');
+    if (!box) return;
+    box.innerHTML = '';
+    const intro = el('div', 'voice-info-block');
+    intro.innerHTML = 'אם הדיבור לא נקלט — הקש על הכדור, נסה לדבר, וחזור לכאן. ' +
+        'הרשימה מראה עד לאיזה שלב הגיע התהליך, וזה מה שמזהה איפה הוא נשבר.';
+    box.appendChild(intro);
+
+    const pre = el('pre');
+    pre.id = 'voice-diag-log';
+    pre.style.cssText = 'margin:8px 0 0;padding:11px;background:#020509;border:var(--border-default);' +
+        'border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:11.5px;' +
+        'color:var(--color-text-dim);direction:ltr;text-align:left;white-space:pre-wrap;' +
+        'max-height:220px;overflow:auto;';
+    pre.innerText = voiceLogText();
+    box.appendChild(pre);
+
+    const copy = el('button', 'setup-btn');
+    copy.innerText = '📋 העתק את היומן';
+    copy.onclick = async () => {
+        try { await navigator.clipboard.writeText(voiceLogText()); showToast('הועתק — הדבק לי את זה.'); }
+        catch (e) { showToast('לא הצלחתי להעתיק — צלם מסך במקום.', true); }
+    };
+    box.appendChild(copy);
+
+    const clear = el('button', 'setup-btn quiet');
+    clear.innerText = 'נקה יומן';
+    clear.onclick = () => { voiceLog.length = 0; renderVoiceLog(); };
+    box.appendChild(clear);
+}
+renderVoiceDiag();
 
 const SHORTCUTS_KEY = 'jarvis_shortcuts';
 const MAX_SHORTCUTS = 12;   // mirrors the server's own cap
