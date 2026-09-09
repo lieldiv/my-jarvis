@@ -558,6 +558,10 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .confirm-btn-row{ display:flex; gap:8px; }
 .confirm-btn-row.hide{ display:none; }
 .confirm-btn{ flex:1; text-align:center; padding:13px; border-radius:var(--radius-sm); font-size:13px; font-weight:600; cursor:pointer; border:1px solid rgba(255,255,255,0.2); color:var(--color-white); background:none; }
+/* Pulsed when a spoken "yes" can't open an app — see flashApproveButton. */
+@keyframes jm-btnflash { 0%,100% { transform:scale(1); box-shadow:none; } 35% { transform:scale(1.05); box-shadow:0 0 20px rgba(var(--accent-rgb),.9); } }
+.confirm-btn.flash{ animation:jm-btnflash .5s ease 3; }
+@media (prefers-reduced-motion: reduce){ .confirm-btn.flash{ animation:none; outline:2px solid rgb(var(--accent-rgb)); } }
 .confirm-btn.reject{ border-color:rgba(255,59,59,0.4); color:var(--color-red); flex:1; }
 .confirm-btn.confirm{ flex:1.3; font-weight:800; font-family:var(--font-display); background:rgb(var(--accent-rgb)); color:var(--color-bg); border:none; box-shadow:0 4px 20px rgba(var(--accent-rgb),0.4); }
 .confirm-btn.save{ background:rgb(var(--accent-rgb)); color:var(--color-bg); font-family:var(--font-display); font-weight:700; border:none; }
@@ -2477,6 +2481,7 @@ async function submitPlaces(){
 const CONFIRM_TITLES = {
     calendar_event: 'הצעת אירוע ביומן', calendar_event_update: 'שינוי זמן אירוע',
     calendar_event_delete: 'ביטול אירוע ביומן', email: 'הצעת אימייל', web_search: 'הצעת חיפוש',
+    phone_app: 'פתיחת אפליקציה',
 };
 /* Assigned straight onto style.background / .color / .boxShadow, all of
    which resolve var() at paint time — so these follow the active theme and
@@ -2484,17 +2489,19 @@ const CONFIRM_TITLES = {
 const ACCENT = 'rgb(var(--accent-rgb))';
 const CONFIRM_ACCENTS = {
     calendar_event: ACCENT, calendar_event_update: ACCENT, calendar_event_delete: '#ff3b3b',
+    phone_app: '#00ff88',
     email: '#ffc800', web_search: '#ffc800',
 };
 const CONFIRMING_LABELS = {
     calendar_event: 'יוצר אירוע ביומן…', calendar_event_update: 'מעדכן שעה…', calendar_event_delete: 'מבטל פגישה…',
-    email: 'שולח מייל…', web_search: 'פותח מפות…',
+    email: 'שולח מייל…', web_search: 'פותח מפות…', phone_app: 'פותח ניווט…',
 };
 // Fallback tool label for showConfirmModal's History entry, only used when
 // no in-flight command was tracking one already (see inFlightLogId).
 const CONFIRM_TOOL_NAMES = {
     calendar_event: 'create_calendar_event', calendar_event_update: 'update_calendar_event',
     calendar_event_delete: 'delete_calendar_event', email: 'send_email', web_search: 'find_nearby_places',
+    phone_app: 'navigate_to',
 };
 
 function formatDateTimeRange(startIso, endIso){
@@ -2526,6 +2533,9 @@ function renderConfirmReadFields(evt){
     } else if (evt.kind === 'email' && d) {
         fieldRow(box, 'אל', d.to); fieldRow(box, 'נושא', d.subject); fieldRow(box, 'הודעה', d.body);
         fieldRow(box, 'קבצים', (d.attachments || []).join(', ')); fieldRow(box, 'דרך', d.provider);
+    } else if (evt.kind === 'phone_app' && d) {
+        fieldRow(box, 'יעד', d.target);
+        fieldRow(box, 'אפליקציה', d.label);
     } else if (evt.kind === 'web_search' && d) {
         fieldRow(box, 'חיפוש', d.query);
     } else if (evt.kind === 'calendar_event_delete' && d) {
@@ -2611,6 +2621,17 @@ function showConfirmModal(evt){
     $('confirm-btn-row-edit').classList.add('hide');
     $('confirm-overlay').classList.add('show');
 }
+/* Used when a spoken "yes" can't be honoured for a link kind: draw the eye to
+   the button that CAN do it, so the refusal reads as a redirect rather than a
+   dead end. */
+function flashApproveButton(){
+    const btn = document.querySelector('.confirm-btn.confirm');
+    if (!btn) return;
+    btn.classList.remove('flash');
+    void btn.offsetWidth;          // reflow, so a repeated "yes" replays it
+    btn.classList.add('flash');
+    setTimeout(() => btn.classList.remove('flash'), 1500);
+}
 function hideConfirmModal(){
     $('confirm-overlay').classList.remove('show');
     $('confirm-btn-row-view').classList.remove('hide');
@@ -2664,19 +2685,63 @@ async function saveConfirmEdit(){
         $('confirm-detail-title').innerText = (data.details && (data.details.summary || data.details.subject)) || '';
     } catch (err) { showToast('לא הצלחתי להתחבר לשרת כדי לשמור את השינוי.', true); }
 }
+/* Every confirmation kind whose approval OPENS SOMETHING in the browser
+   rather than calling back into the server. These are the ones bound by the
+   user-activation rule below, and the only ones that must never be approved
+   by voice. */
+const LINK_CONFIRM_KINDS = new Set(['web_search', 'phone_app']);
+
+/* Opening an app on the phone is a navigation, and browsers only allow one
+   inside a user gesture. Everything on this path is therefore synchronous —
+   no await between the button's click handler and this call — because iOS
+   Safari's transient-activation window is short enough that even awaiting an
+   already-resolved promise can miss it.
+
+   window.open can still return null: popup blocking, or an iOS home-screen
+   PWA declining a new window. Falling back to navigating this tab is not a
+   consolation prize, it is arguably the better path — these are https
+   universal links, so the OS hands them straight to the installed app and
+   this page never actually unloads. Only when the app ISN'T installed does
+   the navigation really happen, and landing on Waze's or Maps' web version
+   is the right outcome in that case anyway. */
+function openPhoneLink(url){
+    let opened = null;
+    try { opened = window.open(url, '_blank'); } catch (e) {}
+    if (!opened) window.location.href = url;
+}
+
 function handleConfirmationReply(text){
     const approve = /\b(yes|confirm|approve|do it|go ahead)\b/.test(text) || text.includes('כן') || text.includes('אשר') || text.includes('בסדר');
     const deny = /\b(no|cancel|deny|stop|don't)\b/.test(text) || text.includes('לא') || text.includes('בטל') || text.includes('ביטול');
     if (!approve && !deny) { showToast('אמור "כן" לאישור או "לא" לביטול — או השתמש בכפתורים.'); return; }
+    // A spoken "yes" arrives from a SpeechRecognition event, which carries no
+    // user activation — so the window.open below it would be blocked and the
+    // app would simply never open, after the HUD had already said "opening".
+    // Refusing here and pointing at the button is the honest failure. Denying
+    // by voice stays fine: nothing gets opened.
+    if (approve && pendingConfirmEvt && LINK_CONFIRM_KINDS.has(pendingConfirmEvt.kind)) {
+        showToast('הקש על ✅ כדי לפתוח — דפדפנים חוסמים פתיחת אפליקציה בלי לחיצה.');
+        flashApproveButton();
+        return;
+    }
     resolveConfirmation(approve);
 }
 async function resolveConfirmation(approve){
-    if (pendingConfirmEvt && pendingConfirmEvt.kind === 'web_search') {
+    // Link kinds are handled first and return early, before anything async,
+    // so the open still sits inside the approve button's own click task.
+    if (pendingConfirmEvt && LINK_CONFIRM_KINDS.has(pendingConfirmEvt.kind)) {
         const evt = pendingConfirmEvt;
+        const isNav = evt.kind === 'phone_app';
         pendingConfirmToken = null;
         hideConfirmModal();
-        if (approve) { window.open(evt.details.url, '_blank'); showToast(`פתחתי חיפוש עבור '${evt.details.query}'.`); }
-        else { showToast('בסדר, לא חיפשתי.'); }
+        if (approve) {
+            openPhoneLink(evt.details.url);
+            showToast(isNav
+                ? `פותח ${evt.details.label} — נסיעה טובה.`
+                : `פתחתי חיפוש עבור '${evt.details.query}'.`);
+        } else {
+            showToast(isNav ? 'בסדר, לא ניווטתי.' : 'בסדר, לא חיפשתי.');
+        }
         if (evt.logId != null) updateActivityStatus(evt.logId, approve ? 'confirmed' : 'cancelled');
         return;
     }
@@ -2709,6 +2774,7 @@ async function resolveConfirmation(approve){
    brief can play even before the user interacts with the page.
    ================================================================================ */
 let lastNearbySearchTs = 0;
+let lastPhoneLinkTs = 0;
 function initEventStream(){
     let es;
     try { es = new EventSource('/api/stream'); } catch (e) { return; }
@@ -2751,6 +2817,17 @@ setInterval(async () => {
             lastNearbySearchTs = data.ts;
             showConfirmModal({ type: 'confirmation_required', kind: 'web_search', message: `לחפש ב-Google Maps '${data.query}' בקרבת מקום?`, details: data, token: null });
             return; // don't also act on the general check below this tick
+        }
+    } catch (err) { /* silent — next tick retries */ }
+    try {
+        const res3 = await fetch('/api/phone-link/pending');
+        const data3 = await res3.json();
+        if (data3 && data3.ts && data3.ts > lastPhoneLinkTs) {
+            lastPhoneLinkTs = data3.ts;
+            showConfirmModal({ type: 'confirmation_required', kind: 'phone_app',
+                message: `לפתוח את ${data3.label} ולנווט אל '${data3.target}'?`,
+                details: data3, token: null });
+            return;
         }
     } catch (err) { /* silent — next tick retries */ }
     try {

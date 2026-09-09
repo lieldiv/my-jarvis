@@ -319,7 +319,12 @@ _DESKTOP_CONTROL_GUIDANCE = (
     "an action inside it."
     if DESKTOP_TOOLS_ENABLED else
     " There's no Windows desktop for you to control in this deployment — "
-    "don't offer to open or click around inside desktop applications."
+    "don't offer to open or click around inside desktop applications. "
+    "The user's own PHONE is a separate matter entirely and IS reachable: "
+    "navigate_to opens Waze or Google Maps on it with a route running. "
+    "The sentence above is about this server having no desktop; it does "
+    "not restrict navigate_to, so never refuse a navigation request on "
+    "grounds that you cannot open applications."
 )
 
 # The persona is the ONLY thing that varies between modes. Everything from
@@ -985,6 +990,49 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "navigate_to",
+            "description": (
+                "Start driving navigation on the user's PHONE to a specific "
+                "place they named — an address, a business, a landmark "
+                "('הקניון הגדול פתח תקווה', 'Ben Gurion Airport', "
+                "'דיזנגוף 50 תל אביב'). Use this whenever the user says they "
+                "want to drive, go, or travel to somewhere specific. It puts "
+                "a route on their HUD which they tap to open, so do not ask "
+                "for confirmation yourself — just call it. This is NOT the "
+                "same as desktop application control, which is unavailable; "
+                "navigating the user's phone always works. Use "
+                "find_nearby_places instead when there is no specific "
+                "destination and they are looking for a category near them "
+                "('find me a restaurant')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "destination": {
+                        "type": "string",
+                        "description": (
+                            "The destination exactly as the user said it, in "
+                            "their own language. This is their data, not your "
+                            "speech — never translate a Hebrew place name into "
+                            "English, the navigation app needs the local name."
+                        ),
+                    },
+                    "app": {
+                        "type": "string",
+                        "enum": ["waze", "google_maps"],
+                        "description": (
+                            "Which navigation app to open. Default to waze "
+                            "unless the user specifically asks for Google Maps."
+                        ),
+                    },
+                },
+                "required": ["destination"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "find_nearby_places",
             "description": (
                 "Propose a Google Maps search for nearby places — restaurants, "
@@ -1239,6 +1287,54 @@ def _update_reminder(user_id, args):
 _PENDING_NEARBY_SEARCH = {}  # user_id -> {"query", "url", "ts"}
 
 
+# Same per-user proposal-then-tap store as _PENDING_NEARBY_SEARCH below, kept
+# separate rather than merged because the two carry different payload shapes
+# and the nearby endpoint's response contract is already relied on by the HUD.
+_PENDING_PHONE_LINK = {}  # user_id -> {"label", "target", "url", "ts"}
+
+# HTTPS links, deliberately, not waze:// or comgooglemaps:// custom schemes.
+# Both of these are the vendors' own universal links: iOS and Android hand them to the
+# installed app automatically, and when the app ISN'T installed they fall back
+# to the equivalent web page instead of failing silently on an unknown scheme.
+# That single property removes the whole "did it work?" class of bug.
+_NAV_APPS = {
+    # navigate=yes starts turn-by-turn immediately rather than just showing
+    # the pin. See https://developers.google.com/waze/deeplinks
+    "waze": ("Waze", "https://waze.com/ul?q={q}&navigate=yes"),
+    # api=1 is mandatory — without it every other parameter is ignored and
+    # Maps just opens on its home screen. dir_action=navigate does for Maps
+    # what navigate=yes does for Waze.
+    "google_maps": ("Google Maps",
+                    "https://www.google.com/maps/dir/?api=1&destination={q}&dir_action=navigate"),
+}
+
+
+def _navigate_to(user_id, args):
+    """Proposes a route; the user's tap on the HUD's approve button is what
+    actually opens it. Nothing here opens anything server-side — see
+    _find_nearby_places below for the full reasoning, which applies verbatim:
+    a browser opened from this process would open on the SERVER. There is also
+    no guardrails token for the same reason it gives: no server-side callback
+    runs on approval, and nothing touches the user's real data."""
+    destination = (args.get("destination") or "").strip()
+    if not destination:
+        return "Where would you like to go, sir?"
+
+    app_key = (args.get("app") or "waze").strip().lower()
+    label, template = _NAV_APPS.get(app_key, _NAV_APPS["waze"])
+    url = template.format(q=requests.utils.quote(destination))
+
+    details = {"label": label, "target": destination, "url": url, "ts": time.time()}
+    _PENDING_PHONE_LINK[user_id] = details
+    event_stream.push_event({
+        "type": "confirmation_required", "kind": "phone_app",
+        "message": f"Open {label} and navigate to '{destination}'?",
+        "details": details,
+    }, user_id=user_id)
+    return (f"I've plotted a route to '{destination}' in {label}, sir — "
+            "it's on the HUD, tap to set off.")
+
+
 def _find_nearby_places(user_id, args):
     query = (args.get("query") or "").strip()
     if not query:
@@ -1294,6 +1390,7 @@ def _build_tool_impl(user_id: str) -> dict:
         "set_reminder": lambda args: _set_reminder(user_id, args),
         "set_recurring_reminder": lambda args: _set_recurring_reminder(user_id, args),
         "update_reminder": lambda args: _update_reminder(user_id, args),
+        "navigate_to": lambda args: _navigate_to(user_id, args),
         "find_nearby_places": lambda args: _find_nearby_places(user_id, args),
         "computer_use": lambda args: _computer_use(user_id, args),
         "list_workspace": lambda args: file_tools.list_dir(args.get("path", "."), user_id=user_id),
@@ -2018,6 +2115,19 @@ def nearby_search_pending():
     push. Returns {} if there's nothing recent for this user."""
     user_id = session.get("user_id")
     entry = _PENDING_NEARBY_SEARCH.get(user_id) if user_id else None
+    if not entry or time.time() - entry["ts"] > 120:
+        return jsonify({})
+    return jsonify(entry)
+
+
+@app.route("/api/phone-link/pending")
+def phone_link_pending():
+    """Polling backup for navigate_to, mirroring nearby_search_pending above —
+    event_stream.push_event is fire-and-forget and unbuffered, so a proposal
+    raised while the HUD's EventSource is still connecting would otherwise be
+    lost with no way to recover it."""
+    user_id = session.get("user_id")
+    entry = _PENDING_PHONE_LINK.get(user_id) if user_id else None
     if not entry or time.time() - entry["ts"] > 120:
         return jsonify({})
     return jsonify(entry)
