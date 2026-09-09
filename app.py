@@ -1829,6 +1829,26 @@ def service_worker():
     )
 
 
+@app.route("/scheme-probe")
+def scheme_probe():
+    """TEMPORARY diagnostic — delete once the alarm question is settled.
+
+    Answers one thing we cannot determine from documentation: whether iOS
+    still hands clock-alarm:// to the Clock app when the link is tapped in
+    Safari. Apple has never documented that scheme, and has been steadily
+    breaking private ones (App-Prefs URLs all stopped working in iOS 18), so
+    the only reliable source is a real iPhone.
+
+    It lives here rather than anywhere else simply because this is a page the
+    user's phone can already reach. Deliberately unauthenticated: it is static
+    markup with no inputs and no access to any user data, and requiring a
+    session would only add a way for the test itself to fail.
+    """
+    resp = make_response(render_template("scheme_probe.html"))
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.route("/api/push/vapid-public-key")
 def push_vapid_public_key():
     if not push_service.CONFIGURED:
