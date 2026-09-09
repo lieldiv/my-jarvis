@@ -124,6 +124,31 @@
 }
 .setup-steps b{ color:var(--color-white); font-weight:700; }
 .setup-steps .lit{ font-family:var(--font-mono); color:rgb(var(--accent-rgb)); unicode-bidi:plaintext; }
+/* ===== Shortcut registry ============================================== */
+.sc-row{
+    display:flex; align-items:center; gap:10px; padding:11px 13px; margin-top:8px;
+    background:var(--color-panel); border:var(--border-default);
+    border-radius:var(--radius-sm);
+}
+.sc-row .sc-info{ flex:1; min-width:0; }
+.sc-row .sc-name{
+    font-family:var(--font-mono); font-size:13px; color:rgb(var(--accent-rgb));
+    unicode-bidi:plaintext; word-break:break-word;
+}
+.sc-row .sc-meta{ font-size:11.5px; color:var(--color-text-dim); margin-top:2px; }
+.sc-row .sc-del{
+    flex-shrink:0; background:none; border:none; color:var(--color-red);
+    font-size:17px; cursor:pointer; padding:4px 6px; line-height:1;
+}
+.sc-form{ display:flex; flex-direction:column; gap:9px; margin-top:10px; }
+.sc-form input[type="text"]{
+    width:100%; padding:11px 12px; border-radius:var(--radius-sm);
+    background:#020509; border:var(--border-default); color:var(--color-white);
+    font-size:13.5px; font-family:var(--font-body);
+}
+.sc-form input::placeholder{ color:var(--color-text-dim); opacity:.75; }
+.sc-check{ display:flex; align-items:center; gap:9px; font-size:13px; color:var(--color-text-dim); cursor:pointer; }
+.sc-check input{ width:17px; height:17px; accent-color:rgb(var(--accent-rgb)); flex-shrink:0; }
 .setup-done{
     display:flex; align-items:center; gap:10px; padding:14px;
     background:rgba(0,255,136,.08); border:1px solid rgba(0,255,136,.4);
@@ -910,6 +935,9 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
             <div class="settings-sub">◂ קול</div>
             <div class="voice-info-block">לחיצה לדיבור · מדבר בעברית · JARVIS עונה באנגלית<br/>אישור לפני פעולה: פעיל — כל שינוי ביומן או שליחת מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
+
+            <div class="settings-sub">◂ הקיצורים שלי</div>
+            <div id="shortcut-registry"></div>
 
             <div class="settings-sub">◂ שעון מעורר</div>
             <div id="alarm-setup"></div>
@@ -1817,7 +1845,11 @@ document.addEventListener('visibilitychange', () => {
    an enum the server maps to its own fixed prompt, never text from the
    client that could steer the model. */
 function commandBody(command){
-    return JSON.stringify({ command, persona: currentMode() });
+    // The shortcut list rides along with every command because the server has
+    // no other way to learn it — it lives on this phone, not in any account.
+    // It is re-sent each time rather than registered once, so removing one
+    // here takes effect on the very next thing said.
+    return JSON.stringify({ command, persona: currentMode(), shortcuts: getShortcuts() });
 }
 async function sendCommand(commandText){
     if (!commandText || !commandText.trim()) return;
@@ -2569,6 +2601,9 @@ function renderConfirmReadFields(evt){
         if (d.action === 'alarm') {
             fieldRow(box, 'שעה', d.target);
             fieldRow(box, 'דרך', 'קיצור ' + d.label);
+        } else if (d.action === 'shortcut') {
+            fieldRow(box, 'קיצור', d.label);
+            if (d.target && d.target !== '—') fieldRow(box, 'עם', d.target);
         } else {
             fieldRow(box, 'יעד', d.target);
             fieldRow(box, 'אפליקציה', d.label);
@@ -2772,6 +2807,15 @@ async function resolveConfirmation(approve){
         pendingConfirmToken = null;
         hideConfirmModal();
         const isAlarm = evt.kind === 'phone_app' && evt.details.action === 'alarm';
+        const isShortcut = evt.kind === 'phone_app' && evt.details.action === 'shortcut';
+        if (isShortcut) {
+            pendingConfirmToken = null;
+            hideConfirmModal();
+            if (approve) { openPhoneLink(evt.details.url); showToast(`מפעיל "${evt.details.label}".`); }
+            else { showToast('בסדר, לא הפעלתי.'); }
+            if (evt.logId != null) updateActivityStatus(evt.logId, approve ? 'confirmed' : 'cancelled');
+            return;
+        }
         if (approve) {
             openPhoneLink(evt.details.url);
             // Nothing here can detect a missing shortcut — iOS reports that to
@@ -3249,6 +3293,97 @@ applyAppearance();
    inside a user gesture, so there is no setting anywhere that could skip it.
    Said plainly in the UI rather than left as a mystery.
    ================================================================================ */
+/* ================================================================================
+   The shortcut registry — what JARVIS is allowed to run on this phone.
+
+   It exists because the server cannot see the phone. A shortcut named
+   "התחלת ספירה לאחור" is invisible to it until someone says so, which is
+   exactly why asking for a countdown failed: the assistant had never heard
+   of it. Registering one here puts its name into the system message for
+   every command, so the model can call it by name.
+
+   Per device, like the alarm setup and for the same reason: shortcuts live on
+   one phone. A different phone has different ones, and should say so.
+   ================================================================================ */
+const SHORTCUTS_KEY = 'jarvis_shortcuts';
+const MAX_SHORTCUTS = 12;   // mirrors the server's own cap
+
+function getShortcuts(){
+    try {
+        const raw = JSON.parse(lsGet(SHORTCUTS_KEY, '[]'));
+        return Array.isArray(raw) ? raw.slice(0, MAX_SHORTCUTS) : [];
+    } catch (e) { return []; }
+}
+function saveShortcuts(list){ lsSet(SHORTCUTS_KEY, JSON.stringify(list.slice(0, MAX_SHORTCUTS))); }
+
+function addShortcut(){
+    const name = $('sc-name').value.trim();
+    if (!name) { showToast('צריך את שם הקיצור, בדיוק כפי שהוא מופיע.', true); return; }
+    const list = getShortcuts();
+    if (list.some(s => s.name === name)) { showToast('הקיצור הזה כבר רשום.', true); return; }
+    if (list.length >= MAX_SHORTCUTS) { showToast(`מקסימום ${MAX_SHORTCUTS} קיצורים.`, true); return; }
+    list.push({ name, does: $('sc-does').value.trim(), takes_input: $('sc-input').checked });
+    saveShortcuts(list);
+    $('sc-name').value = ''; $('sc-does').value = ''; $('sc-input').checked = false;
+    renderShortcutRegistry();
+    beep(700, 0.09);
+    showToast(`"${name}" נרשם — JARVIS יידע להפעיל אותו.`);
+}
+
+function removeShortcut(name){
+    saveShortcuts(getShortcuts().filter(s => s.name !== name));
+    renderShortcutRegistry();
+}
+
+function renderShortcutRegistry(){
+    const box = $('shortcut-registry');
+    if (!box) return;
+    box.innerHTML = '';
+
+    const list = getShortcuts();
+    const intro = el('div', 'voice-info-block');
+    intro.innerHTML = list.length
+        ? 'JARVIS יכול להפעיל את הקיצורים האלה. השם חייב להיות <b>זהה בדיוק</b> לזה שבאפליקציית Shortcuts.'
+        : 'JARVIS לא רואה את הטלפון שלך — הוא לא יודע אילו קיצורים יש לך עד שתגיד לו. ' +
+          'הוסף קיצור כאן, והוא יוכל להפעיל אותו בפקודה קולית.';
+    box.appendChild(intro);
+
+    list.forEach(sc => {
+        const row = el('div', 'sc-row');
+        const info = el('div', 'sc-info');
+        const nm = el('div', 'sc-name'); nm.innerText = sc.name;
+        const meta = el('div', 'sc-meta');
+        meta.innerText = (sc.does ? sc.does + ' · ' : '') +
+            (sc.takes_input ? 'מקבל קלט' : 'בלי קלט');
+        info.append(nm, meta);
+        const del = el('button', 'sc-del');
+        del.innerText = '✕';
+        del.title = 'הסר';
+        del.onclick = () => removeShortcut(sc.name);
+        row.append(info, del);
+        box.appendChild(row);
+    });
+
+    const form = el('div', 'sc-form');
+    form.innerHTML =
+        '<input type="text" id="sc-name" placeholder="שם הקיצור — בדיוק כמו באפליקציה" dir="auto">' +
+        '<input type="text" id="sc-does" placeholder="מה הוא עושה (למשל: ספירה לאחור)" dir="auto">' +
+        '<label class="sc-check"><input type="checkbox" id="sc-input">' +
+        'מקבל קלט (למשל משך זמן או שם שיר)</label>';
+    box.appendChild(form);
+
+    const add = el('button', 'setup-btn');
+    add.innerText = '＋ הוסף קיצור';
+    add.onclick = addShortcut;
+    box.appendChild(add);
+
+    const open = el('button', 'setup-btn quiet');
+    open.innerText = '📱 פתח את Shortcuts כדי לבדוק שמות';
+    open.onclick = openShortcutsApp;
+    box.appendChild(open);
+}
+renderShortcutRegistry();
+
 const ALARM_SETUP_KEY = 'jarvis_alarm_setup_done';
 const ALARM_SHORTCUT_NAME = 'JARVIS Alarm';
 

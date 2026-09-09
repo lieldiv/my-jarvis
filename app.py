@@ -269,6 +269,63 @@ self.addEventListener('notificationclick', (event) => {
 """
 
 
+# The user's own shortcut list arrives from their browser and is spliced into
+# a system message, so it is the one place in this app where user-controlled
+# text reaches the prompt as instructions rather than as a user turn. It is
+# their own prompt and their own device, so the risk is low — but "low" is not
+# "none", and an entry containing newlines could restructure the message around
+# it. Everything below is about making that impossible rather than unlikely:
+# hard caps on count and length, and control characters stripped outright.
+MAX_SHORTCUTS = 12
+MAX_SHORTCUT_FIELD = 80
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def sanitize_shortcuts(raw) -> list:
+    """A clean list of {name, does, takes_input} — never raises, drops anything
+    malformed rather than rejecting the whole request, so one bad entry can't
+    cost the user every other shortcut they registered."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw[:MAX_SHORTCUTS]:
+        if not isinstance(item, dict):
+            continue
+        name = _CONTROL_CHARS_RE.sub(" ", str(item.get("name", ""))).strip()[:MAX_SHORTCUT_FIELD]
+        does = _CONTROL_CHARS_RE.sub(" ", str(item.get("does", ""))).strip()[:MAX_SHORTCUT_FIELD]
+        if not name:
+            continue
+        out.append({"name": name, "does": does, "takes_input": bool(item.get("takes_input"))})
+    return out
+
+
+def _shortcuts_context(shortcuts: list) -> str:
+    """What run_shortcut is allowed to call, listed per request.
+
+    It cannot live in the tool schema: the schema is built once at import time
+    and shared by every user, while this list belongs to one person's phone.
+    A system message is where per-request facts already go (see _time_context
+    above), so it goes there too.
+    """
+    if not shortcuts:
+        return ("The user has not registered any Shortcuts on this device. "
+                "run_shortcut has nothing it may call — if they ask for "
+                "something that would need one, tell them to add it under "
+                "Settings, and don't invent a shortcut name.")
+    lines = []
+    for sc in shortcuts:
+        takes = "takes a text input" if sc["takes_input"] else "takes NO input"
+        does = f" — {sc['does']}" if sc["does"] else ""
+        lines.append(f'  - "{sc["name"]}" ({takes}){does}')
+    return (
+        "Shortcuts the user has on their phone, callable with run_shortcut. "
+        "Use the name EXACTLY as written, character for character — a name "
+        "that differs by even one character silently does nothing. Never pass "
+        "an input to one marked as taking none, and never invent a name that "
+        "is not on this list:\n" + "\n".join(lines)
+    )
+
+
 def _time_context() -> str:
     now = datetime.now(LOCAL_TZ)
     offset = now.strftime("%z")  # e.g. "+0300"
@@ -993,6 +1050,46 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "run_shortcut",
+            "description": (
+                "Run one of the user's own iPhone Shortcuts by name. The "
+                "shortcuts available are listed in a system message this turn "
+                "— you may ONLY call a name from that list, exactly as it is "
+                "written there. This is how anything the phone can do but the "
+                "web cannot gets done: timers, music, smart home, whatever "
+                "they have built. If they ask for something and no listed "
+                "shortcut covers it, say so and suggest they add one under "
+                "Settings; never guess a name. Prefer set_alarm for alarms, "
+                "which handles the time formatting itself."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "The shortcut's name, copied exactly from the list "
+                            "in this turn's system message — including its "
+                            "language, spacing and capitalisation."
+                        ),
+                    },
+                    "input": {
+                        "type": "string",
+                        "description": (
+                            "Text to pass in, for shortcuts marked as taking "
+                            "an input — e.g. '5 minutes' for a countdown, or a "
+                            "song name. Leave it out entirely for shortcuts "
+                            "marked as taking none."
+                        ),
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "set_alarm",
             "description": (
                 "Set a REAL alarm in the iPhone's Clock app — one that rings "
@@ -1378,6 +1475,46 @@ def _alarm_time_text(hour: int, minute: int) -> str:
     return f"{display_hour}:{minute:02d} {suffix}"
 
 
+def _shortcut_url(name: str, text: str = "") -> str:
+    url = f"shortcuts://run-shortcut?name={requests.utils.quote(name)}"
+    if text:
+        url += f"&input=text&text={requests.utils.quote(text)}"
+    return url
+
+
+def _run_shortcut(user_id, args, allowed):
+    """Runs only a shortcut the user actually registered.
+
+    The allow-list check is not about the model being adversarial — it is
+    about it hallucinating a plausible-sounding name, which would open
+    Shortcuts to an error the user has to decode. Refusing here lets it say
+    something useful instead.
+    """
+    name = (args.get("name") or "").strip()
+    if not name:
+        return "Which shortcut should I run, sir?"
+
+    match = next((sc for sc in allowed if sc["name"] == name), None)
+    if match is None:
+        if not allowed:
+            return ("There are no Shortcuts registered on this device yet, sir — "
+                    "they can be added under Settings.")
+        names = ", ".join(f"'{sc['name']}'" for sc in allowed)
+        return (f"I don't have a shortcut called '{name}', sir. What's set up "
+                f"is: {names}.")
+
+    text = (args.get("input") or "").strip() if match["takes_input"] else ""
+    details = {"action": "shortcut", "label": name, "target": text or "—",
+               "url": _shortcut_url(name, text), "ts": time.time()}
+    _PENDING_PHONE_LINK[user_id] = details
+    event_stream.push_event({
+        "type": "confirmation_required", "kind": "phone_app",
+        "message": f"Run the shortcut '{name}'?",
+        "details": details,
+    }, user_id=user_id)
+    return f"'{name}' is queued on the HUD, sir — tap to run it."
+
+
 def _set_alarm(user_id, args):
     try:
         hour, minute = int(args.get("hour")), int(args.get("minute", 0))
@@ -1387,8 +1524,7 @@ def _set_alarm(user_id, args):
         return "That isn't a valid time of day, sir."
 
     time_text = _alarm_time_text(hour, minute)
-    url = (f"shortcuts://run-shortcut?name={requests.utils.quote(ALARM_SHORTCUT_NAME)}"
-           f"&input=text&text={requests.utils.quote(time_text)}")
+    url = _shortcut_url(ALARM_SHORTCUT_NAME, time_text)
 
     details = {"action": "alarm", "label": ALARM_SHORTCUT_NAME, "target": time_text,
                "url": url, "ts": time.time()}
@@ -1469,7 +1605,7 @@ _STATIC_TOOL_IMPL = {
 }
 
 
-def _build_tool_impl(user_id: str) -> dict:
+def _build_tool_impl(user_id: str, shortcuts: list = None) -> dict:
     impl = dict(_STATIC_TOOL_IMPL)
     impl.update({
         "get_daily_agenda": lambda args: productivity_service.get_daily_agenda_text(user_id),
@@ -1483,6 +1619,7 @@ def _build_tool_impl(user_id: str) -> dict:
         "set_reminder": lambda args: _set_reminder(user_id, args),
         "set_recurring_reminder": lambda args: _set_recurring_reminder(user_id, args),
         "update_reminder": lambda args: _update_reminder(user_id, args),
+        "run_shortcut": lambda args: _run_shortcut(user_id, args, shortcuts or []),
         "set_alarm": lambda args: _set_alarm(user_id, args),
         "navigate_to": lambda args: _navigate_to(user_id, args),
         "find_nearby_places": lambda args: _find_nearby_places(user_id, args),
@@ -1541,13 +1678,16 @@ def _strip_markdown(text: str) -> str:
     return text
 
 
-def run_llm(user_text: str, user_id: str, persona: str = "jarvis") -> str:
+def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
+            shortcuts: list = None) -> str:
+    shortcuts = shortcuts or []
     history = _history_for(user_id)
-    tool_impl = _build_tool_impl(user_id)
+    tool_impl = _build_tool_impl(user_id, shortcuts)
 
     messages = [
         {"role": "system", "content": PERSONAS.get(persona, SYSTEM_PROMPT)},
         {"role": "system", "content": _time_context()},
+        {"role": "system", "content": _shortcuts_context(shortcuts)},
     ]
     messages.extend(history[-MAX_HISTORY_MESSAGES:])
     messages.append({"role": "user", "content": user_text})
@@ -1715,8 +1855,12 @@ def process_command():
     # client can do is pick the other personality — it can never inject
     # instructions of its own into the system prompt.
     persona = resolve_persona(data.get("persona"))
+    # Per-device, so it rides along with the request rather than living in
+    # users.db — which the free tier wipes, and which would be the wrong home
+    # for a fact about one particular phone anyway.
+    shortcuts = sanitize_shortcuts(data.get("shortcuts"))
 
-    response_text = run_llm(text, user_id, persona)
+    response_text = run_llm(text, user_id, persona, shortcuts)
     voice, prosody = PERSONA_VOICES[persona]
     audio_b64 = asyncio.run(generate_tts_base64(response_text, voice, prosody))
 
