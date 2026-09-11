@@ -1673,7 +1673,7 @@ def _alarm_time_text(hour: int, minute: int) -> str:
     return f"{display_hour}:{minute:02d} {suffix}"
 
 
-def _play_music(user_id, args):
+def _play_music(user_id, args, persona="jarvis"):
     """Spotify's own https link, so no shortcut and no API credentials are
     involved — iOS and Android hand open.spotify.com to the installed app,
     and fall back to the web player when it isn't there.
@@ -1697,7 +1697,8 @@ def _play_music(user_id, args):
         "message": f"Open Spotify for '{query}'?",
         "details": details,
     }, user_id=user_id)
-    return f"'{query}' is on the HUD, sir — tap to play it."
+    return say(persona, f"'{query}' is on the HUD, sir — tap to play it.",
+               f"'{query}'. Tap it.")
 
 
 # Observed on a real phone: the shortcut is called "פתיחת המצלמה", the model
@@ -1746,6 +1747,30 @@ def resolve_shortcut_name(requested: str, allowed: list):
     return None, None
 
 
+# Tools whose own return value IS the reply. Every one of them puts a card on
+# the HUD and returns a sentence already written for the user — so asking the
+# model to go round again and paraphrase it costs a whole extra Groq call and
+# adds nothing. That second round was most of the wait after "navigate me to
+# X": the card appeared immediately, then several seconds of silence while the
+# model restated what the card already said.
+#
+# Only tools that genuinely need no follow-up thinking belong here. Anything
+# that returns DATA the model has to interpret — the weather, the calendar, a
+# search result — must not, or the user would get raw tool output read aloud.
+TERMINAL_TOOLS = {"navigate_to", "set_alarm", "play_music", "run_shortcut",
+                  "find_nearby_places"}
+
+
+def say(persona: str, jarvis: str, ultron: str) -> str:
+    """Picks the phrasing for a terminal tool's reply.
+
+    These strings now reach the user verbatim, so they have to be in the right
+    voice. J.A.R.V.I.S. says 'sir'; Ultron very much does not, and letting one
+    slip through would break the character in exactly the place the mode is
+    most visible."""
+    return ultron if persona == "ultron" else jarvis
+
+
 def _shortcut_url(name: str, text: str = "") -> str:
     url = f"shortcuts://run-shortcut?name={requests.utils.quote(name)}"
     if text:
@@ -1753,7 +1778,7 @@ def _shortcut_url(name: str, text: str = "") -> str:
     return url
 
 
-def _run_shortcut(user_id, args, allowed):
+def _run_shortcut(user_id, args, allowed, persona="jarvis"):
     """Runs only a shortcut the user actually registered.
 
     The allow-list check is not about the model being adversarial — it is
@@ -1784,10 +1809,11 @@ def _run_shortcut(user_id, args, allowed):
     if corrected_from:
         return (f"'{corrected_from}' isn't quite its name — I've queued "
                 f"'{name}' on the HUD instead, sir. Tap to run it.")
-    return f"'{name}' is queued on the HUD, sir — tap to run it."
+    return say(persona, f"'{name}' is queued on the HUD, sir — tap to run it.",
+               f"'{name}' is queued. Tap it.")
 
 
-def _set_alarm(user_id, args):
+def _set_alarm(user_id, args, persona="jarvis"):
     try:
         hour, minute = int(args.get("hour")), int(args.get("minute", 0))
     except (TypeError, ValueError):
@@ -1806,10 +1832,11 @@ def _set_alarm(user_id, args):
         "message": f"Set an alarm for {time_text}?",
         "details": details,
     }, user_id=user_id)
-    return f"Alarm for {time_text} is ready on the HUD, sir — tap to set it."
+    return say(persona, f"Alarm for {time_text} is ready on the HUD, sir — tap to set it.",
+               f"Alarm at {time_text}. Tap it.")
 
 
-def _navigate_to(user_id, args):
+def _navigate_to(user_id, args, persona="jarvis"):
     """Proposes a route; the user's tap on the HUD's approve button is what
     actually opens it. Nothing here opens anything server-side — see
     _find_nearby_places below for the full reasoning, which applies verbatim:
@@ -1832,11 +1859,12 @@ def _navigate_to(user_id, args):
         "message": f"Open {label} and navigate to '{destination}'?",
         "details": details,
     }, user_id=user_id)
-    return (f"I've plotted a route to '{destination}' in {label}, sir — "
-            "it's on the HUD, tap to set off.")
+    return say(persona,
+               f"I've plotted a route to '{destination}' in {label}, sir — it's on the HUD, tap to set off.",
+               f"Route to '{destination}' in {label}. Tap it.")
 
 
-def _find_nearby_places(user_id, args):
+def _find_nearby_places(user_id, args, persona="jarvis"):
     query = (args.get("query") or "").strip()
     if not query:
         return "What would you like me to find nearby, sir?"
@@ -1858,7 +1886,8 @@ def _find_nearby_places(user_id, args):
         "message": f"Search Google Maps for '{query}' nearby?",
         "details": details,
     }, user_id=user_id)
-    return f"I've drawn up a search for '{query}' nearby, sir — check the HUD to approve."
+    return say(persona, f"I've drawn up a search for '{query}' nearby, sir — check the HUD to approve.",
+               f"Searching for '{query}'. Tap it.")
 
 
 # Every tool dispatch entry is now built fresh per request, closing over
@@ -1877,7 +1906,7 @@ _STATIC_TOOL_IMPL = {
 }
 
 
-def _build_tool_impl(user_id: str, shortcuts: list = None) -> dict:
+def _build_tool_impl(user_id: str, shortcuts: list = None, persona: str = "jarvis") -> dict:
     impl = dict(_STATIC_TOOL_IMPL)
     impl.update({
         "get_daily_agenda": lambda args: productivity_service.get_daily_agenda_text(user_id),
@@ -1891,11 +1920,11 @@ def _build_tool_impl(user_id: str, shortcuts: list = None) -> dict:
         "set_reminder": lambda args: _set_reminder(user_id, args),
         "set_recurring_reminder": lambda args: _set_recurring_reminder(user_id, args),
         "update_reminder": lambda args: _update_reminder(user_id, args),
-        "play_music": lambda args: _play_music(user_id, args),
-        "run_shortcut": lambda args: _run_shortcut(user_id, args, shortcuts or []),
-        "set_alarm": lambda args: _set_alarm(user_id, args),
-        "navigate_to": lambda args: _navigate_to(user_id, args),
-        "find_nearby_places": lambda args: _find_nearby_places(user_id, args),
+        "play_music": lambda args: _play_music(user_id, args, persona),
+        "run_shortcut": lambda args: _run_shortcut(user_id, args, shortcuts or [], persona),
+        "set_alarm": lambda args: _set_alarm(user_id, args, persona),
+        "navigate_to": lambda args: _navigate_to(user_id, args, persona),
+        "find_nearby_places": lambda args: _find_nearby_places(user_id, args, persona),
         "computer_use": lambda args: _computer_use(user_id, args),
         "list_workspace": lambda args: file_tools.list_dir(args.get("path", "."), user_id=user_id),
         "read_workspace_file": lambda args: file_tools.read_file(args.get("path", ""), user_id=user_id),
@@ -1955,7 +1984,7 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
             shortcuts: list = None) -> str:
     shortcuts = shortcuts or []
     history = _history_for(user_id)
-    tool_impl = _build_tool_impl(user_id, shortcuts)
+    tool_impl = _build_tool_impl(user_id, shortcuts, persona)
 
     messages = [
         {"role": "system", "content": PERSONAS.get(persona, SYSTEM_PROMPT)},
@@ -1998,6 +2027,14 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
                         "content": result,
                     }
                 )
+
+                # The tool has already written the reply, so stop here rather
+                # than spending another Groq round trip restating it.
+                if fn_name in TERMINAL_TOOLS:
+                    final_text = result
+
+            if final_text:
+                break
 
         if not final_text:
             final_text = "Done, sir."
