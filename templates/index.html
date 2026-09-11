@@ -1847,12 +1847,31 @@ function sttEngine(){
 function usingRecorder(){ return RECORDER_SUPPORTED && sttEngine() === 'record'; }
 
 let mediaRecorder = null, micStream = null, recordedChunks = [], recordStopTimer = null;
+/* Containers this device claimed to support and then produced nothing in.
+   The ordering above is measured, but it is still a guess about a browser we
+   cannot see, so a container that demonstrably yields an empty recording is
+   dropped for the rest of the session and the next tap picks a different one.
+   Per-session on purpose: it is a fact about this browser right now, and a
+   reload should get to re-discover it rather than inherit a stale verdict. */
+const emptyMimeTypes = new Set();
 
 function recorderMimeType(){
-    // Safari records AAC in an MP4 container; everything else prefers Opus in
-    // WebM. Both are formats our transcription endpoint accepts as-is, so
-    // there is nothing to convert — we just have to ask for one it can make.
-    for (const t of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac']){
+    /* The order differs by platform, and not for tidiness — it was measured.
+       On the iPhone, isTypeSupported('audio/webm;codecs=opus') returns TRUE
+       and the resulting recording is FIVE BYTES: a container header and no
+       audio at all. Safari answers that question about the container, not
+       about whether it can actually fill it. Its only container that really
+       carries audio is MP4/AAC, so on iOS that is asked for first and WebM is
+       kept only as a last resort.
+
+       Everywhere else Opus in WebM is smaller and better supported, so it
+       stays first there. Both are formats the transcription endpoint accepts
+       as-is, so nothing is ever converted. */
+    const candidates = (IS_IOS
+        ? ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm']
+        : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac']
+    ).filter(t => !emptyMimeTypes.has(t));
+    for (const t of candidates){
         try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (e) {}
     }
     return '';   // let the browser choose and tell us afterwards
@@ -1889,9 +1908,19 @@ async function startRecording(){
         micMuted = true; voiceState = 'idle'; renderOrb();
         return;
     }
-    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
+    mediaRecorder.ondataavailable = (e) => {
+        if (!e.data || !e.data.size) { vlog('rec-chunk', 'empty'); return; }
+        recordedChunks.push(e.data);
+        vlog('rec-chunk', e.data.size + 'B');
+    };
     mediaRecorder.onstop = finishRecording;
-    mediaRecorder.start();
+    /* A timeslice rather than a bare start(). Safari has shipped versions
+       where a recorder started with no slice emits nothing until stop() and
+       sometimes nothing even then; asking for a chunk every second forces the
+       data out. It also makes the diagnostics useful — chunks appearing in
+       the log distinguishes "the microphone is silent" from "the container
+       produced nothing", which is exactly the distinction that was missing. */
+    mediaRecorder.start(1000);
     vlog('rec-start', mediaRecorder.mimeType || wanted || '(browser default)');
     voiceState = 'listening';
     renderOrb();
@@ -1917,8 +1946,22 @@ async function finishRecording(){
     vlog('rec-stop', `${blob.size}B ${type}`);
 
     if (blob.size < MIN_RECORDING_BYTES) {
-        vlog('rec-empty', 'too short to contain speech');
-        showToast('לא הספקתי להקליט — החזק רגע לפני שאתה עוצר.');
+        // Naming the container matters: a few bytes in MP4 means the user
+        // really was silent, whereas a few bytes in WebM on iOS means the
+        // container itself produced nothing and the audio never had a chance.
+        vlog('rec-empty', `only ${blob.size}B from ${type}`);
+        // Fewer bytes than a container header can plausibly wrap around real
+        // audio means the container itself failed, not that the room was
+        // quiet. Retire it and let the next attempt try another.
+        const negotiated = recorderMimeType();
+        if (negotiated) {
+            emptyMimeTypes.add(negotiated);
+            const next = recorderMimeType();
+            vlog('rec-fallback', next ? `${negotiated} -> ${next}` : `${negotiated} -> browser default`);
+            showToast('ההקלטה יצאה ריקה — הקש שוב, אני מנסה פורמט אחר.', true);
+        } else {
+            showToast('ההקלטה יצאה ריקה — נסה שוב, ואם זה חוזר שלח לי את יומן האבחון.', true);
+        }
         voiceState = 'idle'; renderOrb();
         return;
     }
