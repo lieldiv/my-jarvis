@@ -1,0 +1,11 @@
+{
+  "name": "jarvis-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "npm install && npx playwright install chromium",
+    "serve": "python serve.py",
+    "test": "node run.mjs"
+  },
+  "dependencies": { "playwright": "^1.63.0" }
+}

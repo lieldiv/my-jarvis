@@ -1,0 +1,6 @@
+node_modules/
+shots/
+session.txt
+mic.wav
+_e2e.db
+server.log
