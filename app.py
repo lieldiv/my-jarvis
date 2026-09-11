@@ -1236,9 +1236,19 @@ TOOLS = [
                         "description": (
                             "What to play, as the user said it — a song title, "
                             "an artist, or both ('Bohemian Rhapsody Queen'). "
-                            "Keep their language and spelling; Spotify's own "
-                            "search handles Hebrew and transliteration better "
-                            "than a guess at the 'official' title would."
+                            "Keep their language and spelling; the music "
+                            "services' own search handles Hebrew and "
+                            "transliteration better than a guess at the "
+                            "'official' title would."
+                        ),
+                    },
+                    "app": {
+                        "type": "string",
+                        "enum": ["spotify", "youtube"],
+                        "description": (
+                            "Set ONLY when the user named an app — 'play it on "
+                            "YouTube', 'תשים לי את זה בספוטיפיי'. Leave it out "
+                            "otherwise and the best available one is chosen."
                         ),
                     },
                 },
@@ -1930,6 +1940,75 @@ def resolve_youtube_video(query: str):
         return None
 
 
+# "Play X on YouTube" has to open YouTube, and "play X on Spotify" has to open
+# Spotify, whatever the automatic order would have picked. The model is asked
+# for this in the schema, but the words are also read off the request here:
+# asking the model to classify something already stated plainly is a thing it
+# can get wrong, and this cannot.
+# The leading [במ] is Hebrew's "in/from" written onto the front of the word, so
+# "ביוטיוב" is one word, not two. Spellings are the ones that actually turn up
+# in dictation, which is where these arrive from.
+_MUSIC_APP_PATTERNS = (
+    ("youtube", r"[במ]?(?:יוטיוב|יוטוב|יו\s?טיוב)|youtube|you\s?tube"),
+    ("spotify", r"[במ]?(?:ספוטיפיי?ם?|ספוטפיי?|ספוטייפיי)|spotify"),
+)
+
+
+_MUSIC_APP_PREPOSITIONS = ("on", "in", "at", "via", "through", "using", "from")
+
+
+def _app_instruction_span(text: str, match):
+    """Where the instruction starts and ends, or None if this isn't one.
+
+    "Spotify Sessions Live" is an album; "play it on Spotify" is an
+    instruction. Position separates them — an instruction ends the request, or
+    carries a preposition, including the Hebrew kind written onto the front of
+    the word. The preposition is part of the instruction and comes out with
+    it; left behind, "on spotify play X" searches for "on play X".
+    """
+    head = text[:match.start()]
+    preposition = re.search(
+        r"(?i)(?<!\w)(?:" + "|".join(_MUSIC_APP_PREPOSITIONS) + r")\s+$", head)
+    start = preposition.start() if preposition else match.start()
+    if not text[match.end():].strip(" .,!?׳'\"־-–—"):
+        return start, match.end()          # it ends the request
+    if match.group(0)[:1] in ("ב", "מ"):
+        return start, match.end()          # "ביוטיוב" — in/from, glued on
+    if preposition:
+        return start, match.end()
+    return None
+
+
+def _requested_music_app(query: str):
+    """('youtube'|'spotify'|'', the query with the app's name taken out).
+
+    The name is removed because it is an instruction, not part of the title —
+    searching YouTube for "הכי ישראלי ביוטיוב" looks for a word nobody put in
+    a song. If removing it would leave nothing at all, the query is kept whole
+    instead: "תשים לי ספוטיפיי" is a request for an app, not for silence.
+    """
+    text = query or ""
+    best = None
+    for app, pattern in _MUSIC_APP_PATTERNS:
+        for match in re.finditer(r"(?<!\w)(?:" + pattern + r")(?!\w)", text, re.I):
+            span = _app_instruction_span(text, match)
+            if span is None:
+                continue
+            if best is None or span[0] < best[1][0]:
+                best = (app, span)
+            break
+    if not best:
+        return "", text.strip()
+    app, (start, end) = best
+    cleaned = re.sub(r"\s+", " ", text[:start] + " " + text[end:]).strip(" -–—,.")
+    return app, (cleaned or text.strip())
+
+
+def _normalise_music_app(value) -> str:
+    value = (value or "").strip().lower()
+    return value if value in ("youtube", "spotify") else ""
+
+
 def _play_music(user_id, args, persona="jarvis"):
     """Spotify's own https link, so no shortcut is involved — iOS and Android
     hand open.spotify.com to the installed app, and fall back to the web
@@ -1944,20 +2023,38 @@ def _play_music(user_id, args, persona="jarvis"):
     if not query:
         return "What would you like me to play, sir?"
 
-    # Spotify first when it can be exact, YouTube when nothing is configured,
-    # and only then the search link — which is the one option that does not
-    # play, so it is the last resort rather than the default it used to be.
-    app_name = "Spotify"
-    resolved = resolve_spotify_track(query)
-    if not resolved:
-        resolved = resolve_youtube_video(query)
-        if resolved:
-            app_name = "YouTube"
+    wanted = _normalise_music_app(args.get("app"))
+    spoken_app, cleaned = _requested_music_app(query)
+    if spoken_app:
+        wanted = wanted or spoken_app
+        query = cleaned or query
+
+    # A named app is obeyed, including when it is the worse choice — being sent
+    # somewhere you didn't ask for is more annoying than one extra tap. With no
+    # app named: Spotify when it can be exact, YouTube when nothing is
+    # configured, and the search link only as a last resort, since it is the
+    # one option that does not play.
+    if wanted == "youtube":
+        app_name, resolved = "YouTube", resolve_youtube_video(query)
+    elif wanted == "spotify":
+        app_name, resolved = "Spotify", resolve_spotify_track(query)
+    else:
+        app_name = "Spotify"
+        resolved = resolve_spotify_track(query)
+        if not resolved:
+            resolved = resolve_youtube_video(query)
+            if resolved:
+                app_name = "YouTube"
+
     if resolved:
         url, label = resolved
     else:
+        # Still the app they asked for — just its search box rather than the
+        # song, because we could not work out which song they meant.
         label = query
-        url = f"https://open.spotify.com/search/{requests.utils.quote(query)}"
+        url = (f"https://www.youtube.com/results?search_query={requests.utils.quote(query)}"
+               if app_name == "YouTube"
+               else f"https://open.spotify.com/search/{requests.utils.quote(query)}")
     details = {"action": "music", "label": app_name, "target": label,
                "url": url, "plays": bool(resolved), "asked_for": query,
                "ts": time.time()}

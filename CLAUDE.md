@@ -224,6 +224,12 @@ questions.
   `youtube.com/watch?v=` link plays on open. Order is Spotify (exact) →
   YouTube (zero setup) → the old `/search/` link (last resort — it is the one
   that does NOT play). `JARVIS_MUSIC_FALLBACK=off` disables the YouTube step.
+  That order is only the default: naming an app wins. `play_music` takes an
+  optional `app` argument, and `_requested_music_app()` also reads the name
+  off the request itself, because asking the model to classify something the
+  user already said plainly is a thing it can get wrong. A named app is
+  obeyed even when it is the worse choice, down to falling back to *its* own
+  search page rather than the other service's.
   Don't "fix" a deploy that has no keys, and don't add a re-identification
   step before the YouTube search: routing the query through iTunes first was
   measured and it silently swapped Queen for a lullaby cover. YouTube's own
