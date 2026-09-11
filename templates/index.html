@@ -1481,7 +1481,13 @@ function isListening(){ return isAwake && !micMuted && SPEECH_RECOGNITION_SUPPOR
    inside a user gesture, which is precisely what Safari requires. Visuals
    deliberately keep using intent, so the orb reacts on the tap instead of
    flickering through 'ready' for the 150ms until onstart fires. */
-function micIsLive(){ return !!mediaRecorder || recognitionActive || recognitionStartTimer !== null; }
+function micIsLive(){
+    // Every way the microphone can currently be open. pcmCtx belongs here as
+    // much as mediaRecorder does: with raw capture running, mediaRecorder is
+    // null, so leaving it out made the second tap start a SECOND recording
+    // instead of stopping the first — the orb refusing to turn off, again.
+    return !!mediaRecorder || !!pcmCtx || recognitionActive || recognitionStartTimer !== null;
+}
 function orbVisualState(){
     if (!isAwake) return 'sleeping';
     if (isSpeaking()) return 'speaking';
@@ -1786,7 +1792,12 @@ function playJarvisAudio(b64Audio, onStart){
     currentAudio.onended = () => {
         vlog('tts-end');
         voiceState = 'idle'; renderOrb();
-        if (isAwake && !micMuted && recognition) startRecognitionSafely();
+        // armMicrophone, not startRecognitionSafely: the log from the phone
+        // showed the browser recogniser starting up after every spoken reply
+        // even with the recorder engine selected, because this call bypassed
+        // the engine choice entirely. Two engines fighting over one microphone
+        // is its own failure on top of whichever one was already broken.
+        if (isAwake && !micMuted) armMicrophone();
         setTimeout(() => { if (voiceState === 'idle') clearOrbBubbles(); }, 2600);
     };
     currentAudio.onerror = () => {
@@ -1882,13 +1893,13 @@ function sttEngine(){
 function usingRecorder(){ return RECORDER_SUPPORTED && sttEngine() === 'record'; }
 
 let mediaRecorder = null, micStream = null, recordedChunks = [], recordStopTimer = null;
-/* Containers this device claimed to support and then produced nothing in.
-   The ordering above is measured, but it is still a guess about a browser we
-   cannot see, so a container that demonstrably yields an empty recording is
-   dropped for the rest of the session and the next tap picks a different one.
-   Per-session on purpose: it is a fact about this browser right now, and a
-   reload should get to re-discover it rather than inherit a stale verdict. */
-const emptyMimeTypes = new Set();
+/* Set once MediaRecorder has demonstrably produced nothing on this device, so
+   the next attempt stops asking it and captures raw samples instead. Rotating
+   through its other containers was tried first and removed: on the device this
+   came from, every container returned the same five bytes, so the container
+   was never the variable. Per-session, since it is a fact about this browser
+   right now and a reload should get to re-discover it. */
+let pcmForced = false;
 
 function recorderMimeType(){
     /* The order differs by platform, and not for tidiness — it was measured.
@@ -1905,7 +1916,7 @@ function recorderMimeType(){
     const candidates = (IS_IOS
         ? ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm']
         : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac']
-    ).filter(t => !emptyMimeTypes.has(t));
+    );
     for (const t of candidates){
         try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (e) {}
     }
@@ -1918,6 +1929,100 @@ function releaseMicStream(){
     if (!micStream) return;
     try { micStream.getTracks().forEach(t => t.stop()); } catch (e) {}
     micStream = null;
+}
+
+/* ================================================================================
+   Recording without MediaRecorder.
+
+   On the reporting iPhone, MediaRecorder produced FIVE BYTES from every
+   container offered — a header and no audio — while the microphone track
+   itself reported enabled=true muted=false, i.e. genuinely receiving media.
+   isTypeSupported also answered false for audio/mp4 and true for WebM, then
+   filled the WebM with nothing. The microphone works; MediaRecorder is what
+   is broken there.
+
+   So this path drops it. The raw samples are pulled off the stream through an
+   AudioContext and a WAV header is written around them here. WAV is
+   uncompressed, which makes a few seconds of speech a few hundred KB rather
+   than a few tens — irrelevant next to not working at all, and Groq accepts
+   WAV directly.
+
+   ScriptProcessorNode is deprecated in favour of AudioWorklet, and chosen
+   anyway: it needs no separate module file, and it is supported everywhere
+   including the Safari versions where the modern path is patchy. Replacing a
+   working recorder with a more fashionable broken one would be a poor trade.
+   ================================================================================ */
+let pcmCtx = null, pcmSource = null, pcmNode = null, pcmSilence = null;
+let pcmChunks = [], pcmSampleRate = 0;
+
+function encodeWav(chunks, sampleRate){
+    let total = 0;
+    for (const c of chunks) total += c.length;
+    const buf = new ArrayBuffer(44 + total * 2);
+    const view = new DataView(buf);
+    const ascii = (off, str) => { for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i)); };
+
+    ascii(0, 'RIFF');
+    view.setUint32(4, 36 + total * 2, true);
+    ascii(8, 'WAVE');
+    ascii(12, 'fmt ');
+    view.setUint32(16, 16, true);          // PCM chunk size
+    view.setUint16(20, 1, true);           // format: PCM
+    view.setUint16(22, 1, true);           // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);   // byte rate
+    view.setUint16(32, 2, true);           // block align
+    view.setUint16(34, 16, true);          // bits per sample
+    ascii(36, 'data');
+    view.setUint32(40, total * 2, true);
+
+    let off = 44;
+    for (const c of chunks){
+        for (let i = 0; i < c.length; i++){
+            const v = Math.max(-1, Math.min(1, c[i]));
+            view.setInt16(off, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+            off += 2;
+        }
+    }
+    return new Blob([view], { type: 'audio/wav' });
+}
+
+function stopPcmGraph(){
+    try { if (pcmNode) { pcmNode.onaudioprocess = null; pcmNode.disconnect(); } } catch (e) {}
+    try { if (pcmSource) pcmSource.disconnect(); } catch (e) {}
+    try { if (pcmSilence) pcmSilence.disconnect(); } catch (e) {}
+    pcmNode = pcmSource = pcmSilence = null;
+    // The context is closed rather than suspended: it was opened for capture,
+    // and leaving it around is what previously kept iOS's session in the wrong
+    // mode between turns.
+    try { if (pcmCtx && pcmCtx.state !== 'closed') pcmCtx.close(); } catch (e) {}
+    pcmCtx = null;
+}
+
+function startPcmCapture(){
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) return false;
+    pcmCtx = new Ctor();
+    if (pcmCtx.state === 'suspended') { try { pcmCtx.resume(); } catch (e) {} }
+    pcmSampleRate = pcmCtx.sampleRate;
+    pcmChunks = [];
+    pcmSource = pcmCtx.createMediaStreamSource(micStream);
+    pcmNode = pcmCtx.createScriptProcessor(4096, 1, 1);
+    pcmNode.onaudioprocess = (e) => {
+        // Copied, not referenced: the event reuses its buffer, so keeping the
+        // original would leave every chunk holding the newest audio.
+        pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+    pcmSource.connect(pcmNode);
+    // A ScriptProcessor only runs while connected to the destination, but
+    // routing the microphone to the speaker would howl — so it goes through a
+    // silent gain node, which keeps the graph pulling without any output.
+    pcmSilence = pcmCtx.createGain();
+    pcmSilence.gain.value = 0;
+    pcmNode.connect(pcmSilence);
+    pcmSilence.connect(pcmCtx.destination);
+    vlog('pcm-start', `${pcmSampleRate}Hz`);
+    return true;
 }
 
 async function startRecording(){
@@ -1951,6 +2056,19 @@ async function startRecording(){
             track.onended = () => vlog('rec-track', 'ended by the platform');
         }
     } catch (e) {}
+
+    // PCM first on iOS, and anywhere MediaRecorder has already proved empty.
+    // It is the path with no dependency on a container implementation.
+    if (IS_IOS || pcmForced) {
+        if (startPcmCapture()) {
+            voiceState = 'listening';
+            renderOrb();
+            clearTimeout(recordStopTimer);
+            recordStopTimer = setTimeout(() => { vlog('rec-timeout'); stopRecording(); }, MAX_RECORDING_MS);
+            return;
+        }
+        vlog('pcm-error', 'no AudioContext, falling back to MediaRecorder');
+    }
 
     const wanted = recorderMimeType();
     recordedChunks = [];
@@ -1988,8 +2106,22 @@ async function startRecording(){
 
 function stopRecording(){
     clearTimeout(recordStopTimer);
+    if (pcmCtx) { finishPcmRecording(); return; }
     if (!mediaRecorder) return;
     try { if (mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (e) { vlog('rec-error', 'stop ' + e.name); }
+}
+
+async function finishPcmRecording(){
+    const rate = pcmSampleRate;
+    const chunks = pcmChunks;
+    pcmChunks = [];
+    stopPcmGraph();
+    releaseMicStream();
+
+    const samples = chunks.reduce((a, c) => a + c.length, 0);
+    const blob = encodeWav(chunks, rate || 48000);
+    vlog('pcm-stop', `${samples} samples, ${blob.size}B wav`);
+    await uploadForTranscription(blob, 'speech.wav');
 }
 
 async function finishRecording(){
@@ -2002,30 +2134,36 @@ async function finishRecording(){
     vlog('rec-stop', `${blob.size}B ${type}`);
 
     if (blob.size < MIN_RECORDING_BYTES) {
-        // Naming the container matters: a few bytes in MP4 means the user
-        // really was silent, whereas a few bytes in WebM on iOS means the
-        // container itself produced nothing and the audio never had a chance.
+        /* MediaRecorder produced nothing usable. There is no point rotating
+           through its other containers: on the device this was reported from,
+           every one of them returned the same five bytes while the microphone
+           track reported itself healthy. Switch to raw sample capture, which
+           has no container implementation left to be broken, and ask for one
+           more tap rather than silently re-recording behind their back. */
+        pcmForced = true;
         vlog('rec-empty', `only ${blob.size}B from ${type}`);
-        // Fewer bytes than a container header can plausibly wrap around real
-        // audio means the container itself failed, not that the room was
-        // quiet. Retire it and let the next attempt try another.
-        const negotiated = recorderMimeType();
-        if (negotiated) {
-            emptyMimeTypes.add(negotiated);
-            const next = recorderMimeType();
-            vlog('rec-fallback', next ? `${negotiated} -> ${next}` : `${negotiated} -> browser default`);
-            showToast('ההקלטה יצאה ריקה — הקש שוב, אני מנסה פורמט אחר.', true);
-        } else {
-            showToast('ההקלטה יצאה ריקה — נסה שוב, ואם זה חוזר שלח לי את יומן האבחון.', true);
-        }
+        vlog('rec-fallback', 'MediaRecorder empty -> raw PCM from here on');
+        showToast('ההקלטה יצאה ריקה — הקש שוב, אני מקליט בדרך אחרת.', true);
         voiceState = 'idle'; renderOrb();
         return;
     }
 
+    await uploadForTranscription(blob, 'speech.' + (type.includes('webm') ? 'webm' : 'm4a'));
+}
+
+/* Shared by both recorders: whatever produced the audio, from here on the
+   handling is identical. */
+async function uploadForTranscription(blob, filename){
+    if (blob.size < MIN_RECORDING_BYTES) {
+        vlog('rec-empty', `only ${blob.size}B`);
+        showToast('ההקלטה יצאה ריקה — נסה שוב.', true);
+        voiceState = 'idle'; renderOrb();
+        return;
+    }
     voiceState = 'processing';
     renderOrb();
     const form = new FormData();
-    form.append('audio', blob, 'speech.' + (type.includes('webm') ? 'webm' : 'm4a'));
+    form.append('audio', blob, filename);
 
     let data = null;
     try {

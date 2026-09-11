@@ -181,7 +181,9 @@ for (const profile of PROFILES){
       await page.locator('#orb-stage').click();        // second tap ends it
       await page.waitForTimeout(1500);
       const log = await page.evaluate(() => (typeof voiceLogText === 'function' ? voiceLogText() : ''));
-      check(name, 'recorded audio', /rec-stop/.test(log), log.slice(-300));
+      // Either recorder is acceptable — MediaRecorder logs rec-stop, raw
+      // sample capture logs pcm-stop. What matters is that audio came out.
+      check(name, 'recorded audio', /rec-stop|pcm-stop/.test(log), log.slice(-300));
       check(name, 'and got a transcript back', /stt-text/.test(log), log.slice(-300));
     } else {
       check(name, `engine is "${engine}" here — recording path covered on mobile profiles`, true);
