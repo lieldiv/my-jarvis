@@ -1660,12 +1660,32 @@ function beep(freq, dur){
    released the session afterwards. Desktop has separate audio paths and
    never shows any of this, which is why it looked like a phone problem. */
 function releaseAudioSession(){
-    let released = [];
+    const released = [];
     try {
         if (_beepCtx && _beepCtx.state === 'running') { _beepCtx.suspend(); released.push('audioctx'); }
     } catch (e) {}
+    /* pause() alone is not enough, and that is what the oscillation was: one
+       attempt the voice plays and the microphone hears nothing, the next the
+       other way round, depending on which side grabbed the session last.
+
+       An <audio> element that has finished playing is `paused`, so the old
+       guard skipped it entirely — yet on iOS it is still attached to the
+       playback route and still holding the session. Detaching the source and
+       calling load() is what actually tears that down.
+
+       The element itself is deliberately NOT replaced: iOS grants autoplay
+       per element after a user gesture, and a fresh Audio() would start
+       locked again (see unlockAudioPlayback). Emptying it keeps the
+       permission and gives back the session. */
     try {
-        if (ttsAudioEl && !ttsAudioEl.paused) { ttsAudioEl.pause(); released.push('tts'); }
+        if (ttsAudioEl) {
+            if (!ttsAudioEl.paused) ttsAudioEl.pause();
+            if (ttsAudioEl.getAttribute('src')) {
+                ttsAudioEl.removeAttribute('src');
+                ttsAudioEl.load();
+                released.push('tts-detached');
+            }
+        }
     } catch (e) {}
     if (released.length) vlog('release-audio', released.join('+'));
 }
@@ -1743,6 +1763,8 @@ function playJarvisAudio(b64Audio, onStart){
     if (!ttsAudioEl) ttsAudioEl = new Audio();
     currentAudio = ttsAudioEl;
     currentAudio.pause();
+    // releaseAudioSession may have emptied the element between responses; this
+    // reassigns src below either way, so nothing to restore here.
     if (ttsBlobUrl) { URL.revokeObjectURL(ttsBlobUrl); ttsBlobUrl = null; }
 
     const binary = atob(b64Audio);
@@ -1901,6 +1923,11 @@ function releaseMicStream(){
 async function startRecording(){
     if (mediaRecorder) return;
     releaseAudioSession();
+    // iOS does not switch the session from playback to record instantly, and
+    // asking for the microphone mid-transition is how it ends up attached to
+    // a stream that never carries anything. A beat costs nothing next to a
+    // recording that silently captures nothing.
+    if (IS_IOS) await new Promise(r => setTimeout(r, 120));
     try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e) {
@@ -1909,6 +1936,22 @@ async function startRecording(){
         micMuted = true; voiceState = 'idle'; renderOrb();
         return;
     }
+    /* The track's own view of itself. `muted` here does not mean the user
+       muted anything — it is the platform saying this track is not currently
+       receiving media, which is precisely the "attached to a microphone that
+       delivers nothing" state we kept failing to distinguish from silence.
+       Logged at open, and again if it changes mid-recording. */
+    try {
+        const [track] = micStream.getAudioTracks();
+        if (!track) vlog('rec-track', 'NO AUDIO TRACK');
+        else {
+            vlog('rec-track', `${track.label || 'mic'} enabled=${track.enabled} muted=${track.muted}`);
+            track.onmute = () => vlog('rec-track', 'went MUTED mid-recording');
+            track.onunmute = () => vlog('rec-track', 'unmuted');
+            track.onended = () => vlog('rec-track', 'ended by the platform');
+        }
+    } catch (e) {}
+
     const wanted = recorderMimeType();
     recordedChunks = [];
     try {
