@@ -1733,6 +1733,7 @@ function triggerStop(){
    ================================================================================ */
 let ttsBlobUrl = null; // the blob URL currently loaded into ttsAudioEl, so it can be released when replaced
 function playJarvisAudio(b64Audio, onStart){
+    vlog('tts-recv', b64Audio ? `${Math.round(b64Audio.length * 0.75 / 1024)}KB` : 'NO AUDIO from server');
     // Reuse the SAME <audio> element unlockAudioPlayback() created (falling
     // back to a fresh one only if a command somehow lands before any tap
     // ever fired, e.g. straight on page load) instead of constructing a new
@@ -1751,8 +1752,17 @@ function playJarvisAudio(b64Audio, onStart){
     ttsBlobUrl = blobUrl;
 
     currentAudio.src = blobUrl;
-    currentAudio.onplay = () => { voiceState = 'done'; renderOrb(); if (onStart) onStart(); };
+    /* Playback is now instrumented for the same reason capture was: "suddenly
+       we can't hear him" has at least three different causes that look
+       identical from outside — no audio was generated at all, play() was
+       blocked, or it played fine and iOS routed it to the earpiece after
+       getUserMedia. Only the trace can tell them apart. */
+    currentAudio.onplay = () => {
+        vlog('tts-play', `${Math.round((currentAudio.duration || 0) * 10) / 10}s vol=${currentAudio.volume} muted=${currentAudio.muted}`);
+        voiceState = 'done'; renderOrb(); if (onStart) onStart();
+    };
     currentAudio.onended = () => {
+        vlog('tts-end');
         voiceState = 'idle'; renderOrb();
         if (isAwake && !micMuted && recognition) startRecognitionSafely();
         setTimeout(() => { if (voiceState === 'idle') clearOrbBubbles(); }, 2600);
@@ -1769,6 +1779,7 @@ function playJarvisAudio(b64Audio, onStart){
         // a bad/unsupported blob (e.g. an empty or corrupt audio payload)
         // ends up here specifically. Surface it like every other playback
         // failure in this function does.
+        vlog('tts-error', 'decode or network');
         voiceState = 'idle'; renderOrb();
         showToast('🔇 השמע לא עלה — נסה שוב.', true);
     };
@@ -1779,6 +1790,7 @@ function playJarvisAudio(b64Audio, onStart){
         // unlockAudioPlayback() above should make this rare after the
         // first tap, but a very first command right on page load can still
         // race it.
+        vlog('tts-blocked', 'play() rejected');
         voiceState = 'idle'; renderOrb(); if (onStart) onStart();
         showToast('🔇 הדפדפן חסם ניגון קול אוטומטי — גע במסך ונסה שוב.', true);
     });
@@ -1806,7 +1818,8 @@ function handleTranscript(transcript){
         handleConfirmationReply(transcript);
     } else if (!isAwake) {
         if (transcript.includes('good morning') || transcript.includes('wake up') || transcript.includes('jarvis') ||
-            transcript.includes('בוקר טוב') || transcript.includes('תתעורר') || transcript.includes("ג'רוויס") || transcript.includes('גרוויס')) {
+            transcript.includes('בוקר טוב') || transcript.includes('תתעורר') ||
+            /ג['׳]?רוויס|גרוויס|דרוויס|ג'ארוויס|ג'רויס|ג'ארויס|דארוויס/.test(transcript)) {
             wakeJarvis();
         }
     } else if (transcript.includes('stop') || transcript.includes('עצור') || transcript.includes('תפסיק') || transcript.includes('תעצור')) {

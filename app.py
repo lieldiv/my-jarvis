@@ -218,7 +218,16 @@ STT_LANGUAGE = os.environ.get("JARVIS_STT_LANGUAGE", "he")
 # purpose — Groq's guidance is that the prompt should match the audio's
 # language. Kept short: Whisper echoes the prompt back as the transcript when
 # it hears silence, so a long one makes that failure noisier.
-STT_PROMPT = "פקודות קוליות לעוזר אישי: יומן, פגישה, תזכורת, אימייל, מוזיקה, ניווט, מזג אוויר."
+# The name goes first because it is the word most often said and the one
+# Whisper had most trouble with: pinned to Hebrew, it transliterated "JARVIS"
+# into whatever it felt like ("דרוויס"), and a wake word that spells itself
+# differently every time cannot be matched. The prompt is Whisper's documented
+# lever for exactly this — spelling and vocabulary context — and it is kept
+# short because Whisper echoes it back as the transcript when it hears silence.
+STT_PROMPT = (
+    "ג'רוויס. פקודות קוליות לעוזר אישי: "
+    "יומן, פגישה, תזכורת, שעון מעורר, אימייל, מוזיקה, ניווט, מזג אוויר."
+)
 
 # Groq validates the container partly by the filename extension it is given, so
 # the browser's mimetype has to be mapped onto one it accepts rather than
