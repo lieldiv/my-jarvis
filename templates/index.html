@@ -1509,6 +1509,10 @@ function renderOrb(){
 
     let cta = ORB_CTA[visualState] || '';
     if (visualState === 'ready' && (!SPEECH_RECOGNITION_SUPPORTED || textOnlyMode)) cta = 'הקש כדי להקליד';
+    // Honest about the gap between "the microphone is open" and "it is
+    // actually delivering audio" — speaking into that gap is what produced
+    // "I didn't hear anything" on the first try.
+    if (visualState === 'listening' && pcmCtx && !pcmLive) cta = 'רגע…';
     $('orb-cta-text').innerText = cta;
 
     $('orb-status-icon').innerText = ORB_STATUS_ICON[visualState] || '';
@@ -1956,6 +1960,22 @@ function releaseMicStream(){
    ================================================================================ */
 let pcmCtx = null, pcmSource = null, pcmNode = null, pcmSilence = null;
 let pcmChunks = [], pcmSampleRate = 0, pcmPeak = 0;
+/* Whether real audio has actually started arriving.
+
+   Connecting the graph is not the same as the microphone delivering. On iOS
+   the route takes a few hundred milliseconds to settle — longest right after
+   JARVIS has just spoken, since the session has to swing from playback to
+   record — and buffers during that window are zeros. The orb was saying
+   "מקשיב…" the instant the graph was wired, so a quick speaker said their
+   whole sentence into a dead window and got told nothing was heard. Trying
+   again "worked" only because the route had settled by then.
+
+   So the orb waits to claim it is listening until audio is genuinely flowing,
+   or until the deadline below — a silent room must not leave it saying
+   "רגע…" forever. */
+let pcmLive = false, pcmWarmDeadline = 0;
+const PCM_WARM_PEAK = 0.002;   // any real signal at all, far below speech
+const PCM_WARM_MAX_MS = 1200;  // past this the route has certainly settled
 /* Below this the take carries no speech worth sending. Not a noise gate — a
    real room, a hand over the microphone, even a whisper all sit far above it.
    This catches a stream that is genuinely all zeros, which otherwise uploads
@@ -2026,6 +2046,9 @@ async function startPcmCapture(){
     pcmSource = pcmCtx.createMediaStreamSource(micStream);
     pcmNode = pcmCtx.createScriptProcessor(4096, 1, 1);
     pcmPeak = 0;
+    pcmLive = false;
+    pcmWarmDeadline = Date.now() + PCM_WARM_MAX_MS;
+    const warmStart = Date.now();
     pcmNode.onaudioprocess = (e) => {
         const data = e.inputBuffer.getChannelData(0);
         // The loudest sample seen. Measured because "the recording is silent"
@@ -2036,8 +2059,15 @@ async function startPcmCapture(){
             const v = data[i] < 0 ? -data[i] : data[i];
             if (v > pcmPeak) pcmPeak = v;
         }
+        if (!pcmLive && (pcmPeak > PCM_WARM_PEAK || Date.now() > pcmWarmDeadline)) {
+            pcmLive = true;
+            vlog('pcm-live', `after ${Date.now() - warmStart}ms`);
+            renderOrb();   // only now does the orb say it is listening
+        }
         // Copied, not referenced: the event reuses its buffer, so keeping the
-        // original would leave every chunk holding the newest audio.
+        // original would leave every chunk holding the newest audio. Buffers
+        // from before the route settled are kept too — they cost nothing and
+        // may already hold the first syllable.
         pcmChunks.push(new Float32Array(data));
     };
     pcmSource.connect(pcmNode);
@@ -2146,9 +2176,11 @@ async function finishPcmRecording(){
     releaseMicStream();
 
     const samples = chunks.reduce((a, c) => a + c.length, 0);
+    const seconds = rate ? samples / rate : 0;
     const peak = pcmPeak;
+    pcmLive = false;
     const blob = encodeWav(chunks, rate || 48000);
-    vlog('pcm-stop', `${samples} samples, peak ${peak.toFixed(4)}, ${blob.size}B wav`);
+    vlog('pcm-stop', `${seconds.toFixed(2)}s, peak ${peak.toFixed(4)}, ${blob.size}B wav`);
 
     if (blob.size < MIN_RECORDING_BYTES) { noteCaptureFailure(); }
     else if (peak < PCM_SILENCE_PEAK) {
@@ -2156,9 +2188,17 @@ async function finishPcmRecording(){
            confident invented text — "תודה" in Hebrew, "Thank you." in English
            — so uploading a silent take produces a command the user never gave.
            Saying nothing was heard is both true and more useful. */
-        vlog('pcm-silent', `peak ${peak.toFixed(4)} < ${PCM_SILENCE_PEAK}`);
-        noteCaptureFailure();
-        showToast('המיקרופון לא קלט קול — ההקלטה יצאה שקטה לגמרי.', true);
+        vlog('pcm-silent', `peak ${peak.toFixed(4)} < ${PCM_SILENCE_PEAK} over ${seconds.toFixed(2)}s`);
+        /* A very short silent take usually means the tap-to-stop landed before
+           the microphone route had settled — worth one more try. A long silent
+           one means it really is not receiving anything, which is a different
+           problem and deserves a different sentence. */
+        if (seconds < 1.2) {
+            showToast('לא הספקתי לשמוע — המתן רגע אחרי ההקשה, ואז דבר.', true);
+        } else {
+            noteCaptureFailure();
+            showToast('המיקרופון לא קלט קול — ההקלטה יצאה שקטה לגמרי.', true);
+        }
         voiceState = 'idle'; renderOrb();
         return;
     }
