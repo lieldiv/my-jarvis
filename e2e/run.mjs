@@ -193,9 +193,10 @@ for (const profile of PROFILES){
 
     // ---- settings ----------------------------------------------------
     await openSettings(page);
+    // No engine picker: it was briefly a setting and removed, since nobody
+    // should need to understand two speech engines to talk to an assistant.
     for (const [sel, what] of [['#theme-row', 'theme swatches'], ['#shortcut-registry', 'shortcut registry'],
-                               ['#alarm-setup', 'alarm setup'], ['#voice-diag', 'voice diagnostics'],
-                               ['#stt-engine', 'engine picker']]){
+                               ['#alarm-setup', 'alarm setup'], ['#voice-diag', 'voice diagnostics']]){
       check(name, `settings renders ${what}`, await page.locator(sel).count() > 0);
     }
     await page.screenshot({ path: path.join(SHOTS, `${name}-settings.png`), fullPage: true });

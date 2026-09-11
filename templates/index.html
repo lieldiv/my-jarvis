@@ -938,9 +938,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
             <div id="standalone-warning"></div>
 
-            <div class="settings-sub">◂ מנוע דיבור</div>
-            <div id="stt-engine"></div>
-
             <div class="settings-sub">◂ אבחון דיבור</div>
             <div id="voice-diag"></div>
 
@@ -1883,11 +1880,16 @@ const STT_ENGINE_KEY = 'jarvis_stt_engine';   // 'auto' | 'record' | 'browser'
 const MAX_RECORDING_MS = 15000;
 const MIN_RECORDING_BYTES = 1024;             // below this it's a click, not speech
 
+/* Not a user-facing choice any more. It was briefly a setting and removed:
+   nobody should need to understand two speech engines to talk to an
+   assistant, and picking the wrong one only produces a subtler failure. The
+   stored key is still honoured, so a value set earlier keeps working and
+   there is still a way to force an engine while debugging. */
 function sttEngine(){
     const v = lsGet(STT_ENGINE_KEY, 'auto');
     if (v === 'record' || v === 'browser') return v;
-    // Auto: the recogniser is genuinely good on desktop and genuinely broken
-    // on iOS, so pick per platform rather than forcing one everywhere.
+    // Follows the platform: the recogniser is good on desktop and broken on
+    // iOS, so neither is forced everywhere.
     return IS_IOS ? 'record' : 'browser';
 }
 function usingRecorder(){ return RECORDER_SUPPORTED && sttEngine() === 'record'; }
@@ -2121,6 +2123,7 @@ async function finishPcmRecording(){
     const samples = chunks.reduce((a, c) => a + c.length, 0);
     const blob = encodeWav(chunks, rate || 48000);
     vlog('pcm-stop', `${samples} samples, ${blob.size}B wav`);
+    if (blob.size < MIN_RECORDING_BYTES) noteCaptureFailure();
     await uploadForTranscription(blob, 'speech.wav');
 }
 
@@ -2141,6 +2144,7 @@ async function finishRecording(){
            has no container implementation left to be broken, and ask for one
            more tap rather than silently re-recording behind their back. */
         pcmForced = true;
+        noteCaptureFailure();
         vlog('rec-empty', `only ${blob.size}B from ${type}`);
         vlog('rec-fallback', 'MediaRecorder empty -> raw PCM from here on');
         showToast('ההקלטה יצאה ריקה — הקש שוב, אני מקליט בדרך אחרת.', true);
@@ -2204,6 +2208,18 @@ async function uploadForTranscription(blob, filename){
 }
 
 /* The one place that decides which engine opens the microphone. */
+/* One place to mark "capture demonstrably failed on this device", so the HUD
+   can stop pretending and point at the one context change likely to fix it. */
+function noteCaptureFailure(){
+    if (captureFailedHere) return;
+    captureFailedHere = true;
+    vlog('capture-failed', IS_STANDALONE ? 'in a home-screen app' : 'in the browser');
+    renderCaptureWarning();
+    // Put the keyboard within reach. The assistant works fully by typing, and
+    // leaving someone with nothing at all is worse than showing a warning.
+    try { $('cmd-input').focus(); } catch (e) {}
+}
+
 function armMicrophone(){
     if (usingRecorder()) startRecording();
     else startRecognitionSafely();
@@ -3920,6 +3936,27 @@ applyAppearance();
    Settings rather than only a toast at the moment of failure: the failure is
    intermittent by nature — you hit it, reopen from Safari, and it works —
    so the explanation has to be somewhere you can go and find it. */
+/* Raised on the main screen once recording has actually failed here, and only
+   where the context is the likely cause. Silent otherwise — an unconditional
+   warning about something that works is just noise, and it would be on screen
+   for every desktop user forever. */
+let captureFailedHere = false;
+function renderCaptureWarning(){
+    const box = $('capture-warning');
+    if (!box) return;
+    box.innerHTML = '';
+    if (!(IS_IOS && IS_STANDALONE && captureFailedHere)) return;
+    const w = el('div', 'capture-warn');
+    w.innerHTML =
+        '⚠ <b>ההקלטה לא עובדת מהאייקון במסך הבית.</b><br/>' +
+        'שלוש שיטות הקלטה שונות נכשלו כאן, ואפל מגבילה גישה למיקרופון ' +
+        'באפליקציה שנוספה למסך הבית.<br/>' +
+        '<b>פתח את הכתובת הזו ב-Safari:</b>' +
+        '<span class="url">' + location.origin + '</span>' +
+        'בינתיים אפשר להקליד למטה — הכל עובד חוץ מהדיבור.';
+    box.appendChild(w);
+}
+
 function renderStandaloneWarning(){
     const box = $('standalone-warning');
     if (!box) return;
@@ -3942,38 +3979,6 @@ function renderStandaloneWarning(){
     box.appendChild(w);
 }
 renderStandaloneWarning();
-
-const STT_ENGINE_LABELS = {
-    auto:    ['אוטומטי', 'הקלטה באייפון, מנוע הדפדפן במחשב'],
-    record:  ['הקלטה + תמלול', 'מקליט ומתמלל בשרת — עובד זהה בכל מכשיר'],
-    browser: ['מנוע הדפדפן', 'זיהוי חי של הדפדפן — מהיר, אך שבור באייפון'],
-};
-
-function renderSttEngine(){
-    const box = $('stt-engine');
-    if (!box) return;
-    box.innerHTML = '';
-
-    const active = sttEngine();
-    const intro = el('div', 'voice-info-block');
-    intro.innerHTML = 'פעיל כעת: <b>' + (active === 'record' ? 'הקלטה + תמלול' : 'מנוע הדפדפן') + '</b>' +
-        (RECORDER_SUPPORTED ? '' : '<br/>⚠ הדפדפן הזה לא תומך בהקלטה, אז רק מנוע הדפדפן זמין.');
-    box.appendChild(intro);
-
-    Object.entries(STT_ENGINE_LABELS).forEach(([key, [name, why]]) => {
-        const chosen = lsGet(STT_ENGINE_KEY, 'auto') === key;
-        const b = el('button', 'setup-btn' + (chosen ? '' : ' quiet'));
-        b.innerHTML = (chosen ? '● ' : '○ ') + name +
-            '<br/><span style="font-size:11.5px;font-weight:400;opacity:.75">' + why + '</span>';
-        b.onclick = () => {
-            lsSet(STT_ENGINE_KEY, key);
-            renderSttEngine();
-            showToast(sttEngine() === 'record' ? 'עובר להקלטה + תמלול בשרת.' : 'עובר למנוע הדפדפן.');
-        };
-        box.appendChild(b);
-    });
-}
-renderSttEngine();
 
 function renderVoiceLog(){
     const pre = $('voice-diag-log');
