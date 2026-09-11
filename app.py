@@ -1781,6 +1781,155 @@ def resolve_spotify_track(query: str):
         return None
 
 
+# The zero-setup half of playing music. Spotify above needs a key somebody has
+# to create; this needs nothing, because a youtube.com/watch link plays on open
+# and YouTube's search page is server-rendered, so the video ids are in the
+# HTML. That is the only keyless route left — Odesli's public API is gone and
+# Spotify's own search page is client-rendered.
+#
+# The catch is that YouTube's catalogue is everything, not just songs: asked in
+# Hebrew for a foreign song, the top hit for "בוהמיאן רפסודי" is the film's
+# trailer. Measured over a dozen queries, YouTube's own ranking was right 9
+# times out of 12 and every attempt to out-rank it made things worse in one
+# place for every place it helped — a scoring pass that dropped the trailer
+# promoted a Muppets cover instead. So the ordering is left alone and only the
+# obvious non-songs are dropped. The real safety net is the card: it shows the
+# video's actual title before anything opens, so a wrong match is something the
+# user cancels rather than something they suddenly hear.
+MUSIC_FALLBACK = os.environ.get("JARVIS_MUSIC_FALLBACK", "youtube").strip().lower()
+
+_YT_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+          "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
+# YouTube's own "Videos" filter. Without it the results carry channels and
+# playlists, whose ids are not playable as /watch?v=.
+_YT_VIDEO_FILTER = "EgIQAQ%3D%3D"
+# Not a quality bar — a category one. Each of these is a thing that is not the
+# song, and every one was seen in a real result during measurement.
+_YT_NOT_A_SONG = ("trailer", "טריילר", "reaction", "reacts", "interview", "ראיון",
+                  "podcast", "פודקאסט", "karaoke", "קריוקי", "tutorial", "לימוד",
+                  "how to", "full album", "אלבום מלא", "mix -", "compilation")
+_YT_MIN_SECONDS = 45        # shorter than any song, longer than a clip
+_YT_MAX_SECONDS = 12 * 60   # longer than this and it is a set, not a track
+
+
+def _yt_duration_seconds(text: str):
+    """'3:24' -> 204. None when YouTube didn't give one (live, or a short)."""
+    parts = (text or "").split(":")
+    if not parts or not all(p.strip().isdigit() for p in parts):
+        return None
+    seconds = 0
+    for part in parts:
+        seconds = seconds * 60 + int(part)
+    return seconds
+
+
+def _json_blob_at(text: str, start: int):
+    """The JSON object beginning at `start`, found by counting its braces.
+
+    Anchoring on ';</script>' instead looks simpler and works most of the time,
+    which is the problem: a video title containing '</script>' truncates the
+    blob, json.loads fails, and the titles vanish for that one search with no
+    sign anything went wrong. Counting braces cannot be fooled that way.
+    """
+    depth, in_string, escaped = 0, False, False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _yt_candidates(html: str, want: int = 12):
+    """Walks ytInitialData for video results, newest layout or not.
+
+    Falls back to a plain id scrape, which has no titles — worth having anyway,
+    because a link that plays the right song beats no link at all.
+    """
+    def _ids_only():
+        ids = re.findall(r'"videoId":"([\w-]{11})"', html)
+        return [(vid, "", "", "") for vid in list(dict.fromkeys(ids))[:want]]
+
+    match = re.search(r"ytInitialData\s*=\s*\{", html)
+    if not match:
+        return _ids_only()
+    blob = _json_blob_at(html, match.end() - 1)
+    if not blob:
+        return _ids_only()
+    try:
+        data = json.loads(blob)
+    except ValueError:
+        return _ids_only()
+    out, stack = [], [data]
+    while stack and len(out) < want:
+        node = stack.pop()
+        if isinstance(node, dict):
+            renderer = node.get("videoRenderer")
+            if isinstance(renderer, dict):
+                vid = renderer.get("videoId")
+                if vid:
+                    title = ((renderer.get("title") or {}).get("runs") or [{}])[0].get("text", "")
+                    owner = ((renderer.get("ownerText") or {}).get("runs") or [{}])[0].get("text", "")
+                    length = (renderer.get("lengthText") or {}).get("simpleText", "")
+                    out.append((vid, title, owner, length))
+                continue
+            stack.extend(list(node.values())[::-1])
+        elif isinstance(node, list):
+            stack.extend(node[::-1])
+    return out
+
+
+def resolve_youtube_video(query: str):
+    """('https://www.youtube.com/watch?v=…', 'Title — Channel') or None."""
+    if not query or MUSIC_FALLBACK != "youtube":
+        return None
+    try:
+        r = requests.get(
+            "https://www.youtube.com/results",
+            params={"search_query": query, "sp": _YT_VIDEO_FILTER},
+            headers={"User-Agent": _YT_UA, "Accept-Language": "he-IL,he;q=0.9,en;q=0.8"},
+            timeout=8,
+        )
+        r.raise_for_status()
+        candidates = _yt_candidates(r.text)
+        if not candidates:
+            return None
+        chosen = None
+        for vid, title, owner, length in candidates:
+            low = title.lower()
+            if any(word in low for word in _YT_NOT_A_SONG):
+                continue
+            seconds = _yt_duration_seconds(length)
+            if seconds is not None and not (_YT_MIN_SECONDS <= seconds <= _YT_MAX_SECONDS):
+                continue
+            chosen = (vid, title, owner)
+            break
+        if chosen is None:
+            # Everything was filtered out, which means the filter is wrong about
+            # this query rather than the query being unanswerable.
+            vid, title, owner, _ = candidates[0]
+            chosen = (vid, title, owner)
+        vid, title, owner = chosen
+        label = " — ".join(p for p in (title.strip(), owner.strip()) if p) or query
+        return f"https://www.youtube.com/watch?v={vid}", label
+    except Exception as exc:
+        logger.warning("YouTube lookup failed for %r: %s", query, exc)
+        return None
+
+
 def _play_music(user_id, args, persona="jarvis"):
     """Spotify's own https link, so no shortcut is involved — iOS and Android
     hand open.spotify.com to the installed app, and fall back to the web
@@ -1795,19 +1944,27 @@ def _play_music(user_id, args, persona="jarvis"):
     if not query:
         return "What would you like me to play, sir?"
 
+    # Spotify first when it can be exact, YouTube when nothing is configured,
+    # and only then the search link — which is the one option that does not
+    # play, so it is the last resort rather than the default it used to be.
+    app_name = "Spotify"
     resolved = resolve_spotify_track(query)
+    if not resolved:
+        resolved = resolve_youtube_video(query)
+        if resolved:
+            app_name = "YouTube"
     if resolved:
         url, label = resolved
     else:
         label = query
         url = f"https://open.spotify.com/search/{requests.utils.quote(query)}"
-    details = {"action": "music", "label": "Spotify", "target": label,
+    details = {"action": "music", "label": app_name, "target": label,
                "url": url, "plays": bool(resolved), "asked_for": query,
                "ts": time.time()}
     _PENDING_PHONE_LINK[user_id] = details
     event_stream.push_event({
         "type": "confirmation_required", "kind": "phone_app",
-        "message": f"Open Spotify for '{query}'?",
+        "message": f"Play '{label}' on {app_name}?",
         "details": details,
     }, user_id=user_id)
     if resolved:

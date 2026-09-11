@@ -217,8 +217,20 @@ questions.
   thing — turning "play me X" into a track id, because an
   `open.spotify.com/track/<id>` link starts playing when the phone opens it
   and a `/search/` link cannot. No user login, no account, no playback
-  control, no premium. Unset, it falls back to the search link and behaves
-  exactly as it did before, so don't "fix" a deploy that has no keys.
+  control, no premium.
+- **Music plays without any key at all.** Unset Spotify credentials and
+  `resolve_youtube_video()` takes over: YouTube's search page is rendered on
+  the server, so a video id is reachable with no API, and a
+  `youtube.com/watch?v=` link plays on open. Order is Spotify (exact) →
+  YouTube (zero setup) → the old `/search/` link (last resort — it is the one
+  that does NOT play). `JARVIS_MUSIC_FALLBACK=off` disables the YouTube step.
+  Don't "fix" a deploy that has no keys, and don't add a re-identification
+  step before the YouTube search: routing the query through iTunes first was
+  measured and it silently swapped Queen for a lullaby cover. YouTube's own
+  ranking was right 9 times in 12 and every attempt to out-rank it lost
+  somewhere else, so only obvious non-songs (trailers, reactions, karaoke,
+  implausible durations) are dropped and the card shows the video's real title
+  so a wrong match is cancelled rather than heard.
 
 ## Setup / running locally (rare — this fork is meant to run on Render)
 
