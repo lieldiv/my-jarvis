@@ -3346,7 +3346,11 @@ function renderConfirmReadFields(evt){
             if (d.target && d.target !== '—') fieldRow(box, 'עם', d.target);
         } else if (d.action === 'music') {
             fieldRow(box, 'לנגן', d.target);
-            fieldRow(box, 'איפה', d.label);
+            // The difference is worth naming: a track link starts the song on
+            // open, a search link leaves you on results with Play unpressed.
+            // Without this the same card would promise both.
+            fieldRow(box, 'איפה', d.plays ? d.label + ' — מתנגן מיד'
+                                          : d.label + ' — חיפוש, צריך ללחוץ Play');
         } else {
             fieldRow(box, 'יעד', d.target);
             fieldRow(box, 'אפליקציה', d.label);
@@ -3574,7 +3578,9 @@ async function resolveConfirmation(approve){
             const isMusic = evt.details.action === 'music';
             if (approve) {
                 openPhoneLink(evt.details.url);
-                showToast(isMusic ? `פותח את Spotify — ${evt.details.target}.`
+                showToast(isMusic ? (evt.details.plays
+                                        ? `מנגן — ${evt.details.target}.`
+                                        : `פותח את Spotify — ${evt.details.target}.`)
                                   : `מפעיל "${evt.details.label}".`);
             } else { showToast(isMusic ? 'בסדר, בלי מוזיקה.' : 'בסדר, לא הפעלתי.'); }
             if (evt.logId != null) updateActivityStatus(evt.logId, approve ? 'confirmed' : 'cancelled');

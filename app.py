@@ -33,6 +33,7 @@ import secrets
 import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from datetime import datetime, timedelta
@@ -1210,9 +1211,9 @@ TOOLS = [
         "function": {
             "name": "play_music",
             "description": (
-                "Open Spotify on the user's phone at a song, artist, album or "
-                "playlist. Needs no shortcut and no setup, so prefer it over "
-                "run_shortcut for music.\n\n"
+                "Play a song on the user's phone through Spotify. Needs no "
+                "shortcut and no setup, so prefer it over run_shortcut for "
+                "music.\n\n"
                 "DO NOT call this the moment music comes up. BOTH of these "
                 "must be true first:\n"
                 "(1) They explicitly asked to HEAR it — 'play me', 'put on', "
@@ -1673,30 +1674,145 @@ def _alarm_time_text(hour: int, minute: int) -> str:
     return f"{display_hour}:{minute:02d} {suffix}"
 
 
-def _play_music(user_id, args, persona="jarvis"):
-    """Spotify's own https link, so no shortcut and no API credentials are
-    involved — iOS and Android hand open.spotify.com to the installed app,
-    and fall back to the web player when it isn't there.
+# Spotify plays a TRACK link the moment it opens; a SEARCH link only ever
+# lands on results with a play button nobody pressed. That is the whole
+# difference between "put on a song" working and not, and the only way to get a
+# track id is Spotify's own catalogue search. Every keyless route was measured
+# first and none survive: the search page is rendered client-side so its HTML
+# carries no ids, and Odesli's public API now answers 401
+# PUBLIC_API_ACCESS_DEPRECATED.
+#
+# This is app-only (client credentials): no user login, no account attached, no
+# playback control, no premium — it reads the public catalogue and nothing
+# else. That is deliberately NOT what 340a438 removed, which was one shared
+# account whose playback every signed-in user could drive. Playback still
+# happens on the phone, from the user's own Spotify, exactly as it does when
+# they tap a link a friend sent them.
+#
+# Absent credentials everything below no-ops and the search link is used, so an
+# unconfigured deploy behaves exactly as it did before.
+SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "").strip()
+SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "").strip()
+SPOTIFY_MARKET = os.environ.get("SPOTIFY_MARKET", "IL").strip() or "IL"
 
-    It lands on search results rather than starting playback outright, which
-    costs one tap. Playing a specific track directly would need a track ID,
-    and getting one means calling Spotify's search API with app credentials —
-    a key to obtain, store and keep alive. That trade was declined
-    deliberately; this route works today with nothing to maintain.
+_spotify_token = {"value": None, "expires": 0.0}
+_spotify_token_lock = threading.Lock()
+
+
+def spotify_configured() -> bool:
+    return bool(SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET)
+
+
+def _spotify_app_token():
+    """Cached client-credentials token, or None if we can't get one.
+
+    Tokens last an hour, and minting one costs a round trip the user waits
+    through, so it is kept until shortly before it expires. A failure is cached
+    too — briefly — so a bad key doesn't add a doomed request to every single
+    music command.
+    """
+    now = time.time()
+    with _spotify_token_lock:
+        if _spotify_token["value"] and now < _spotify_token["expires"]:
+            return _spotify_token["value"]
+        try:
+            r = requests.post(
+                "https://accounts.spotify.com/api/token",
+                data={"grant_type": "client_credentials"},
+                auth=(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET),
+                timeout=8,
+            )
+            r.raise_for_status()
+            payload = r.json()
+            token = payload.get("access_token")
+            if not token:
+                raise ValueError("no access_token in response")
+            _spotify_token["value"] = token
+            _spotify_token["expires"] = now + max(60, int(payload.get("expires_in", 3600)) - 60)
+            return token
+        except Exception as exc:
+            logger.warning("Spotify token request failed: %s", exc)
+            _spotify_token["value"] = None
+            _spotify_token["expires"] = now + 60
+            return None
+
+
+def resolve_spotify_track(query: str):
+    """('https://open.spotify.com/track/…', 'Title — Artist') or None.
+
+    None is not an error worth surfacing — it just means the caller falls back
+    to the search link, which is what happened for every request before this
+    existed.
+    """
+    if not query or not spotify_configured():
+        return None
+    token = _spotify_app_token()
+    if not token:
+        return None
+    try:
+        r = requests.get(
+            "https://api.spotify.com/v1/search",
+            params={"q": query, "type": "track", "limit": 1, "market": SPOTIFY_MARKET},
+            headers={"Authorization": "Bearer " + token},
+            timeout=8,
+        )
+        if r.status_code == 401:
+            # Revoked or expired ahead of schedule — drop it so the next
+            # command mints a fresh one instead of failing the same way.
+            with _spotify_token_lock:
+                _spotify_token["value"] = None
+                _spotify_token["expires"] = 0.0
+            return None
+        r.raise_for_status()
+        items = ((r.json().get("tracks") or {}).get("items") or [])
+        if not items:
+            return None
+        track = items[0]
+        url = ((track.get("external_urls") or {}).get("spotify") or "").strip()
+        if not url:
+            return None
+        name = (track.get("name") or "").strip()
+        artists = ", ".join(a.get("name", "").strip() for a in (track.get("artists") or [])
+                            if a.get("name"))
+        label = " — ".join(p for p in (name, artists) if p) or query
+        return url, label
+    except Exception as exc:
+        logger.warning("Spotify search failed for %r: %s", query, exc)
+        return None
+
+
+def _play_music(user_id, args, persona="jarvis"):
+    """Spotify's own https link, so no shortcut is involved — iOS and Android
+    hand open.spotify.com to the installed app, and fall back to the web
+    player when it isn't there.
+
+    Which link decides whether music actually starts. A /track/ link plays on
+    open; a /search/ link cannot, no matter what is appended to it. So the
+    spoken request is resolved to a real track first, and the search link is
+    only the fallback for when it can't be (see resolve_spotify_track).
     """
     query = (args.get("query") or "").strip()
     if not query:
         return "What would you like me to play, sir?"
 
-    url = f"https://open.spotify.com/search/{requests.utils.quote(query)}"
-    details = {"action": "music", "label": "Spotify", "target": query,
-               "url": url, "ts": time.time()}
+    resolved = resolve_spotify_track(query)
+    if resolved:
+        url, label = resolved
+    else:
+        label = query
+        url = f"https://open.spotify.com/search/{requests.utils.quote(query)}"
+    details = {"action": "music", "label": "Spotify", "target": label,
+               "url": url, "plays": bool(resolved), "asked_for": query,
+               "ts": time.time()}
     _PENDING_PHONE_LINK[user_id] = details
     event_stream.push_event({
         "type": "confirmation_required", "kind": "phone_app",
         "message": f"Open Spotify for '{query}'?",
         "details": details,
     }, user_id=user_id)
+    if resolved:
+        return say(persona, f"'{label}' is on the HUD, sir — tap and it starts playing.",
+                   f"'{label}'. Tap it and it plays.")
     return say(persona, f"'{query}' is on the HUD, sir — tap to play it.",
                f"'{query}'. Tap it.")
 

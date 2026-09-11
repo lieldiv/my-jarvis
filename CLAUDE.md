@@ -208,9 +208,17 @@ questions.
   rewrites a still-*pending* proposal, not something already sent). Test
   events created during verification get left on the real calendar to
   remove manually.
-- `spotify_login.py`, `SPOTIFY_*` env vars, and the `spotipy` dependency are
-  gone from this fork entirely (removed, not just disabled) — don't
-  reintroduce references to them.
+- **Spotify, what's gone and what isn't.** `spotify_login.py` (user OAuth),
+  `play_on_spotify`/`get_spotify_client`, and the `spotipy` dependency are
+  gone entirely — that was one shared account whose playback any signed-in
+  user could drive, and it should not come back. What exists now is narrower
+  and unrelated: `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` (optional,
+  app-only client credentials) are used by `resolve_spotify_track()` for one
+  thing — turning "play me X" into a track id, because an
+  `open.spotify.com/track/<id>` link starts playing when the phone opens it
+  and a `/search/` link cannot. No user login, no account, no playback
+  control, no premium. Unset, it falls back to the search link and behaves
+  exactly as it did before, so don't "fix" a deploy that has no keys.
 
 ## Setup / running locally (rare — this fork is meant to run on Render)
 
