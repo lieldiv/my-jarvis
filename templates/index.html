@@ -1973,9 +1973,7 @@ let pcmChunks = [], pcmSampleRate = 0, pcmPeak = 0;
    So the orb waits to claim it is listening until audio is genuinely flowing,
    or until the deadline below — a silent room must not leave it saying
    "רגע…" forever. */
-let pcmLive = false, pcmWarmDeadline = 0;
-const PCM_WARM_PEAK = 0.002;   // any real signal at all, far below speech
-const PCM_WARM_MAX_MS = 1200;  // past this the route has certainly settled
+let pcmLive = false;
 /* Below this the take carries no speech worth sending. Not a noise gate — a
    real room, a hand over the microphone, even a whisper all sit far above it.
    This catches a stream that is genuinely all zeros, which otherwise uploads
@@ -2047,7 +2045,6 @@ async function startPcmCapture(){
     pcmNode = pcmCtx.createScriptProcessor(4096, 1, 1);
     pcmPeak = 0;
     pcmLive = false;
-    pcmWarmDeadline = Date.now() + PCM_WARM_MAX_MS;
     const warmStart = Date.now();
     pcmNode.onaudioprocess = (e) => {
         const data = e.inputBuffer.getChannelData(0);
@@ -2059,10 +2056,17 @@ async function startPcmCapture(){
             const v = data[i] < 0 ? -data[i] : data[i];
             if (v > pcmPeak) pcmPeak = v;
         }
-        if (!pcmLive && (pcmPeak > PCM_WARM_PEAK || Date.now() > pcmWarmDeadline)) {
+        /* Live on the FIRST buffer to arrive at all, not the first one
+           carrying signal. A buffer arriving proves the graph is pumping,
+           which is the thing that was actually in doubt — waiting for audible
+           signal on top of that made the user wait through their own silence
+           before speaking, which is worse than the problem it was guarding
+           against. The peak is still measured, and still decides whether the
+           finished take had any sound in it. */
+        if (!pcmLive) {
             pcmLive = true;
-            vlog('pcm-live', `after ${Date.now() - warmStart}ms`);
-            renderOrb();   // only now does the orb say it is listening
+            vlog('pcm-live', `first buffer after ${Date.now() - warmStart}ms`);
+            renderOrb();
         }
         // Copied, not referenced: the event reuses its buffer, so keeping the
         // original would leave every chunk holding the newest audio. Buffers
@@ -2299,6 +2303,8 @@ function noteCaptureFailure(){
 }
 
 function armMicrophone(){
+    // Anything already fetching speech is now stale — see fetchAndSpeak.
+    speechGeneration++;
     if (usingRecorder()) startRecording();
     else startRecognitionSafely();
 }
@@ -2589,14 +2595,35 @@ function finishCommand(responseText, audio, speak){
     setTimeout(() => { if (voiceState === 'done') { voiceState = 'idle'; renderOrb(); clearOrbBubbles(); } }, 4000);
 }
 
+/* Bumped every time the microphone opens. Speech fetched before that point
+   belongs to a conversation the user has already moved on from. */
+let speechGeneration = 0;
+
 async function fetchAndSpeak(text){
+    const generation = speechGeneration;
     try {
         const res = await fetch('/api/speak', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, persona: currentMode() }),
         });
         const data = await res.json();
-        if (data.audio) { playJarvisAudio(data.audio, () => setOrbResponse(text)); return; }
+        if (data.audio) {
+            /* Dropped if the user started talking while this was in flight.
+
+               Splitting speech into its own request got the words on screen
+               sooner, but it also meant the audio now lands at an arbitrary
+               moment instead of arriving with the reply — including in the
+               middle of the next recording. Playing then puts iOS's single
+               audio session back into playback mid-capture, which is exactly
+               what starves the microphone, and talks over the user besides.
+               The reply is already on screen, so dropping it costs nothing. */
+            if (generation !== speechGeneration || micIsLive() || !micMuted) {
+                vlog('tts-dropped', 'user started speaking');
+            } else {
+                playJarvisAudio(data.audio, () => setOrbResponse(text));
+                return;
+            }
+        }
     } catch (e) { vlog('tts-error', 'speak request failed'); }
     // No audio is not a failure worth interrupting anyone over — the reply is
     // already on screen. Just let the orb settle the way it would have.
