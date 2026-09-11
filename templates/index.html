@@ -2524,7 +2524,7 @@ async function sendCommand(commandText){
             body: commandBody(commandText),
         });
         const data = await res.json();
-        finishCommand(data.response, data.audio);
+        finishCommand(data.response, data.audio, data.speak);
         // If this command needed approval, a confirmation sheet is already
         // showing by now (its SSE push lands before this response usually
         // does) and has already claimed inFlightLogId itself — only settle
@@ -2536,14 +2536,31 @@ async function sendCommand(commandText){
         logCommandSettle('cancelled');
     }
 }
-function finishCommand(responseText, audio){
+function finishCommand(responseText, audio, speak){
     if (audio) {
         playJarvisAudio(audio, () => setOrbResponse(responseText));
-    } else {
-        voiceState = 'done'; renderOrb();
-        setOrbResponse(responseText);
-        setTimeout(() => { if (voiceState === 'done') { voiceState = 'idle'; renderOrb(); clearOrbBubbles(); } }, 4000);
+        return;
     }
+    // Shown the moment the words exist. The speech is fetched after, so the
+    // answer is readable while it is still being generated rather than after.
+    voiceState = 'done'; renderOrb();
+    setOrbResponse(responseText);
+    if (speak && responseText) { fetchAndSpeak(responseText); return; }
+    setTimeout(() => { if (voiceState === 'done') { voiceState = 'idle'; renderOrb(); clearOrbBubbles(); } }, 4000);
+}
+
+async function fetchAndSpeak(text){
+    try {
+        const res = await fetch('/api/speak', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, persona: currentMode() }),
+        });
+        const data = await res.json();
+        if (data.audio) { playJarvisAudio(data.audio, () => setOrbResponse(text)); return; }
+    } catch (e) { vlog('tts-error', 'speak request failed'); }
+    // No audio is not a failure worth interrupting anyone over — the reply is
+    // already on screen. Just let the orb settle the way it would have.
+    setTimeout(() => { if (voiceState === 'done') { voiceState = 'idle'; renderOrb(); clearOrbBubbles(); } }, 4000);
 }
 /* Quick-action / home-widget wrapper: same flow as sendCommand, just requires
    being awake first (mirrors old file's toggleListening/wakeJarvis gating). */
@@ -3435,6 +3452,21 @@ const LINK_CONFIRM_KINDS = new Set(['web_search', 'phone_app']);
    this page never actually unloads. Only when the app ISN'T installed does
    the navigation really happen, and landing on Waze's or Maps' web version
    is the right outcome in that case anyway. */
+/* Tells the server the proposal has been answered.
+
+   The polling recovery keeps handing the same card back for its whole window,
+   which is invisible while the page stays loaded — the client dedupes on the
+   timestamp — but opening Spotify or Waze takes the user out of the browser,
+   and coming back can reload the page. The dedupe state is gone, the proposal
+   is not, and they are shown a card they already approved. Cancelling had the
+   same shape. Fire and forget: if it fails the worst case is the old
+   behaviour, and there is nothing useful to say about it. */
+function dismissPhoneLink(){
+    lastPhoneLinkTs = Date.now() / 1000;
+    lastNearbySearchTs = lastPhoneLinkTs;
+    try { fetch('/api/phone-link/dismiss', { method: 'POST', keepalive: true }); } catch (e) {}
+}
+
 function openPhoneLink(url){
     let opened = null;
     try { opened = window.open(url, '_blank'); } catch (e) {}
@@ -3466,6 +3498,7 @@ async function resolveConfirmation(approve){
         pendingConfirmToken = null;
         hideConfirmModal();
         const isAlarm = evt.kind === 'phone_app' && evt.details.action === 'alarm';
+        dismissPhoneLink();
         const isShortcut = evt.kind === 'phone_app' &&
             (evt.details.action === 'shortcut' || evt.details.action === 'music');
         if (isShortcut) {
@@ -3512,7 +3545,7 @@ async function resolveConfirmation(approve){
         pendingConfirmToken = null;
         hideConfirmModal();
         pollUpcomingEvents();
-        finishCommand(data.response, data.audio);
+        finishCommand(data.response, data.audio, data.speak);
         showToast(data.response || '');
         if (logId != null) updateActivityStatus(logId, approve ? 'confirmed' : 'cancelled');
     } catch (err) {

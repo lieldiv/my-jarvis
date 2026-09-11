@@ -2134,10 +2134,15 @@ def process_command():
     shortcuts = sanitize_shortcuts(data.get("shortcuts"))
 
     response_text = run_llm(text, user_id, persona, shortcuts)
-    voice, prosody = PERSONA_VOICES[persona]
-    audio_b64 = asyncio.run(generate_tts_base64(response_text, voice, prosody))
 
-    return jsonify({"response": response_text, "audio": audio_b64})
+    # The reply goes back WITHOUT audio, and the browser asks for the speech
+    # separately. Generating it here made every answer wait for the whole
+    # chain — model, then edge-tts, then the download — before a single word
+    # appeared, which is most of the "it thinks for ten seconds" complaint. The
+    # text is ready seconds earlier than the audio, so it is sent seconds
+    # earlier. Callers that want both in one response still have /api/speak.
+    return jsonify({"response": response_text, "audio": None, "speak": True,
+                    "persona": persona})
 
 
 @app.route("/api/transcribe", methods=["POST"])
@@ -2425,10 +2430,14 @@ def speak():
     spoken summary) and don't need the full run_llm tool-calling pipeline."""
     if not session.get("user_id"):
         return jsonify({"error": "Please sign in first, sir."}), 401
-    text = (request.json or {}).get("text", "").strip()[:MAX_SPEAK_CHARS]
+    body = request.json or {}
+    text = body.get("text", "").strip()[:MAX_SPEAK_CHARS]
     if not text:
         return jsonify({"audio": None})
-    audio_b64 = asyncio.run(generate_tts_base64(text))
+    # Persona matters here now that this is how every spoken reply is
+    # produced — without it Ultron would answer in J.A.R.V.I.S.'s voice.
+    voice, prosody = PERSONA_VOICES[resolve_persona(body.get("persona"))]
+    audio_b64 = asyncio.run(generate_tts_base64(text, voice, prosody))
     return jsonify({"audio": audio_b64})
 
 
@@ -2653,6 +2662,24 @@ def nearby_search_pending():
     if not entry or time.time() - entry["ts"] > 120:
         return jsonify({})
     return jsonify(entry)
+
+
+@app.route("/api/phone-link/dismiss", methods=["POST"])
+def phone_link_dismiss():
+    """Clears a proposal the user has already answered.
+
+    Without this the polling recovery below keeps handing the same card back
+    for its whole 120s window. That is invisible while the page stays loaded —
+    the client dedupes on the timestamp — but opening Spotify or Waze takes the
+    user out of the browser, and coming back can reload the page. The dedupe
+    state is gone, the proposal is not, and they are shown a card they already
+    answered. Cancelling had the same shape: dismissed here, still pending
+    there, offered again on the next poll."""
+    user_id = session.get("user_id")
+    if user_id:
+        _PENDING_PHONE_LINK.pop(user_id, None)
+        _PENDING_NEARBY_SEARCH.pop(user_id, None)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/phone-link/pending")
