@@ -254,6 +254,19 @@ _STT_MAX_BYTES = 24 * 1024 * 1024
 # non-speech above this probability are discarded rather than spoken back.
 _STT_NO_SPEECH_CUTOFF = 0.6
 
+# Whisper's stock inventions when handed silence. Observed in the wild: a
+# genuinely silent recording came back as "תודה", which the probability filter
+# alone let through — no_speech_prob is a judgement about the audio, and on a
+# clean digital zero it is not always confident. These are the exact strings it
+# reaches for, and a bare one of them from a whole take is far likelier to be a
+# hallucination than a real command. Only rejected when it is the ENTIRE
+# transcript: "תודה רבה לך" mid-sentence is ordinary speech.
+_STT_HALLUCINATIONS = {
+    "תודה", "תודה רבה", "תודה רבה לכם", "תודה לכם", "תודה על הצפייה",
+    "thank you", "thank you.", "thanks for watching", "thanks for watching!",
+    "you", ".", "bye", "bye.", "subscribe", "המשך צפייה נעימה",
+}
+
 
 def stt_extension_for(mimetype: str, filename: str = "") -> str:
     """The extension hint Groq needs, from the browser's mimetype, then the
@@ -319,7 +332,15 @@ def transcribe_audio(audio_bytes: bytes, extension: str):
 
     if not _stt_is_speech(result):
         return "", None
-    return (getattr(result, "text", "") or "").strip(), None
+
+    text = (getattr(result, "text", "") or "").strip()
+    core = text.lower().strip(" .!,?…\"'")
+    # An empty core means the whole transcript was punctuation — Whisper's
+    # other way of saying nothing — so it is discarded on the same grounds.
+    if not core or core in _STT_HALLUCINATIONS:
+        logger.info(f"STT discarded a likely hallucination: {text!r}")
+        return "", None
+    return text, None
 
 
 # llama-3.3-70b-versatile (used in the original script) was deprecated by Groq

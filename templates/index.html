@@ -1955,7 +1955,12 @@ function releaseMicStream(){
    working recorder with a more fashionable broken one would be a poor trade.
    ================================================================================ */
 let pcmCtx = null, pcmSource = null, pcmNode = null, pcmSilence = null;
-let pcmChunks = [], pcmSampleRate = 0;
+let pcmChunks = [], pcmSampleRate = 0, pcmPeak = 0;
+/* Below this the take carries no speech worth sending. Not a noise gate — a
+   real room, a hand over the microphone, even a whisper all sit far above it.
+   This catches a stream that is genuinely all zeros, which otherwise uploads
+   happily and comes back as invented words. */
+const PCM_SILENCE_PEAK = 0.005;
 
 function encodeWav(chunks, sampleRate){
     let total = 0;
@@ -2001,19 +2006,39 @@ function stopPcmGraph(){
     pcmCtx = null;
 }
 
-function startPcmCapture(){
+async function startPcmCapture(){
     const Ctor = window.AudioContext || window.webkitAudioContext;
     if (!Ctor) return false;
     pcmCtx = new Ctor();
-    if (pcmCtx.state === 'suspended') { try { pcmCtx.resume(); } catch (e) {} }
+    /* AWAITED, and that is the whole point. resume() returns a promise, and a
+       context still in 'suspended' when the microphone is connected to it
+       hands the processor silence — the graph is wired correctly and every
+       buffer is zeros. That is what produced a real WAV full of nothing, which
+       Whisper then answered with "תודה": its documented hallucination when
+       there is no speech to transcribe. Firing resume() and carrying straight
+       on was the bug. */
+    if (pcmCtx.state === 'suspended') {
+        try { await pcmCtx.resume(); } catch (e) { vlog('pcm-error', 'resume ' + (e && e.name)); }
+    }
+    vlog('pcm-ctx', pcmCtx.state);
     pcmSampleRate = pcmCtx.sampleRate;
     pcmChunks = [];
     pcmSource = pcmCtx.createMediaStreamSource(micStream);
     pcmNode = pcmCtx.createScriptProcessor(4096, 1, 1);
+    pcmPeak = 0;
     pcmNode.onaudioprocess = (e) => {
+        const data = e.inputBuffer.getChannelData(0);
+        // The loudest sample seen. Measured because "the recording is silent"
+        // and "the transcription is wrong" are indistinguishable from the
+        // outside, and confusing them cost several rounds: a WAV full of
+        // zeros still uploads fine and still comes back with confident text.
+        for (let i = 0; i < data.length; i++){
+            const v = data[i] < 0 ? -data[i] : data[i];
+            if (v > pcmPeak) pcmPeak = v;
+        }
         // Copied, not referenced: the event reuses its buffer, so keeping the
         // original would leave every chunk holding the newest audio.
-        pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        pcmChunks.push(new Float32Array(data));
     };
     pcmSource.connect(pcmNode);
     // A ScriptProcessor only runs while connected to the destination, but
@@ -2062,7 +2087,7 @@ async function startRecording(){
     // PCM first on iOS, and anywhere MediaRecorder has already proved empty.
     // It is the path with no dependency on a container implementation.
     if (IS_IOS || pcmForced) {
-        if (startPcmCapture()) {
+        if (await startPcmCapture()) {
             voiceState = 'listening';
             renderOrb();
             clearTimeout(recordStopTimer);
@@ -2121,9 +2146,22 @@ async function finishPcmRecording(){
     releaseMicStream();
 
     const samples = chunks.reduce((a, c) => a + c.length, 0);
+    const peak = pcmPeak;
     const blob = encodeWav(chunks, rate || 48000);
-    vlog('pcm-stop', `${samples} samples, ${blob.size}B wav`);
-    if (blob.size < MIN_RECORDING_BYTES) noteCaptureFailure();
+    vlog('pcm-stop', `${samples} samples, peak ${peak.toFixed(4)}, ${blob.size}B wav`);
+
+    if (blob.size < MIN_RECORDING_BYTES) { noteCaptureFailure(); }
+    else if (peak < PCM_SILENCE_PEAK) {
+        /* Refused here rather than sent. Whisper answers silence with
+           confident invented text — "תודה" in Hebrew, "Thank you." in English
+           — so uploading a silent take produces a command the user never gave.
+           Saying nothing was heard is both true and more useful. */
+        vlog('pcm-silent', `peak ${peak.toFixed(4)} < ${PCM_SILENCE_PEAK}`);
+        noteCaptureFailure();
+        showToast('המיקרופון לא קלט קול — ההקלטה יצאה שקטה לגמרי.', true);
+        voiceState = 'idle'; renderOrb();
+        return;
+    }
     await uploadForTranscription(blob, 'speech.wav');
 }
 
