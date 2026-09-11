@@ -938,6 +938,9 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
             <div id="standalone-warning"></div>
 
+            <div class="settings-sub">◂ מנוע דיבור</div>
+            <div id="stt-engine"></div>
+
             <div class="settings-sub">◂ אבחון דיבור</div>
             <div id="voice-diag"></div>
 
@@ -1417,7 +1420,8 @@ function voiceLogText(){
     if (!voiceLog.length) return 'עדיין אין אירועים. הקש על הכדור ודבר.';
     const t0 = voiceLog[0].t;
     const head = `platform: ${IS_IOS ? 'iOS' : 'other'} | ` +
-        `${IS_STANDALONE ? 'home-screen' : 'browser'} | lang: ${RECOGNITION_LANG}`;
+        `${IS_STANDALONE ? 'home-screen' : 'browser'} | engine: ${sttEngine()} | ` +
+        `lang: ${RECOGNITION_LANG}`;
     return head + '\n' + voiceLog.map(e =>
         `+${String(e.t - t0).padStart(5)}ms  ${e.event}${e.detail ? '  ' + e.detail : ''}`
     ).join('\n');
@@ -1477,7 +1481,7 @@ function isListening(){ return isAwake && !micMuted && SPEECH_RECOGNITION_SUPPOR
    inside a user gesture, which is precisely what Safari requires. Visuals
    deliberately keep using intent, so the orb reacts on the tap instead of
    flickering through 'ready' for the 150ms until onstart fires. */
-function micIsLive(){ return recognitionActive || recognitionStartTimer !== null; }
+function micIsLive(){ return !!mediaRecorder || recognitionActive || recognitionStartTimer !== null; }
 function orbVisualState(){
     if (!isAwake) return 'sleeping';
     if (isSpeaking()) return 'speaking';
@@ -1579,7 +1583,7 @@ function startListening(){
     // burst and the orb changing state already say the tap registered. The
     // STOP beep is kept everywhere: by then capture is over.
     if (!IS_IOS) beep(660, 0.12);
-    startRecognitionSafely();
+    armMicrophone();
 }
 function stopListening(){
     // micMuted BEFORE stop(): recognition.onend restarts itself 400ms later
@@ -1588,7 +1592,8 @@ function stopListening(){
     micMuted = true;
     cancelPendingRecognitionStart();
     clearTimeout(recognitionSafetyTimer);
-    if (recognition && recognitionActive) { try { recognition.stop(); } catch(e){} }
+    if (usingRecorder()) stopRecording();
+    else if (recognition && recognitionActive) { try { recognition.stop(); } catch(e){} }
     if (voiceState === 'listening') voiceState = 'idle';
     renderOrb();
     playTapBurst('stop'); beep(330, 0.14); haptic([10, 35, 10]);
@@ -1691,7 +1696,11 @@ function setOrbResponse(text){
 function clearOrbBubbles(){ setOrbTranscript(''); setOrbTool(''); setOrbResponse(''); }
 
 function triggerWake(){
-    if (SPEECH_RECOGNITION_SUPPORTED && !textOnlyMode) {
+    // Nothing is armed here in recorder mode. Wake-word listening needs a
+    // continuously open microphone, which recording deliberately isn't — and
+    // it would otherwise record JARVIS's own greeting. Press-to-talk is the
+    // interaction either way; this just skips a step that cannot work.
+    if (SPEECH_RECOGNITION_SUPPORTED && !textOnlyMode && !usingRecorder()) {
         if (!micInitialized) { initSpeechRecognition(); micInitialized = true; }
         startRecognitionSafely();
     }
@@ -1779,6 +1788,190 @@ function playJarvisAudio(b64Audio, onStart){
    SpeechRecognition — bilingual wake/stop words, press-to-talk (verbatim
    behavior from the old production file, restyled onto the new orb states).
    ================================================================================ */
+/* What to do with a finished utterance, whichever engine produced it.
+
+   Both paths land here — the browser's recogniser and the record-then-
+   transcribe route below — so wake words, stop words and spoken confirmations
+   behave identically no matter which one is running. Splitting this was the
+   point: two copies would drift, and one of them would quietly lose the
+   confirmation branch. */
+function handleTranscript(transcript){
+    if (!transcript) return;
+    if (pendingConfirmToken || pendingConfirmEvt) {
+        // web_search/"places" confirmations are deliberately tokenless (see
+        // resolveConfirmation) — gating on the token alone meant a spoken
+        // "yes"/"no" while that sheet was open fell through to a brand-new
+        // LLM command instead of approving it.
+        micMuted = true;
+        handleConfirmationReply(transcript);
+    } else if (!isAwake) {
+        if (transcript.includes('good morning') || transcript.includes('wake up') || transcript.includes('jarvis') ||
+            transcript.includes('בוקר טוב') || transcript.includes('תתעורר') || transcript.includes("ג'רוויס") || transcript.includes('גרוויס')) {
+            wakeJarvis();
+        }
+    } else if (transcript.includes('stop') || transcript.includes('עצור') || transcript.includes('תפסיק') || transcript.includes('תעצור')) {
+        triggerStop();
+    } else {
+        micMuted = true;
+        sendCommand(transcript);
+    }
+}
+
+/* ================================================================================
+   Record-and-transcribe — the speech engine that does not depend on WebKit.
+
+   On iPhone, webkitSpeechRecognition opens a session, fires onaudiostart, and
+   then delivers silence: no soundstart, no speechstart, "aborted — No speech
+   detected", every time. It reports nothing we can act on and nothing we tried
+   changed it. So the browser stops being asked to RECOGNISE anything — it just
+   records, and the audio is transcribed on our own server (see /api/transcribe).
+
+   That makes the whole path ours: identical on every device, Hebrew handled by
+   Whisper rather than by whatever dictation the phone happens to have
+   installed, and every failure visible instead of silent. The cost is that
+   transcription is batch — text arrives after you stop talking, not as you go —
+   which suits press-to-talk exactly, since a tap already marks both ends.
+   ================================================================================ */
+const RECORDER_SUPPORTED = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+const STT_ENGINE_KEY = 'jarvis_stt_engine';   // 'auto' | 'record' | 'browser'
+const MAX_RECORDING_MS = 15000;
+const MIN_RECORDING_BYTES = 1024;             // below this it's a click, not speech
+
+function sttEngine(){
+    const v = lsGet(STT_ENGINE_KEY, 'auto');
+    if (v === 'record' || v === 'browser') return v;
+    // Auto: the recogniser is genuinely good on desktop and genuinely broken
+    // on iOS, so pick per platform rather than forcing one everywhere.
+    return IS_IOS ? 'record' : 'browser';
+}
+function usingRecorder(){ return RECORDER_SUPPORTED && sttEngine() === 'record'; }
+
+let mediaRecorder = null, micStream = null, recordedChunks = [], recordStopTimer = null;
+
+function recorderMimeType(){
+    // Safari records AAC in an MP4 container; everything else prefers Opus in
+    // WebM. Both are formats our transcription endpoint accepts as-is, so
+    // there is nothing to convert — we just have to ask for one it can make.
+    for (const t of ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac']){
+        try { if (MediaRecorder.isTypeSupported(t)) return t; } catch (e) {}
+    }
+    return '';   // let the browser choose and tell us afterwards
+}
+
+/* Every track, every time. A track left live is the documented cause of
+   "records fine once, then never again after the app is reopened" on iOS. */
+function releaseMicStream(){
+    if (!micStream) return;
+    try { micStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    micStream = null;
+}
+
+async function startRecording(){
+    if (mediaRecorder) return;
+    releaseAudioSession();
+    try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+        vlog('rec-error', 'getUserMedia ' + (e && e.name));
+        showToast('אין גישה למיקרופון — אשר אותה בהגדרות הדפדפן.', true);
+        micMuted = true; voiceState = 'idle'; renderOrb();
+        return;
+    }
+    const wanted = recorderMimeType();
+    recordedChunks = [];
+    try {
+        mediaRecorder = wanted ? new MediaRecorder(micStream, { mimeType: wanted })
+                               : new MediaRecorder(micStream);
+    } catch (e) {
+        vlog('rec-error', 'MediaRecorder ' + (e && e.name));
+        showToast('ההקלטה לא נתמכת בדפדפן הזה.', true);
+        releaseMicStream();
+        micMuted = true; voiceState = 'idle'; renderOrb();
+        return;
+    }
+    mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = finishRecording;
+    mediaRecorder.start();
+    vlog('rec-start', mediaRecorder.mimeType || wanted || '(browser default)');
+    voiceState = 'listening';
+    renderOrb();
+    // A ceiling, not a silence detector: phones vary far too much in noise
+    // floor for a single threshold, and the user's own tap is the real end.
+    clearTimeout(recordStopTimer);
+    recordStopTimer = setTimeout(() => { vlog('rec-timeout'); stopRecording(); }, MAX_RECORDING_MS);
+}
+
+function stopRecording(){
+    clearTimeout(recordStopTimer);
+    if (!mediaRecorder) return;
+    try { if (mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (e) { vlog('rec-error', 'stop ' + e.name); }
+}
+
+async function finishRecording(){
+    const type = (mediaRecorder && mediaRecorder.mimeType) || 'audio/mp4';
+    mediaRecorder = null;
+    releaseMicStream();                 // before the upload, not after — the mic
+                                        // should never stay lit during a network call
+    const blob = new Blob(recordedChunks, { type });
+    recordedChunks = [];
+    vlog('rec-stop', `${blob.size}B ${type}`);
+
+    if (blob.size < MIN_RECORDING_BYTES) {
+        vlog('rec-empty', 'too short to contain speech');
+        showToast('לא הספקתי להקליט — החזק רגע לפני שאתה עוצר.');
+        voiceState = 'idle'; renderOrb();
+        return;
+    }
+
+    voiceState = 'processing';
+    renderOrb();
+    const form = new FormData();
+    form.append('audio', blob, 'speech.' + (type.includes('webm') ? 'webm' : 'm4a'));
+
+    let data = null;
+    try {
+        const res = await fetch('/api/transcribe', { method: 'POST', body: form });
+        data = await res.json();
+    } catch (e) {
+        vlog('stt-error', 'network');
+        showToast('לא הצלחתי לשלוח את ההקלטה — בדוק חיבור.', true);
+        voiceState = 'idle'; renderOrb();
+        return;
+    }
+
+    if (!data || !data.ok) {
+        const key = (data && data.error) || 'failed';
+        vlog('stt-error', key);
+        showToast({
+            rate_limited: 'יותר מדי בקשות לתמלול — המתן רגע.',
+            unreachable:  'שירות התמלול לא זמין כרגע.',
+            bad_audio:    'ההקלטה לא בפורמט נתמך.',
+            too_short:    'ההקלטה קצרה מדי — נסה שוב.',
+            auth:         'התחבר מחדש כדי להשתמש בדיבור.',
+        }[key] || 'התמלול נכשל — נסה שוב.', true);
+        voiceState = 'idle'; renderOrb();
+        return;
+    }
+
+    if (data.empty || !data.text) {
+        vlog('stt-empty');
+        showToast('לא שמעתי כלום — נסה שוב.');
+        voiceState = 'idle'; renderOrb();
+        return;
+    }
+
+    vlog('stt-text', `"${data.text}"`);
+    setOrbTranscript(data.text);
+    voiceState = 'idle';
+    handleTranscript(data.text.toLowerCase().trim());
+}
+
+/* The one place that decides which engine opens the microphone. */
+function armMicrophone(){
+    if (usingRecorder()) startRecording();
+    else startRecognitionSafely();
+}
+
 function initSpeechRecognition(){
     const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognitionCtor) return;
@@ -1886,24 +2079,7 @@ function initSpeechRecognition(){
         try { transcript = event.results[0][0].transcript.toLowerCase().trim(); } catch (e) {}
         if (!transcript) { vlog('result', 'empty or malformed — ignored'); return; }
 
-        if (pendingConfirmToken || pendingConfirmEvt) {
-            // web_search/"places" confirmations are deliberately tokenless
-            // (see resolveConfirmation) — gating on the token alone meant a
-            // spoken "yes"/"no" while that specific sheet was open fell
-            // through to a brand-new LLM command instead of approving it.
-            micMuted = true;
-            handleConfirmationReply(transcript);
-        } else if (!isAwake) {
-            if (transcript.includes('good morning') || transcript.includes('wake up') || transcript.includes('jarvis') ||
-                transcript.includes('בוקר טוב') || transcript.includes('תתעורר') || transcript.includes("ג'רוויס") || transcript.includes('גרוויס')) {
-                wakeJarvis();
-            }
-        } else if (transcript.includes('stop') || transcript.includes('עצור') || transcript.includes('תפסיק') || transcript.includes('תעצור')) {
-            triggerStop();
-        } else {
-            micMuted = true;
-            sendCommand(transcript);
-        }
+        handleTranscript(transcript);
     };
 
     recognition.onerror = (event) => {
@@ -3529,6 +3705,38 @@ function renderStandaloneWarning(){
     box.appendChild(w);
 }
 renderStandaloneWarning();
+
+const STT_ENGINE_LABELS = {
+    auto:    ['אוטומטי', 'הקלטה באייפון, מנוע הדפדפן במחשב'],
+    record:  ['הקלטה + תמלול', 'מקליט ומתמלל בשרת — עובד זהה בכל מכשיר'],
+    browser: ['מנוע הדפדפן', 'זיהוי חי של הדפדפן — מהיר, אך שבור באייפון'],
+};
+
+function renderSttEngine(){
+    const box = $('stt-engine');
+    if (!box) return;
+    box.innerHTML = '';
+
+    const active = sttEngine();
+    const intro = el('div', 'voice-info-block');
+    intro.innerHTML = 'פעיל כעת: <b>' + (active === 'record' ? 'הקלטה + תמלול' : 'מנוע הדפדפן') + '</b>' +
+        (RECORDER_SUPPORTED ? '' : '<br/>⚠ הדפדפן הזה לא תומך בהקלטה, אז רק מנוע הדפדפן זמין.');
+    box.appendChild(intro);
+
+    Object.entries(STT_ENGINE_LABELS).forEach(([key, [name, why]]) => {
+        const chosen = lsGet(STT_ENGINE_KEY, 'auto') === key;
+        const b = el('button', 'setup-btn' + (chosen ? '' : ' quiet'));
+        b.innerHTML = (chosen ? '● ' : '○ ') + name +
+            '<br/><span style="font-size:11.5px;font-weight:400;opacity:.75">' + why + '</span>';
+        b.onclick = () => {
+            lsSet(STT_ENGINE_KEY, key);
+            renderSttEngine();
+            showToast(sttEngine() === 'record' ? 'עובר להקלטה + תמלול בשרת.' : 'עובר למנוע הדפדפן.');
+        };
+        box.appendChild(b);
+    });
+}
+renderSttEngine();
 
 function renderVoiceLog(){
     const pre = $('voice-diag-log');

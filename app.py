@@ -187,6 +187,132 @@ if not GROQ_API_KEY:
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 
+# ---------------------------------------------------------------------------
+# Speech to text
+# ---------------------------------------------------------------------------
+# The browser's own SpeechRecognition is unusable on iPhone: instrumenting every
+# event showed the session opening and audio capture nominally starting
+# (onaudiostart), then no soundstart, no speechstart, and "aborted — No speech
+# detected". The microphone opens onto silence, and WebKit reports nothing we
+# can act on. Two attempted fixes changed nothing.
+#
+# So the browser stops being asked to recognise anything. It records raw audio
+# and we transcribe it here, which puts the whole path under our control and
+# makes every device behave identically. It also transcribes Hebrew better than
+# the phone's own dictation does.
+#
+# A SEPARATE client from groq_client above, purely for the timeout: the chat
+# default of 60s is far too long to leave someone holding a microphone. One
+# retry, then fail out loud.
+stt_client = Groq(api_key=GROQ_API_KEY, timeout=30.0, max_retries=1)
+
+STT_MODEL = os.environ.get("JARVIS_STT_MODEL", "whisper-large-v3")
+# Forced rather than auto-detected. Whisper picks the language from the first
+# window only, and on a two-second command with a breath at the front it
+# mis-detects into Arabic or Russian — which produces confident nonsense rather
+# than a slightly worse transcript. Pinning it removes that failure mode
+# outright. The cost is that English commands come back transliterated into
+# Hebrew script; that trade is right while nearly every command is Hebrew.
+STT_LANGUAGE = os.environ.get("JARVIS_STT_LANGUAGE", "he")
+# Nudges spelling toward this assistant's own vocabulary. Written in Hebrew on
+# purpose — Groq's guidance is that the prompt should match the audio's
+# language. Kept short: Whisper echoes the prompt back as the transcript when
+# it hears silence, so a long one makes that failure noisier.
+STT_PROMPT = "פקודות קוליות לעוזר אישי: יומן, פגישה, תזכורת, אימייל, מוזיקה, ניווט, מזג אוויר."
+
+# Groq validates the container partly by the filename extension it is given, so
+# the browser's mimetype has to be mapped onto one it accepts rather than
+# passed through. Getting this wrong is a 400 on perfectly good audio.
+_STT_MIME_TO_EXT = {
+    "audio/mp4": "m4a",      # iOS Safari records AAC in an MP4 container
+    "audio/x-m4a": "m4a",
+    "audio/aac": "m4a",
+    "video/mp4": "mp4",      # iOS sometimes labels its own audio this way
+    "audio/webm": "webm",    # Chrome, Firefox, Android, Safari 18.4+
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/wave": "wav",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/flac": "flac",
+}
+_STT_ALLOWED_EXT = {"flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"}
+_STT_MIN_BYTES = 1024          # below this there is no recording, only a click
+_STT_MAX_BYTES = 24 * 1024 * 1024
+# Whisper invents speech from silence, confidently — "תודה" in Hebrew, "Thank
+# you." in English are the classic ones. Segments the model itself considers
+# non-speech above this probability are discarded rather than spoken back.
+_STT_NO_SPEECH_CUTOFF = 0.6
+
+
+def stt_extension_for(mimetype: str, filename: str = "") -> str:
+    """The extension hint Groq needs, from the browser's mimetype, then the
+    filename, then a default of m4a — iOS being the case this exists for."""
+    mt = (mimetype or "").split(";")[0].strip().lower()   # drop ";codecs=opus"
+    if mt in _STT_MIME_TO_EXT:
+        return _STT_MIME_TO_EXT[mt]
+    ext = (filename or "").rsplit(".", 1)[-1].lower()
+    if ext in _STT_ALLOWED_EXT:
+        return ext
+    return "m4a"
+
+
+def _stt_is_speech(result) -> bool:
+    """False when every segment the model returned is one it considers
+    non-speech. Returns True when there are no segments to judge by, so a
+    thinner response format can never silently swallow a real transcript."""
+    segments = getattr(result, "segments", None) or []
+    if not segments:
+        return True
+    for seg in segments:
+        prob = seg.get("no_speech_prob", 0) if isinstance(seg, dict) else getattr(seg, "no_speech_prob", 0)
+        if (prob or 0) < _STT_NO_SPEECH_CUTOFF:
+            return True
+    return False
+
+
+def transcribe_audio(audio_bytes: bytes, extension: str):
+    """(text, error_key). error_key is None on success; text may still be empty
+    when the clip held no speech, which is a normal outcome, not a failure."""
+    if len(audio_bytes) < _STT_MIN_BYTES:
+        return "", "too_short"
+    if len(audio_bytes) > _STT_MAX_BYTES:
+        return "", "too_large"
+
+    kwargs = {
+        # The filename is load-bearing, not decoration: bare bytes get a
+        # generic upload name and are rejected as an invalid format.
+        "file": (f"speech.{extension}", audio_bytes),
+        "model": STT_MODEL,
+        "response_format": "verbose_json",   # needed for the no_speech_prob filter
+        "temperature": 0.0,
+    }
+    if STT_LANGUAGE:
+        kwargs["language"] = STT_LANGUAGE
+    if STT_PROMPT:
+        kwargs["prompt"] = STT_PROMPT
+
+    try:
+        result = stt_client.audio.transcriptions.create(**kwargs)
+    except RateLimitError:
+        logger.error("STT rate limited by Groq.")
+        return "", "rate_limited"
+    except APIConnectionError as e:
+        logger.error(f"STT could not reach Groq: {e}")
+        return "", "unreachable"
+    except BadRequestError as e:
+        logger.warning(f"STT rejected the audio (ext={extension}, {len(audio_bytes)} bytes): {e}")
+        return "", "bad_audio"
+    except Exception as e:
+        logger.error(f"STT failed: {e}")
+        return "", "failed"
+
+    if not _stt_is_speech(result):
+        return "", None
+    return (getattr(result, "text", "") or "").strip(), None
+
+
 # llama-3.3-70b-versatile (used in the original script) was deprecated by Groq
 # on 2026-06-17 and is scheduled to shut down soon after. openai/gpt-oss-120b is
 # Groq's recommended replacement and supports tool calling, but its free-tier
@@ -1982,6 +2108,30 @@ def process_command():
     audio_b64 = asyncio.run(generate_tts_base64(response_text, voice, prosody))
 
     return jsonify({"response": response_text, "audio": audio_b64})
+
+
+@app.route("/api/transcribe", methods=["POST"])
+def api_transcribe():
+    """Browser records, this transcribes, and the text goes back for the HUD to
+    send as a normal command. Deliberately NOT chained into run_llm here: the
+    transcript is shown in the orb first, exactly as the browser's own
+    recogniser used to, so a misheard command is visible before it is acted on."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "error": "auth", "text": ""}), 401
+
+    storage = request.files.get("audio")
+    if storage is None:
+        return jsonify({"ok": False, "error": "no_audio", "text": ""}), 400
+
+    audio_bytes = storage.read()
+    text, error = transcribe_audio(audio_bytes, stt_extension_for(storage.mimetype, storage.filename))
+
+    if error:
+        status = {"too_short": 400, "too_large": 413, "rate_limited": 429,
+                  "unreachable": 503, "bad_audio": 400}.get(error, 502)
+        return jsonify({"ok": False, "error": error, "text": ""}), status
+    return jsonify({"ok": True, "text": text, "empty": not text})
 
 
 @app.route("/api/reset", methods=["POST"])
