@@ -2980,22 +2980,80 @@ def calendar_cancel_request():
     return jsonify(result)
 
 
+# Below this a reply is one breath and splitting it would only add a seam.
+# Calibrated against real replies rather than picked: at 90 a three-sentence
+# answer like "Good morning sir. Your first meeting moved to three. Shall I
+# read the email?" came in at 76 characters and stayed whole, which is exactly
+# the length where waiting for the whole thing is most noticeable.
+SPEAK_CHUNK_MIN_CHARS = 60
+# A fragment shorter than this is not a sentence, it is the tail of one —
+# "כן." on its own line, an abbreviation's full stop. Glued to its neighbour
+# rather than spoken alone, which would sound clipped.
+SPEAK_FRAGMENT_MIN_CHARS = 25
+_SPEAK_SPLIT_RE = re.compile(r"(?<=[.!?…׃])\s+|\n+")
+
+
+def speech_chunks(text: str):
+    """The reply cut into speakable pieces, in order.
+
+    The point is time-to-first-word. Synthesis takes roughly as long as the
+    text is long, and the whole reply used to be generated before a single
+    sound came out — so a three-sentence answer stayed silent for the time it
+    took to make all three. Cut into sentences, the first one starts playing
+    while the rest are still being made.
+
+    Never cuts mid-sentence: a seam inside a clause is audible in a way a seam
+    between sentences is not, and the pieces are synthesized independently so
+    prosody cannot carry across one.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    if len(text) < SPEAK_CHUNK_MIN_CHARS:
+        return [text]
+    parts, chunks = [p.strip() for p in _SPEAK_SPLIT_RE.split(text)], []
+    for part in parts:
+        if not part:
+            continue
+        if chunks and len(part) < SPEAK_FRAGMENT_MIN_CHARS:
+            chunks[-1] = chunks[-1] + " " + part
+        else:
+            chunks.append(part)
+    return chunks or [text]
+
+
 @app.route("/api/speak", methods=["POST"])
 def speak():
     """Generic text-to-speech — wraps tts.generate_tts_base64 for callers
     that already have plain text ready (e.g. the inbox modal's zero-LLM
-    spoken summary) and don't need the full run_llm tool-calling pipeline."""
+    spoken summary) and don't need the full run_llm tool-calling pipeline.
+
+    Takes an optional `index`: the caller asks for one sentence at a time and
+    plays each while fetching the next. Splitting here rather than in the
+    browser keeps one definition of where a sentence ends, and the split is a
+    pure function of the text, so asking for index 2 twice gives the same
+    audio both times."""
     if not session.get("user_id"):
         return jsonify({"error": "Please sign in first, sir."}), 401
     body = request.json or {}
     text = body.get("text", "").strip()[:MAX_SPEAK_CHARS]
     if not text:
-        return jsonify({"audio": None})
+        return jsonify({"audio": None, "index": 0, "total": 0, "more": False})
+
+    chunks = speech_chunks(text)
+    try:
+        index = max(0, int(body.get("index") or 0))
+    except (TypeError, ValueError):
+        index = 0
+    if index >= len(chunks):
+        return jsonify({"audio": None, "index": index, "total": len(chunks), "more": False})
+
     # Persona matters here now that this is how every spoken reply is
     # produced — without it Ultron would answer in J.A.R.V.I.S.'s voice.
     voice, prosody = PERSONA_VOICES[resolve_persona(body.get("persona"))]
-    audio_b64 = asyncio.run(generate_tts_base64(text, voice, prosody))
-    return jsonify({"audio": audio_b64})
+    audio_b64 = asyncio.run(generate_tts_base64(chunks[index], voice, prosody))
+    return jsonify({"audio": audio_b64, "index": index, "total": len(chunks),
+                    "more": index + 1 < len(chunks)})
 
 
 @app.route("/api/inbox")

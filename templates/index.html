@@ -1759,7 +1759,14 @@ function triggerStop(){
    logic from the old production file).
    ================================================================================ */
 let ttsBlobUrl = null; // the blob URL currently loaded into ttsAudioEl, so it can be released when replaced
-function playJarvisAudio(b64Audio, onStart){
+/* onEnded, when given, replaces everything that normally happens when the
+   audio finishes — going back to rest, re-arming the microphone. That is the
+   end of a TURN, and a reply now arrives as several pieces of audio in a row;
+   running it between sentences would re-open the microphone mid-answer. The
+   caller passes it for every piece but the last, and handles what comes next
+   itself. It is also called on a playback failure, or a broken piece would
+   leave the chain waiting forever for a sound that is never coming. */
+function playJarvisAudio(b64Audio, onStart, onEnded){
     vlog('tts-recv', b64Audio ? `${Math.round(b64Audio.length * 0.75 / 1024)}KB` : 'NO AUDIO from server');
     // Reuse the SAME <audio> element unlockAudioPlayback() created (falling
     // back to a fresh one only if a command somehow lands before any tap
@@ -1792,6 +1799,7 @@ function playJarvisAudio(b64Audio, onStart){
     };
     currentAudio.onended = () => {
         vlog('tts-end');
+        if (onEnded) { onEnded(); return; }
         voiceState = 'idle'; renderOrb();
         // armMicrophone, not startRecognitionSafely: the log from the phone
         // showed the browser recogniser starting up after every spoken reply
@@ -1816,6 +1824,7 @@ function playJarvisAudio(b64Audio, onStart){
         vlog('tts-error', 'decode or network');
         voiceState = 'idle'; renderOrb();
         showToast('🔇 השמע לא עלה — נסה שוב.', true);
+        if (onEnded) onEnded();
     };
     currentAudio.play().catch(() => {
         // Blocked (mobile autoplay policy) — was previously a silent
@@ -1827,6 +1836,7 @@ function playJarvisAudio(b64Audio, onStart){
         vlog('tts-blocked', 'play() rejected');
         voiceState = 'idle'; renderOrb(); if (onStart) onStart();
         showToast('🔇 הדפדפן חסם ניגון קול אוטומטי — גע במסך ונסה שוב.', true);
+        if (onEnded) onEnded();
     });
 }
 
@@ -2713,30 +2723,58 @@ function finishCommand(responseText, audio, speak){
    belongs to a conversation the user has already moved on from. */
 let speechGeneration = 0;
 
+/* Sentence by sentence, each one fetched while the previous plays.
+
+   Synthesis takes about as long as the text is long, and the whole reply used
+   to be made before a single sound came out — so a three-sentence answer sat
+   silent for as long as all three took. Now the first sentence starts as soon
+   as it exists and the rest are made during it, which for anything longer than
+   one line is the difference between waiting and not. The server decides where
+   the sentences are, so there is one definition of that and the split is the
+   same every time the same text is asked about. */
 async function fetchAndSpeak(text){
     const generation = speechGeneration;
-    try {
+    const persona = currentMode();
+
+    /* Dropped if the user started talking while this was in flight.
+
+       Speech being its own request got the words on screen sooner, but it also
+       means the audio arrives at an arbitrary later moment — possibly in the
+       middle of the next recording. Playing then puts iOS's single audio
+       session back into playback mid-capture, which is exactly what starves
+       the microphone, and talks over the user besides. Checked before EVERY
+       sentence, not only the first: the chain outlives the request that began
+       it, so a user who interrupts halfway through an answer must not have the
+       remaining sentences played at them. */
+    const stale = () => generation !== speechGeneration || micIsLive() || !micMuted;
+
+    const ask = async (index) => {
         const res = await fetch('/api/speak', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, persona: currentMode() }),
+            body: JSON.stringify({ text, persona, index }),
         });
-        const data = await res.json();
-        if (data.audio) {
-            /* Dropped if the user started talking while this was in flight.
+        return res.json();
+    };
 
-               Splitting speech into its own request got the words on screen
-               sooner, but it also meant the audio now lands at an arbitrary
-               moment instead of arriving with the reply — including in the
-               middle of the next recording. Playing then puts iOS's single
-               audio session back into playback mid-capture, which is exactly
-               what starves the microphone, and talks over the user besides.
-               The reply is already on screen, so dropping it costs nothing. */
-            if (generation !== speechGeneration || micIsLive() || !micMuted) {
-                vlog('tts-dropped', 'user started speaking');
-            } else {
-                playJarvisAudio(data.audio, () => setOrbResponse(text));
+    try {
+        let data = await ask(0);
+        let first = true;
+        while (data && data.audio) {
+            if (stale()) { vlog('tts-dropped', 'user started speaking'); break; }
+            const onStart = first ? () => setOrbResponse(text) : null;
+            first = false;
+            if (!data.more) {
+                // The last piece keeps the ordinary ended handler — that is
+                // what ends the turn and re-arms the microphone.
+                playJarvisAudio(data.audio, onStart);
                 return;
             }
+            // Asked for NOW, so the next sentence is ready before this one
+            // finishes. A failure here ends the reply early rather than
+            // stalling it: the text is on screen either way.
+            const pending = ask(data.index + 1).catch(() => null);
+            await new Promise(resolve => playJarvisAudio(data.audio, onStart, resolve));
+            data = await pending;
         }
     } catch (e) { vlog('tts-error', 'speak request failed'); }
     // No audio is not a failure worth interrupting anyone over — the reply is
