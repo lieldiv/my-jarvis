@@ -281,6 +281,130 @@ def stt_extension_for(mimetype: str, filename: str = "") -> str:
     return "m4a"
 
 
+# verbose_json returns THREE quality numbers per segment and we were reading
+# one of them. The other two are what Whisper's own reference implementation
+# uses to decide a decode has gone wrong:
+#
+#   compression_ratio — how repetitive the text is. Above ~2.4 the model has
+#       fallen into a loop and is repeating itself.
+#   avg_logprob — how confident it was. Below ~-1.0 it was guessing.
+#
+# Those are the reference implementation's thresholds, and its own response to
+# either is to decode the audio again at a higher temperature. Groq's hosted
+# endpoint does not run that ladder for us and does not expose the knobs — but
+# it does return both numbers, so the ladder is rebuilt here. One rung, because
+# a second opinion on a decode that already failed its own sanity check is
+# where nearly all the value is and every rung costs the user a round trip.
+_STT_COMPRESSION_CEILING = 2.4
+_STT_LOGPROB_FLOOR = -1.0
+# The retry drops the prompt and lifts the temperature off zero. Both are
+# deliberate: greedy decoding is what walks into a repetition loop in the first
+# place, and the prompt is itself a suspect — Whisper treats it as text to
+# continue, so a take it judges as non-speech can come back as our own prompt.
+_STT_RETRY_TEMPERATURE = 0.2
+# Shorter than this there is no command in the clip, only a tap and a breath —
+# and short takes are where Whisper invents most freely. The byte floor above
+# cannot see this: 1024 bytes is a hundredth of a second at 48kHz.
+_STT_MIN_SECONDS = 0.35
+# How much of a transcript has to be made of the prompt's own words before it
+# is an echo rather than speech.
+_STT_PROMPT_ECHO_RATIO = 0.65
+# Below this many words, an overlap with the prompt means nothing. The word
+# that forced this: the wake word itself. "ג'רוויס" is the single most
+# important thing anyone says to this assistant, it is the first word of the
+# prompt, and a plainer word pattern split it on the apostrophe into two tokens
+# that both appear there — scoring the wake word as a perfect prompt echo and
+# throwing it away. Hence both the geresh in the pattern and this floor.
+_STT_PROMPT_ECHO_MIN_WORDS = 3
+_STT_WORD_RE = re.compile(r"[^\W\d_]+(?:['׳’][^\W\d_]+)*", re.UNICODE)
+
+
+def _stt_segments(result):
+    segments = getattr(result, "segments", None)
+    if segments is None and isinstance(result, dict):
+        segments = result.get("segments")
+    return segments or []
+
+
+def _stt_field(seg, name, default=None):
+    if isinstance(seg, dict):
+        return seg.get(name, default)
+    return getattr(seg, name, default)
+
+
+def _stt_decode_looks_wrong(result) -> str:
+    """'' when the decode looks sound, otherwise the reason it does not.
+
+    Per-segment and deliberately not averaged: one segment that has collapsed
+    into a repetition loop is enough to poison the whole transcript, and
+    averaging it against the good ones is exactly how that goes unnoticed."""
+    for seg in _stt_segments(result):
+        ratio = _stt_field(seg, "compression_ratio")
+        if isinstance(ratio, (int, float)) and ratio > _STT_COMPRESSION_CEILING:
+            return "compression_ratio %.2f" % ratio
+        logprob = _stt_field(seg, "avg_logprob")
+        if isinstance(logprob, (int, float)) and logprob < _STT_LOGPROB_FLOOR:
+            return "avg_logprob %.2f" % logprob
+    return ""
+
+
+def _stt_duration(result):
+    value = getattr(result, "duration", None)
+    if value is None and isinstance(result, dict):
+        value = result.get("duration")
+    return value if isinstance(value, (int, float)) else None
+
+
+def _stt_is_prompt_echo(text: str) -> bool:
+    """Whisper handing our own prompt back instead of transcribing.
+
+    The fixed-string list below cannot catch this: the echo is whatever
+    STT_PROMPT happens to say, so it changes every time the prompt is tuned.
+    Compared as words rather than characters so Hebrew punctuation and spacing
+    can't hide it, and never on a one-word transcript — "יומן" on its own is a
+    perfectly ordinary thing to say to a calendar assistant."""
+    if not STT_PROMPT:
+        return False
+    said = _STT_WORD_RE.findall(text.lower())
+    if len(said) < _STT_PROMPT_ECHO_MIN_WORDS:
+        return False
+    prompt_words = set(_STT_WORD_RE.findall(STT_PROMPT.lower()))
+    from_prompt = sum(1 for w in said if w in prompt_words)
+    return (from_prompt / len(said)) >= _STT_PROMPT_ECHO_RATIO
+
+
+def _stt_is_looping(text: str) -> bool:
+    """The same phrase over and over — Whisper's loudest way of failing.
+
+    compression_ratio usually catches this first, but only when Groq returns
+    segments to read it from; this reads the text itself, so the guard survives
+    a thinner response."""
+    words = _STT_WORD_RE.findall(text.lower())
+    if len(words) < 6:
+        return False
+    for size in (1, 2, 3):
+        runs = 1
+        for i in range(size, len(words) - size + 1, size):
+            if words[i:i + size] == words[i - size:i]:
+                runs += 1
+                if runs >= 3:
+                    return True
+            else:
+                runs = 1
+    return False
+
+
+def _stt_verdict(result):
+    """(text, reason) — reason is '' when the transcript can be trusted."""
+    text = (getattr(result, "text", "") or "").strip()
+    reason = _stt_decode_looks_wrong(result)
+    if not reason and text and _stt_is_prompt_echo(text):
+        reason = "prompt echo"
+    if not reason and text and _stt_is_looping(text):
+        reason = "repetition loop"
+    return text, reason
+
+
 def _stt_is_speech(result) -> bool:
     """False when every segment the model returned is one it considers
     non-speech. Returns True when there are no segments to judge by, so a
@@ -303,21 +427,36 @@ def transcribe_audio(audio_bytes: bytes, extension: str):
     if len(audio_bytes) > _STT_MAX_BYTES:
         return "", "too_large"
 
-    kwargs = {
-        # The filename is load-bearing, not decoration: bare bytes get a
-        # generic upload name and are rejected as an invalid format.
-        "file": (f"speech.{extension}", audio_bytes),
-        "model": STT_MODEL,
-        "response_format": "verbose_json",   # needed for the no_speech_prob filter
-        "temperature": 0.0,
-    }
-    if STT_LANGUAGE:
-        kwargs["language"] = STT_LANGUAGE
-    if STT_PROMPT:
-        kwargs["prompt"] = STT_PROMPT
+    def _ask(prompt, temperature):
+        kwargs = {
+            # The filename is load-bearing, not decoration: bare bytes get a
+            # generic upload name and are rejected as an invalid format.
+            "file": (f"speech.{extension}", audio_bytes),
+            "model": STT_MODEL,
+            "response_format": "verbose_json",   # the quality signals live here
+            "temperature": temperature,
+        }
+        if STT_LANGUAGE:
+            kwargs["language"] = STT_LANGUAGE
+        if prompt:
+            kwargs["prompt"] = prompt
+        return stt_client.audio.transcriptions.create(**kwargs)
 
     try:
-        result = stt_client.audio.transcriptions.create(**kwargs)
+        result = _ask(STT_PROMPT, 0.0)
+        text, reason = _stt_verdict(result)
+
+        # The decode failed its own sanity check. Ask again without the prompt
+        # and off greedy decoding, and keep the second answer only if it looks
+        # better than the first — a retry that comes back just as broken is
+        # evidence about the audio, not about the decoding.
+        if reason:
+            logger.info("STT retrying a suspect decode (%s): %r", reason, text)
+            retry = _ask("", _STT_RETRY_TEMPERATURE)
+            retry_text, retry_reason = _stt_verdict(retry)
+            if not retry_reason:
+                logger.info("STT retry recovered: %r", retry_text)
+                result, text, reason = retry, retry_text, ""
     except RateLimitError:
         logger.error("STT rate limited by Groq.")
         return "", "rate_limited"
@@ -331,10 +470,21 @@ def transcribe_audio(audio_bytes: bytes, extension: str):
         logger.error(f"STT failed: {e}")
         return "", "failed"
 
+    if reason:
+        # Both attempts looked wrong. Saying nothing was caught is honest and
+        # costs one repeat; handing this transcript on gets a command the user
+        # never gave, which is the thing actually being reported.
+        logger.info("STT discarded a bad decode (%s): %r", reason, text)
+        return "", None
+
+    seconds = _stt_duration(result)
+    if seconds is not None and seconds < _STT_MIN_SECONDS:
+        logger.info("STT discarded a %.2fs clip — too short to hold a command.", seconds)
+        return "", None
+
     if not _stt_is_speech(result):
         return "", None
 
-    text = (getattr(result, "text", "") or "").strip()
     core = text.lower().strip(" .!,?…\"'")
     # An empty core means the whole transcript was punctuation — Whisper's
     # other way of saying nothing — so it is discarded on the same grounds.
