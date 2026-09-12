@@ -215,20 +215,32 @@ STT_MODEL = os.environ.get("JARVIS_STT_MODEL", "whisper-large-v3")
 # outright. The cost is that English commands come back transliterated into
 # Hebrew script; that trade is right while nearly every command is Hebrew.
 STT_LANGUAGE = os.environ.get("JARVIS_STT_LANGUAGE", "he")
-# Nudges spelling toward this assistant's own vocabulary. Written in Hebrew on
-# purpose — Groq's guidance is that the prompt should match the audio's
-# language. Kept short: Whisper echoes the prompt back as the transcript when
-# it hears silence, so a long one makes that failure noisier.
-# The name goes first because it is the word most often said and the one
-# Whisper had most trouble with: pinned to Hebrew, it transliterated "JARVIS"
-# into whatever it felt like ("דרוויס"), and a wake word that spells itself
-# differently every time cannot be matched. The prompt is Whisper's documented
-# lever for exactly this — spelling and vocabulary context — and it is kept
-# short because Whisper echoes it back as the transcript when it hears silence.
-STT_PROMPT = (
-    "ג'רוויס. פקודות קוליות לעוזר אישי: "
-    "יומן, פגישה, תזכורת, שעון מעורר, אימייל, מוזיקה, ניווט, מזג אוויר."
-)
+# Whisper's documented lever for proper nouns, written in Hebrew to match the
+# audio as Groq advises. It exists for one word: pinned to Hebrew, Whisper
+# transliterated "JARVIS" into whatever it felt like ("דרוויס"), and a wake
+# word that spells itself differently every time cannot be matched.
+# MEASURED, not reasoned about. 24 Hebrew commands through Groq's whisper-
+# large-v3, four prompt variants, word error rate against the known text:
+#
+#   no prompt at all      WER 0.017   22/24 exact
+#   "ג'רוויס."            WER 0.017   22/24 exact
+#   "ג'רוויס"  (no stop)  WER 0.040   20/24 exact
+#   the vocabulary list   WER 0.047   19/24 exact   <- what this used to be
+#
+# The list of domain words was making transcription nearly THREE TIMES worse.
+# It corrupted ordinary commands into neighbouring words — "תשים לי" came back
+# as "תשימי" and "תשימ" with it, and correctly without it. That is the
+# documented failure mode of a prompt that reads like plausible speech: Whisper
+# treats it as context to continue rather than a spelling hint.
+#
+# The full stop matters and is not a typo — without it the name alone scored
+# 0.040, with it 0.017. A prompt is continued, so one that ends mid-thought
+# invites the model to keep going.
+#
+# Kept rather than removed because the name is why this exists and the two
+# score identically, so the hint is free — and on degraded audio, which this
+# corpus is not, a proper-noun hint is exactly what the parameter is for.
+STT_PROMPT = "ג'רוויס."
 
 # Groq validates the container partly by the filename extension it is given, so
 # the browser's mimetype has to be mapped onto one it accepts rather than
