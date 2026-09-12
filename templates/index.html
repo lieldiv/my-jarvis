@@ -1979,6 +1979,35 @@ let pcmLive = false;
    This catches a stream that is genuinely all zeros, which otherwise uploads
    happily and comes back as invented words. */
 const PCM_SILENCE_PEAK = 0.005;
+/* Anything under this at the START of a take is the audio route still
+   settling, not speech. iOS takes a few hundred milliseconds to swing the
+   session from playback to record — longest right after JARVIS has spoken —
+   and those first buffers carry zeros or a switching transient. Whisper reads
+   a take as one continuous piece of audio, so a click glued to the front of a
+   sentence can throw the whole decode off; the take sounds fine to a human,
+   which is exactly why this was invisible. Trimmed rather than waited out: the
+   orb still goes live on the first buffer, so nothing feels slower. */
+const PCM_LEAD_IN_PEAK = 0.01;
+
+function trimLeadingSilence(chunks){
+    let first = 0;
+    for (; first < chunks.length; first++){
+        const c = chunks[first];
+        let peak = 0;
+        for (let i = 0; i < c.length; i++){
+            const v = c[i] < 0 ? -c[i] : c[i];
+            if (v > peak) peak = v;
+        }
+        if (peak >= PCM_LEAD_IN_PEAK) break;
+    }
+    // Every buffer was quiet: leave the take exactly as it is and let the
+    // silence gate below give its own, more accurate answer.
+    if (first >= chunks.length) return chunks;
+    // One buffer of room before the first sound, so a soft opening consonant
+    // is never the thing that gets cut.
+    const keepFrom = Math.max(0, first - 1);
+    return keepFrom > 0 ? chunks.slice(keepFrom) : chunks;
+}
 
 function encodeWav(chunks, sampleRate){
     let total = 0;
@@ -2024,6 +2053,37 @@ function stopPcmGraph(){
     pcmCtx = null;
 }
 
+/* The phone can end a recording without telling the page anything useful.
+
+   Locking the screen or backgrounding the tab stops microphone capture — that
+   is WebKit's documented, deliberate behaviour for web content, not a bug with
+   a workaround. A phone call does the same and parks the AudioContext in
+   'interrupted'. Changing audio device tears the graph out from under us.
+
+   In every one of those cases the recording carried on as far as this page was
+   concerned, and whatever partial or empty buffer had accumulated was uploaded
+   and transcribed as if it were a sentence. Saying the take was interrupted is
+   both true and cheaper than a command nobody gave. */
+function abortCapture(reason, message){
+    if (!micIsLive()) return false;
+    vlog('capture-abort', reason);
+    clearTimeout(recordStopTimer);
+    pcmChunks = [];
+    stopPcmGraph();
+    try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch (e) {}
+    mediaRecorder = null;
+    recordedChunks = [];
+    releaseMicStream();
+    cancelPendingRecognitionStart();
+    try { if (recognition && recognitionActive) recognition.stop(); } catch (e) {}
+    pcmLive = false;
+    micMuted = true;
+    voiceState = 'idle';
+    renderOrb();
+    if (message) showToast(message, true);
+    return true;
+}
+
 async function startPcmCapture(){
     const Ctor = window.AudioContext || window.webkitAudioContext;
     if (!Ctor) return false;
@@ -2041,6 +2101,17 @@ async function startPcmCapture(){
     vlog('pcm-ctx', pcmCtx.state);
     pcmSampleRate = pcmCtx.sampleRate;
     pcmChunks = [];
+    /* 'interrupted' is a real state, separate from 'suspended': iOS uses it
+       when something outside the page — a phone call, another app taking the
+       audio hardware — takes the session away. Treated as its own case because
+       "a call came in" deserves a different sentence than "nothing was
+       heard", and because resuming from it is not our decision to make. */
+    pcmCtx.onstatechange = () => {
+        vlog('pcm-ctx', pcmCtx ? pcmCtx.state : 'gone');
+        if (pcmCtx && pcmCtx.state === 'interrupted') {
+            abortCapture('audio session interrupted', 'משהו קטע את ההקלטה — הקש שוב.');
+        }
+    };
     pcmSource = pcmCtx.createMediaStreamSource(micStream);
     pcmNode = pcmCtx.createScriptProcessor(4096, 1, 1);
     pcmPeak = 0;
@@ -2095,7 +2166,15 @@ async function startRecording(){
     // recording that silently captures nothing.
     if (IS_IOS) await new Promise(r => setTimeout(r, 120));
     try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        /* Mono asked for explicitly, because that is what the encoder writes
+           and what the model wants; everything else is left at the browser's
+           default deliberately. A sampleRate constraint in particular is NOT
+           requested — asking for one has a WebKit history of failing capture
+           outright until Safari is restarted, and the AudioContext reports
+           whatever rate it really got, which is what the WAV header uses. */
+        micStream = await navigator.mediaDevices.getUserMedia({
+            audio: { channelCount: { ideal: 1 } },
+        });
     } catch (e) {
         vlog('rec-error', 'getUserMedia ' + (e && e.name));
         showToast('אין גישה למיקרופון — אשר אותה בהגדרות הדפדפן.', true);
@@ -2112,6 +2191,17 @@ async function startRecording(){
         if (!track) vlog('rec-track', 'NO AUDIO TRACK');
         else {
             vlog('rec-track', `${track.label || 'mic'} enabled=${track.enabled} muted=${track.muted}`);
+            /* What the browser actually applied, not what we asked for. The
+               processing chain (echo cancellation, noise suppression, automatic
+               gain) is suspected of trimming quiet word openings, and the only
+               way to tell is to have it written down next to a take that came
+               back wrong. */
+            try {
+                const st = track.getSettings ? track.getSettings() : {};
+                vlog('rec-settings',
+                     `${st.sampleRate || '?'}Hz ch=${st.channelCount || '?'} ` +
+                     `ec=${st.echoCancellation} ns=${st.noiseSuppression} agc=${st.autoGainControl}`);
+            } catch (e) {}
             track.onmute = () => vlog('rec-track', 'went MUTED mid-recording');
             track.onunmute = () => vlog('rec-track', 'unmuted');
             track.onended = () => vlog('rec-track', 'ended by the platform');
@@ -2179,11 +2269,15 @@ async function finishPcmRecording(){
     stopPcmGraph();
     releaseMicStream();
 
-    const samples = chunks.reduce((a, c) => a + c.length, 0);
+    const kept = trimLeadingSilence(chunks);
+    if (kept.length !== chunks.length) {
+        vlog('pcm-trim', `dropped ${chunks.length - kept.length} settling buffer(s)`);
+    }
+    const samples = kept.reduce((a, c) => a + c.length, 0);
     const seconds = rate ? samples / rate : 0;
     const peak = pcmPeak;
     pcmLive = false;
-    const blob = encodeWav(chunks, rate || 48000);
+    const blob = encodeWav(kept, rate || 48000);
     vlog('pcm-stop', `${seconds.toFixed(2)}s, peak ${peak.toFixed(4)}, ${blob.size}B wav`);
 
     if (blob.size < MIN_RECORDING_BYTES) { noteCaptureFailure(); }
@@ -2527,10 +2621,30 @@ function initSpeechRecognition(){
 // session-transition fix above. Stop cleanly on hide so the next tap
 // always starts fresh instead of racing whatever was still in flight.
 document.addEventListener('visibilitychange', () => {
-    if (document.hidden && recognition && recognitionActive) {
+    if (!document.hidden) return;
+    // A recording in progress is already over at this point — the platform
+    // stopped delivering audio the moment the page went away. This only
+    // decides whether the page knows it.
+    if (abortCapture('page hidden mid-recording', 'המסך ננעל באמצע — הקש שוב כדי לדבר.')) return;
+    if (recognition && recognitionActive) {
         try { recognition.stop(); } catch (e) {}
     }
 });
+// pagehide fires where visibilitychange sometimes does not, notably on iOS
+// when the app is swiped away or a link opens elsewhere.
+window.addEventListener('pagehide', () => { abortCapture('page hidden', ''); });
+
+/* A device change mid-take is the failure with the longest history behind it:
+   WebKit has shipped and re-shipped bugs where switching audio route leaves
+   the capture graph running at the wrong rate, so the recording continues and
+   comes back pitch-shifted — audio that sounds almost right and transcribes as
+   something else entirely. Rather than try to follow the change, the take is
+   abandoned and the next tap builds a fresh graph. */
+if (navigator.mediaDevices && 'ondevicechange' in navigator.mediaDevices) {
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+        abortCapture('audio device changed', 'התחלף מכשיר השמע — הקש שוב.');
+    });
+}
 
 /* ================================================================================
    sendCommand — POST /api/command, same contract/behavior as the old file.
