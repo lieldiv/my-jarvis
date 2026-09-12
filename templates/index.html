@@ -2077,6 +2077,7 @@ function stopPcmGraph(){
 function abortCapture(reason, message){
     if (!micIsLive()) return false;
     vlog('capture-abort', reason);
+    clearThinkingCue();
     clearTimeout(recordStopTimer);
     pcmChunks = [];
     stopPcmGraph();
@@ -2409,6 +2410,7 @@ function noteCaptureFailure(){
 function armMicrophone(){
     // Anything already fetching speech is now stale — see fetchAndSpeak.
     speechGeneration++;
+    clearThinkingCue();
     if (usingRecorder()) startRecording();
     else startRecognitionSafely();
 }
@@ -2683,6 +2685,7 @@ async function sendCommand(commandText){
 
     if (recognition) { try { recognition.stop(); } catch(e){} }
     voiceState = 'processing';
+    scheduleThinkingCue();
     setOrbTranscript(commandText);
     setOrbTool(''); setOrbResponse('');
     renderOrb();
@@ -2707,6 +2710,9 @@ async function sendCommand(commandText){
     }
 }
 function finishCommand(responseText, audio, speak){
+    // The answer is here; a cue that has not started yet has missed its moment
+    // and would now just be delaying the thing it was covering for.
+    clearThinkingCue();
     if (audio) {
         playJarvisAudio(audio, () => setOrbResponse(responseText));
         return;
@@ -2732,6 +2738,89 @@ let speechGeneration = 0;
    one line is the difference between waiting and not. The server decides where
    the sentences are, so there is one definition of that and the split is the
    same every time the same text is asked about. */
+/* A spoken acknowledgement while the answer is still being worked out.
+
+   Every voice assistant worth using does this, and the reason is measured
+   rather than aesthetic: a gap filled with "one moment, sir" is perceived as
+   roughly half as long as the same gap in silence. It costs nothing here —
+   these lines never change, so they are rendered once with the same voice and
+   prosody the live path uses and committed as files. Nothing is synthesized,
+   no request is made, and a server that has just woken from sleep serves them
+   as fast as any other static file.
+
+   It also happens to be exactly what this character would do. J.A.R.V.I.S.
+   acknowledges and then answers; he does not go quiet on you. */
+const THINKING_CUES = {
+    jarvis: ['one-moment', 'checking', 'let-me-see'],
+    ultron: ['wait', 'processing', 'if-you-insist'],
+};
+/* Long enough that a quick answer is never interrupted by an announcement
+   that it is coming. Below this the silence was never the problem. */
+const THINKING_CUE_DELAY_MS = 800;
+/* The reply waits for the cue to finish rather than cutting it off — a line
+   chopped mid-word sounds worse than the pause it was covering. Bounded, so a
+   cue that never fires its events cannot hold the answer hostage. */
+const THINKING_CUE_MAX_WAIT_MS = 1800;
+let thinkingTimer = null, thinkingPlaying = null, lastThinkingCue = '';
+
+function clearThinkingCue(){
+    if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
+}
+
+function scheduleThinkingCue(){
+    clearThinkingCue();
+    const generation = speechGeneration;
+    thinkingTimer = setTimeout(() => {
+        thinkingTimer = null;
+        // The same conditions the reply itself has to satisfy: if the user has
+        // gone back to talking, the last thing they need is JARVIS announcing
+        // that he is thinking about the previous thing.
+        if (generation !== speechGeneration || micIsLive() || !micMuted) return;
+        if (voiceState !== 'processing' && voiceState !== 'tool') return;
+        playThinkingCue();
+    }, THINKING_CUE_DELAY_MS);
+}
+
+function playThinkingCue(){
+    // Resolved once, and used for BOTH the line and the filename. Picking the
+    // fallback's lines while still building the URL from the unknown name gave
+    // a 404 and a silent nothing — the exact shape of failure this file keeps
+    // being bitten by.
+    const persona = THINKING_CUES[currentMode()] ? currentMode() : 'jarvis';
+    const cues = THINKING_CUES[persona];
+    // Never the same line twice running — a stock phrase stops reading as
+    // acknowledgement and starts reading as a recording the moment it repeats.
+    const choices = cues.length > 1 ? cues.filter(c => c !== lastThinkingCue) : cues;
+    const cue = choices[Math.floor(Math.random() * choices.length)];
+    lastThinkingCue = cue;
+
+    // The same element every spoken reply uses, deliberately: it is the one
+    // iOS has already unlocked for playback, and a second one would not be.
+    if (!ttsAudioEl) ttsAudioEl = new Audio();
+    const el = ttsAudioEl;
+    thinkingPlaying = new Promise((resolve) => {
+        let done = false;
+        const finish = () => { if (!done) { done = true; resolve(); } };
+        el.onended = finish;
+        el.onerror = finish;
+        setTimeout(finish, THINKING_CUE_MAX_WAIT_MS);
+        try {
+            el.src = `/static/thinking/${persona}-${cue}.mp3`;
+            el.play().catch(() => { vlog('cue-blocked', cue); finish(); });
+            vlog('cue', `${persona}-${cue}`);
+        } catch (e) { finish(); }
+    });
+}
+
+/* Resolves once nothing is left to wait for. The cue is short by design, so
+   this is a pause of well under a second in the worst case, and only when a
+   cue was actually playing. */
+function thinkingSettled(){
+    const pending = thinkingPlaying;
+    thinkingPlaying = null;
+    return pending || Promise.resolve();
+}
+
 async function fetchAndSpeak(text){
     const generation = speechGeneration;
     const persona = currentMode();
@@ -2758,6 +2847,8 @@ async function fetchAndSpeak(text){
 
     try {
         let data = await ask(0);
+        // Never over the top of the acknowledgement it just gave.
+        await thinkingSettled();
         let first = true;
         while (data && data.audio) {
             if (stale()) { vlog('tts-dropped', 'user started speaking'); break; }
