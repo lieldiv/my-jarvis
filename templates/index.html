@@ -1999,6 +1999,105 @@ const PCM_SILENCE_PEAK = 0.005;
    orb still goes live on the first buffer, so nothing feels slower. */
 const PCM_LEAD_IN_PEAK = 0.01;
 
+/* ------------------------------------------------------------------------
+   Knowing when you have finished talking.
+
+   The tap still works and always will — this only removes the NEED for the
+   second one. Every threshold below is relative to the room rather than fixed,
+   because a phone on a desk and a phone in a car do not share a noise floor,
+   and a single hard number is the reason naive detectors either never trigger
+   or cut people off mid-sentence.
+
+   Deliberately hand-written rather than a library. The popular browser VAD
+   (Silero through onnxruntime-web) has open, unresolved iPhone failures —
+   SIMD errors, WASM out-of-memory, models that never load — and a detector
+   that works everywhere except the one device this is used on is worth less
+   than nothing.
+
+   The failure mode is chosen too: if these thresholds are wrong for a room,
+   speech is never detected, nothing auto-stops, and the user taps exactly as
+   they do today. It can be too shy. It must never cut someone off.
+
+   One known limit, stated rather than hidden: someone already talking when
+   the take opens has their own voice measured as the room, and the floor only
+   corrects once they stop — too late to call that stretch speech. That take
+   needs a tap. It could be fixed by treating an earlier loud stretch as speech
+   retroactively, but that risks ending a take before the user has said
+   anything, which is the one outcome worth avoiding more than this one.
+   ------------------------------------------------------------------------ */
+const VAD_KEY = 'jarvis_auto_stop';
+/* Measured from the room, not assumed. The quietest buffer in this window is
+   the best estimate of the noise floor — the mean would be poisoned by the
+   route-switch transient that lands in exactly this window. */
+const VAD_CALIBRATE_MS = 300;
+/* Speech has to stand this far above the room to count. */
+const VAD_SPEECH_FACTOR = 3.5;
+/* And fall further to stop counting — hysteresis, so a voice hovering near the
+   threshold does not flicker the detector on and off. */
+const VAD_RELEASE_FACTOR = 2.0;
+/* Absolute floors, for a room so quiet that a multiple of its noise is still
+   nothing. Below these, no amount of ratio counts as speech. */
+const VAD_MIN_SPEECH_RMS = 0.012;
+const VAD_MIN_RELEASE_RMS = 0.008;
+/* How long a pause has to last before it reads as "finished" rather than
+   "thinking". Under about 700ms this clips people between clauses; much over
+   a second and the wait becomes the thing you notice. */
+const VAD_HANGOVER_MS = 900;
+
+let vadNoiseFloor = 0, vadCalibratedUntil = 0, vadSpeechSeen = false, vadQuietSince = 0;
+
+function autoStopEnabled(){ return lsGet(VAD_KEY, '1') === '1'; }
+
+function setAutoStop(on){
+    lsSet(VAD_KEY, on ? '1' : '0');
+    renderVoiceDiag();
+    showToast(on ? 'JARVIS יזהה לבד מתי סיימת לדבר.'
+                 : 'חזרה להקשה שנייה כדי לעצור.');
+}
+
+function resetVad(){
+    vadNoiseFloor = 0;
+    vadCalibratedUntil = Date.now() + VAD_CALIBRATE_MS;
+    vadSpeechSeen = false;
+    vadQuietSince = 0;
+}
+
+/* Called for every buffer. Returns true when the take should end. */
+function vadShouldStop(rms, now){
+    /* The floor keeps falling until someone speaks, then freezes.
+
+       Calibrating only over the first 300ms assumes the room is quiet for
+       those 300ms, and it often is not — a fast speaker is already talking,
+       or the route-switch transient lands there. Either way the floor comes
+       out far too high, speech never clears it, and auto-stop silently does
+       nothing for that take. Letting it fall to the quietest buffer seen so
+       far fixes itself within a syllable of the first real pause.
+
+       It is frozen once speech is detected, because after that a falling
+       floor would lower the release threshold too, making it harder to call
+       the end of the sentence — conservative, but conservative in the useless
+       direction. */
+    if (!vadSpeechSeen && (!vadNoiseFloor || rms < vadNoiseFloor)) vadNoiseFloor = rms;
+    if (now < vadCalibratedUntil) return false;
+    const speakUp = Math.max(vadNoiseFloor * VAD_SPEECH_FACTOR, VAD_MIN_SPEECH_RMS);
+    const quietUnder = Math.max(vadNoiseFloor * VAD_RELEASE_FACTOR, VAD_MIN_RELEASE_RMS);
+
+    if (!vadSpeechSeen) {
+        if (rms >= speakUp) {
+            vadSpeechSeen = true;
+            vadQuietSince = 0;
+            vlog('vad-speech', `rms ${rms.toFixed(4)} over ${speakUp.toFixed(4)}`);
+        }
+        // Nothing said yet: never stop. A quiet speaker gets the full window
+        // and the tap, rather than being cut off before they start.
+        return false;
+    }
+
+    if (rms >= quietUnder) { vadQuietSince = 0; return false; }
+    if (!vadQuietSince) { vadQuietSince = now; return false; }
+    return (now - vadQuietSince) >= VAD_HANGOVER_MS;
+}
+
 function trimLeadingSilence(chunks){
     let first = 0;
     for (; first < chunks.length; first++){
@@ -2127,9 +2226,11 @@ async function startPcmCapture(){
     pcmNode = pcmCtx.createScriptProcessor(4096, 1, 1);
     pcmPeak = 0;
     pcmLive = false;
+    resetVad();
     const warmStart = Date.now();
     pcmNode.onaudioprocess = (e) => {
         const data = e.inputBuffer.getChannelData(0);
+        let sumSquares = 0;
         // The loudest sample seen. Measured because "the recording is silent"
         // and "the transcription is wrong" are indistinguishable from the
         // outside, and confusing them cost several rounds: a WAV full of
@@ -2137,7 +2238,13 @@ async function startPcmCapture(){
         for (let i = 0; i < data.length; i++){
             const v = data[i] < 0 ? -data[i] : data[i];
             if (v > pcmPeak) pcmPeak = v;
+            sumSquares += data[i] * data[i];
         }
+        /* RMS, not peak, for the decision. Peak is what a single click reaches;
+           RMS is how much sound is actually there, which is the question being
+           asked. Peak stays for the silent-take check, where one click is
+           exactly what proves the microphone was alive. */
+        const rms = Math.sqrt(sumSquares / data.length);
         /* Live on the FIRST buffer to arrive at all, not the first one
            carrying signal. A buffer arriving proves the graph is pumping,
            which is the thing that was actually in doubt — waiting for audible
@@ -2155,6 +2262,17 @@ async function startPcmCapture(){
         // from before the route settled are kept too — they cost nothing and
         // may already hold the first syllable.
         pcmChunks.push(new Float32Array(data));
+
+        // The buffer is safely stored before this runs, so the take always
+        // includes the pause that ended it rather than being cut at the last
+        // word — trailing silence costs nothing and a clipped ending does.
+        if (autoStopEnabled() && vadShouldStop(rms, Date.now())) {
+            vlog('vad-stop', `${VAD_HANGOVER_MS}ms quiet, floor ${vadNoiseFloor.toFixed(4)}`);
+            // Detached first: onaudioprocess keeps firing while the graph is
+            // being torn down, and a second stop mid-teardown uploads twice.
+            pcmNode.onaudioprocess = null;
+            stopRecording();
+        }
     };
     pcmSource.connect(pcmNode);
     // A ScriptProcessor only runs while connected to the destination, but
@@ -4380,6 +4498,20 @@ function renderVoiceDiag(){
     intro.innerHTML = 'אם הדיבור לא נקלט — הקש על הכדור, נסה לדבר, וחזור לכאן. ' +
         'הרשימה מראה עד לאיזה שלב הגיע התהליך, וזה מה שמזהה איפה הוא נשבר.';
     box.appendChild(intro);
+
+    /* Here rather than in the appearance settings: this is the one control
+       someone reaches for when the microphone is misbehaving, which is exactly
+       what brings them to this panel. */
+    const auto = el('button', 'setup-btn' + (autoStopEnabled() ? '' : ' quiet'));
+    auto.innerText = autoStopEnabled() ? '🎙️ עצירה אוטומטית — פעילה' : '🎙️ עצירה אוטומטית — כבויה';
+    auto.onclick = () => setAutoStop(!autoStopEnabled());
+    box.appendChild(auto);
+
+    const autoNote = el('div', 'voice-info-block');
+    autoNote.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
+    autoNote.innerText = 'כשהיא פעילה JARVIS מזהה שסיימת לדבר ועוצר לבד. ' +
+        'ההקשה על הכדור ממשיכה לעבוד בכל מקרה.';
+    box.appendChild(autoNote);
 
     const pre = el('pre');
     pre.id = 'voice-diag-log';
