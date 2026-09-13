@@ -1384,6 +1384,13 @@ let currentAudio = null;
 let recognition = null;
 let recognitionActive = false;
 let recognitionSafetyTimer = null;  // forces recognition.stop() if the browser's own end-of-speech detection never fires (see onstart)
+/* Declared up here, with the rest of the capture state, and NOT down beside
+   the functions that use it. renderVoiceDiag() runs while the page is still
+   initialising and asks whether the monitor is running; `let` does not hoist,
+   so a declaration further down leaves that read inside the temporal dead zone
+   — which throws, and takes the entire page with it. The browser suite caught
+   exactly that, after seventeen unit suites had passed. */
+let monitorStream = null, monitorCtx = null, monitorTimer = null, monitorPeak = 0;
 let audioCaptureStarted = false;    // did onaudiostart actually fire for this session?
 /* Did any SOUND reach the recogniser this session?
 
@@ -1392,6 +1399,13 @@ let audioCaptureStarted = false;    // did onaudiostart actually fire for this s
    the exact signature the recogniser was abandoned for on iOS, and it is what
    decides, on this device, whether it deserves to be. */
 let soundHeardThisSession = false;
+
+/* A transcript is the strongest possible proof that sound reached the
+   recogniser — stronger than onsoundstart, which a real phone turned out not
+   to fire at all even on a session that returned a result. Without counting
+   it, the very next 'no-speech' would have moved a working recogniser off a
+   microphone that demonstrably works. */
+function noteRecogniserHeard(){ soundHeardThisSession = true; }
 
 function noteSilentRecogniser(reason){
     // Never on desktop: the recogniser is known good there, and a quiet room
@@ -3007,6 +3021,13 @@ function initSpeechRecognition(){
     recognition.onresult = (event) => {
         clearTimeout(recognitionSafetyTimer);
         clearTimeout(audioCaptureWatchdog);
+        /* A transcript is the strongest proof that sound reached the
+           recogniser — and on a real iPhone it turned out to be the ONLY
+           proof: a session returned "WayCup" without ever firing
+           onsoundstart. Counting only soundstart would have let the next
+           'no-speech' move a working recogniser off a microphone that had
+           just demonstrably worked. */
+        noteRecogniserHeard();
         try { vlog('result', `"${event.results[0][0].transcript}"`); } catch (e) { vlog('result'); }
         if (micMuted) return;
         // Guarded because an exception thrown from inside an event handler
@@ -4897,6 +4918,42 @@ function renderVoiceDiag(){
        take used, and no way to re-test the other one after a switch — which
        makes a test that cannot be repeated, and a repeated test is the whole
        point of this panel. */
+    /* First, because it is the one thing here that answers a question rather
+       than reporting one. */
+    const monitorWrap = el('div', 'voice-info-block');
+    monitorWrap.style.cssText = 'margin-top:4px';
+
+    const monitorBtn = el('button', 'setup-btn' + (monitorRunning() ? '' : ' quiet'));
+    monitorBtn.innerText = monitorRunning() ? '⏹ עצור את בדיקת המיקרופון'
+                                            : '🎧 בדיקת מיקרופון — שמע את עצמך';
+    monitorBtn.onclick = () => (monitorRunning() ? stopMicMonitor() : startMicMonitor());
+    box.appendChild(monitorBtn);
+
+    if (monitorRunning()) {
+        const track = el('div');
+        track.style.cssText = 'height:10px;background:#02131f;border:var(--border-default);' +
+            'border-radius:6px;overflow:hidden;margin:8px 0 4px';
+        const bar = el('div');
+        bar.id = 'mic-monitor-bar';
+        bar.style.cssText = 'height:100%;width:0%;background:var(--color-accent, #00f3ff);' +
+            'transition:width .08s linear';
+        track.appendChild(bar);
+        box.appendChild(track);
+
+        const num = el('div');
+        num.id = 'mic-monitor-num';
+        num.style.cssText = 'font-family:var(--font-mono);font-size:11.5px;direction:ltr;' +
+            'text-align:left;color:var(--color-text-dim)';
+        num.textContent = 'עכשיו 0.0000  ·  שיא 0.0000';
+        box.appendChild(num);
+    }
+
+    monitorWrap.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
+    monitorWrap.innerText = monitorRunning()
+        ? 'דבר עכשיו. אם המספר נשאר 0.0000 — המיקרופון לא מגיע לדף בכלל, וזו התשובה.'
+        : 'מפעיל את המיקרופון ומשמיע אותך בחזרה, עם מד עוצמה. עדיף עם אוזניות, אחרת יכול לצפצף.';
+    box.appendChild(monitorWrap);
+
     const engine = sttEngine();
     const engineRow = el('div', 'voice-info-block');
     engineRow.style.cssText = 'margin-top:10px';
@@ -5110,6 +5167,79 @@ function renderAlarmSetup(){
     box.appendChild(mark);
 }
 renderAlarmSetup();
+
+/* ================================================================================
+   Microphone monitor — hear yourself, and see the number.
+
+   Asked for directly, and it is the right instrument: every argument on this
+   page so far has been about whether the microphone is delivering anything,
+   argued from logs after the fact. This answers it live. Speak, and either the
+   bar moves and you hear yourself, or it does not — and "it does not" is a
+   complete diagnosis on its own, because it separates a microphone that is
+   silent to this page from every other thing that could be wrong downstream.
+
+   The peak is shown as a number as well as a bar, because 0.0000 and 0.0100
+   look identical on a bar and mean entirely different things: one is a dead
+   stream, the other is a quiet room.
+   ================================================================================ */
+
+function monitorRunning(){ return !!monitorCtx; }
+
+async function startMicMonitor(){
+    if (monitorRunning()) return;
+    // The same thing every take does first: iOS gives the page one audio
+    // session, and anything still holding it in playback starves this too.
+    releaseAudioSession();
+    try {
+        monitorStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
+    } catch (e) {
+        showToast('אין גישה למיקרופון — אשר אותה בהגדרות.', true);
+        return;
+    }
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) { showToast('הדפדפן הזה לא תומך בבדיקה.', true); return; }
+    monitorCtx = new Ctor();
+    if (monitorCtx.state === 'suspended') { try { await monitorCtx.resume(); } catch (e) {} }
+
+    const source = monitorCtx.createMediaStreamSource(monitorStream);
+    const analyser = monitorCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+    /* Routed to the speaker as well, which is the "hear yourself" half. Echo
+       cancellation was asked for in the constraints, so this does not usually
+       howl — but it can on speakerphone, which is why the note next to the
+       button says to use headphones. */
+    const monitorGain = monitorCtx.createGain();
+    monitorGain.gain.value = 1;
+    source.connect(monitorGain);
+    monitorGain.connect(monitorCtx.destination);
+
+    monitorPeak = 0;
+    const buf = new Float32Array(analyser.fftSize);
+    monitorTimer = setInterval(() => {
+        analyser.getFloatTimeDomainData(buf);
+        let peak = 0;
+        for (let i = 0; i < buf.length; i++){
+            const v = buf[i] < 0 ? -buf[i] : buf[i];
+            if (v > peak) peak = v;
+        }
+        if (peak > monitorPeak) monitorPeak = peak;
+        const bar = $('mic-monitor-bar'), num = $('mic-monitor-num');
+        if (bar) bar.style.width = Math.min(100, Math.round(peak * 140)) + '%';
+        if (num) num.textContent = 'עכשיו ' + peak.toFixed(4) + '  ·  שיא ' + monitorPeak.toFixed(4);
+    }, 80);
+
+    vlog('mic-monitor', 'started at ' + monitorCtx.sampleRate + 'Hz');
+    renderVoiceDiag();
+}
+
+function stopMicMonitor(){
+    if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
+    if (monitorStream) { try { monitorStream.getTracks().forEach(t => t.stop()); } catch (e) {} monitorStream = null; }
+    if (monitorCtx) { try { monitorCtx.close(); } catch (e) {} monitorCtx = null; }
+    if (monitorPeak) vlog('mic-monitor', 'stopped, peak ' + monitorPeak.toFixed(4));
+    renderVoiceDiag();
+}
 
 /* ---- Known-accounts switcher (client-side localStorage) ---- */
 const KNOWN_ACCOUNTS_KEY = 'jarvis_known_accounts';
