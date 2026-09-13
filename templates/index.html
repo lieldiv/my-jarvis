@@ -2045,6 +2045,20 @@ const VAD_MIN_RELEASE_RMS = 0.008;
 const VAD_HANGOVER_MS = 900;
 
 let vadNoiseFloor = 0, vadCalibratedUntil = 0, vadSpeechSeen = false, vadQuietSince = 0;
+/* The loudest the take ever got. Against the noise floor it gives the one
+   number that predicts whether Whisper will cope: how far the voice stood
+   above the room. */
+let vadPeakRms = 0;
+
+/* How many times louder than the room the voice was. Below about 4 the
+   transcript starts coming back as words nobody said — measured, by running
+   one sentence through Whisper with noise mixed in at increasing levels. */
+const SNR_POOR = 4;
+
+function takeSnr(){
+    if (!vadNoiseFloor || !vadPeakRms) return 0;
+    return vadPeakRms / vadNoiseFloor;
+}
 
 function autoStopEnabled(){ return lsGet(VAD_KEY, '1') === '1'; }
 
@@ -2057,6 +2071,7 @@ function setAutoStop(on){
 
 function resetVad(){
     vadNoiseFloor = 0;
+    vadPeakRms = 0;
     vadCalibratedUntil = Date.now() + VAD_CALIBRATE_MS;
     vadSpeechSeen = false;
     vadQuietSince = 0;
@@ -2078,6 +2093,7 @@ function vadShouldStop(rms, now){
        the end of the sentence — conservative, but conservative in the useless
        direction. */
     if (!vadSpeechSeen && (!vadNoiseFloor || rms < vadNoiseFloor)) vadNoiseFloor = rms;
+    if (rms > vadPeakRms) vadPeakRms = rms;
     if (now < vadCalibratedUntil) return false;
     const speakUp = Math.max(vadNoiseFloor * VAD_SPEECH_FACTOR, VAD_MIN_SPEECH_RMS);
     const quietUnder = Math.max(vadNoiseFloor * VAD_RELEASE_FACTOR, VAD_MIN_RELEASE_RMS);
@@ -2295,14 +2311,31 @@ async function startRecording(){
     // recording that silently captures nothing.
     if (IS_IOS) await new Promise(r => setTimeout(r, 120));
     try {
-        /* Mono asked for explicitly, because that is what the encoder writes
-           and what the model wants; everything else is left at the browser's
-           default deliberately. A sampleRate constraint in particular is NOT
-           requested — asking for one has a WebKit history of failing capture
-           outright until Safari is restarted, and the AudioContext reports
-           whatever rate it really got, which is what the WAV header uses. */
+        /* Every one of these is asked for explicitly rather than left to the
+           browser's default, because the default is unknowable from here and
+           the wrong one is measurable.
+
+           MEASURED: the same Hebrew sentence was put through Whisper eleven
+           ways. Quiet audio, clipping, narrowband, a high-passed signal and a
+           route-switch click at the front ALL transcribed perfectly. The only
+           two variants that came back as word salad were the two with
+           background noise mixed in — and the salad they produced matched, word
+           shape for word shape, what the user reported seeing on their phone.
+           Noise is the thing that breaks this. So noise suppression is asked
+           for, not avoided, and gain control with it, since a voice that sits
+           close to the room's own level is the case that fails.
+
+           A sampleRate constraint is still NOT requested: asking for one has a
+           WebKit history of failing capture outright until Safari is
+           restarted, and the AudioContext reports whatever rate it really got,
+           which is what the WAV header uses. */
         micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { channelCount: { ideal: 1 } },
+            audio: {
+                channelCount: { ideal: 1 },
+                noiseSuppression: { ideal: true },
+                echoCancellation: { ideal: true },
+                autoGainControl: { ideal: true },
+            },
         });
     } catch (e) {
         vlog('rec-error', 'getUserMedia ' + (e && e.name));
@@ -2407,7 +2440,9 @@ async function finishPcmRecording(){
     const peak = pcmPeak;
     pcmLive = false;
     const blob = encodeWav(kept, rate || 48000);
-    vlog('pcm-stop', `${seconds.toFixed(2)}s, peak ${peak.toFixed(4)}, ${blob.size}B wav`);
+    const snr = takeSnr();
+    vlog('pcm-stop', `${seconds.toFixed(2)}s, peak ${peak.toFixed(4)}, ` +
+                     `snr ${snr ? snr.toFixed(1) + 'x' : '?'}, ${blob.size}B wav`);
 
     if (blob.size < MIN_RECORDING_BYTES) { noteCaptureFailure(); }
     else if (peak < PCM_SILENCE_PEAK) {
@@ -2500,8 +2535,14 @@ async function uploadForTranscription(blob, filename){
     }
 
     if (data.empty || !data.text) {
-        vlog('stt-empty');
-        showToast('לא שמעתי כלום — נסה שוב.');
+        /* "Nothing was heard" and "your voice was buried in the room" look
+           identical from here, and only one of them is fixed by trying again.
+           The ratio was measured during the take, so say which it was. */
+        const snr = takeSnr();
+        vlog('stt-empty', snr ? `snr ${snr.toFixed(1)}x` : '');
+        showToast(snr && snr < SNR_POOR
+            ? 'יש הרבה רעש רקע — קרב את הטלפון או דבר חזק יותר.'
+            : 'לא שמעתי כלום — נסה שוב.', snr && snr < SNR_POOR);
         voiceState = 'idle'; renderOrb();
         return;
     }
