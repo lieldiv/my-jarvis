@@ -1391,6 +1391,17 @@ let recognitionSafetyTimer = null;  // forces recognition.stop() if the browser'
    — which throws, and takes the entire page with it. The browser suite caught
    exactly that, after seventeen unit suites had passed. */
 let monitorStream = null, monitorCtx = null, monitorTimer = null, monitorPeak = 0;
+/* Whether the monitor is also playing you back through the speaker.
+
+   Off by default, and that is a measurement decision rather than a taste one.
+   Routed to a phone's speaker with no headphones, the microphone hears the
+   speaker and the loop saturates: the meter reads 1.0000 and the voice comes
+   back unintelligible, which is precisely what was reported. A reading taken
+   through that loop says nothing about the microphone.
+
+   So the meter runs clean, and hearing yourself is a separate switch for when
+   headphones are in. */
+let monitorPlayback = false, monitorGainNode = null;
 let audioCaptureStarted = false;    // did onaudiostart actually fire for this session?
 /* Did any SOUND reach the recogniser this session?
 
@@ -1825,7 +1836,34 @@ let ttsBlobUrl = null; // the blob URL currently loaded into ttsAudioEl, so it c
    caller passes it for every piece but the last, and handles what comes next
    itself. It is also called on a playback failure, or a broken piece would
    leave the chain waiting forever for a sound that is never coming. */
+/* Close the recogniser before JARVIS makes a sound.
+
+   From a real phone, in order: recognition starts, the thinking cue plays
+   "one moment, sir" through the speaker, and 523ms later the recogniser fires
+   soundstart and speechstart. It is hearing JARVIS. The session that belonged
+   to the user is spent on the assistant's own voice, and the transcript that
+   comes back is dropped for arriving while muted — so the turn ends having
+   visibly done nothing.
+
+   Dropping those transcripts was never the fix, only the safety net. Every
+   voice assistant closes the microphone while it speaks, for exactly this
+   reason, and it is the difference between a system that talks with someone
+   and one that keeps interrupting itself.
+
+   Restarting afterwards is already handled: the ended handler re-arms when
+   press-to-talk is open, and the resting state has no listener to restore. */
+function silenceRecogniserForPlayback(){
+    if (!recognitionActive && recognitionStartTimer === null) return;
+    cancelPendingRecognitionStart();
+    // abort(), not stop(): stop() delivers whatever it has understood so far,
+    // and what it has understood so far is JARVIS.
+    try { if (recognition) recognition.abort(); } catch (e) {}
+    recognitionActive = false;
+    vlog('recog-paused', 'closing the microphone while speaking');
+}
+
 function playJarvisAudio(b64Audio, onStart, onEnded){
+    silenceRecogniserForPlayback();
     vlog('tts-recv', b64Audio ? `${Math.round(b64Audio.length * 0.75 / 1024)}KB` : 'NO AUDIO from server');
     // Reuse the SAME <audio> element unlockAudioPlayback() created (falling
     // back to a fresh one only if a command somehow lands before any tap
@@ -3382,6 +3420,7 @@ function playThinkingCue(){
 
     // The same element every spoken reply uses, deliberately: it is the one
     // iOS has already unlocked for playback, and a second one would not be.
+    silenceRecogniserForPlayback();
     if (!ttsAudioEl) ttsAudioEl = new Audio();
     const el = ttsAudioEl;
     thinkingPlaying = new Promise((resolve) => {
@@ -4996,6 +5035,11 @@ function renderVoiceDiag(){
         track.appendChild(bar);
         box.appendChild(track);
 
+        const hear = el('button', 'setup-btn' + (monitorPlayback ? '' : ' quiet'));
+        hear.innerText = monitorPlayback ? '🔈 השמעה חוזרת פעילה' : '🔈 השמע אותי (עם אוזניות)';
+        hear.onclick = () => setMonitorPlayback(!monitorPlayback);
+        box.appendChild(hear);
+
         const num = el('div');
         num.id = 'mic-monitor-num';
         num.style.cssText = 'font-family:var(--font-mono);font-size:11.5px;direction:ltr;' +
@@ -5006,7 +5050,8 @@ function renderVoiceDiag(){
 
     monitorWrap.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
     monitorWrap.innerText = monitorRunning()
-        ? 'דבר עכשיו. אם המספר נשאר 0.0000 — המיקרופון לא מגיע לדף בכלל, וזו התשובה.'
+        ? 'דבר עכשיו. אם המספר נשאר 0.0000 — המיקרופון לא מגיע לדף בכלל, וזו התשובה. ' +
+          'המדידה נקייה כל עוד ההשמעה החוזרת כבויה; עם רמקול היא יוצרת משוב והמספר מגיע ל-1.0000 מעצמו.'
         : 'מפעיל את המיקרופון ומשמיע אותך בחזרה, עם מד עוצמה. עדיף עם אוזניות, אחרת יכול לצפצף.';
     box.appendChild(monitorWrap);
 
@@ -5265,10 +5310,10 @@ async function startMicMonitor(){
        cancellation was asked for in the constraints, so this does not usually
        howl — but it can on speakerphone, which is why the note next to the
        button says to use headphones. */
-    const monitorGain = monitorCtx.createGain();
-    monitorGain.gain.value = 1;
-    source.connect(monitorGain);
-    monitorGain.connect(monitorCtx.destination);
+    monitorGainNode = monitorCtx.createGain();
+    monitorGainNode.gain.value = monitorPlayback ? 0.7 : 0;
+    source.connect(monitorGainNode);
+    monitorGainNode.connect(monitorCtx.destination);
 
     monitorPeak = 0;
     const buf = new Float32Array(analyser.fftSize);
@@ -5303,10 +5348,17 @@ async function startMicMonitor(){
     renderVoiceDiag();
 }
 
+function setMonitorPlayback(on){
+    monitorPlayback = on;
+    if (monitorGainNode) monitorGainNode.gain.value = on ? 0.7 : 0;
+    renderVoiceDiag();
+}
+
 function stopMicMonitor(){
     if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
     if (monitorStream) { try { monitorStream.getTracks().forEach(t => t.stop()); } catch (e) {} monitorStream = null; }
     if (monitorCtx) { try { monitorCtx.close(); } catch (e) {} monitorCtx = null; }
+    monitorGainNode = null;
     if (monitorPeak) vlog('mic-monitor', 'stopped, peak ' + monitorPeak.toFixed(4));
     renderVoiceDiag();
 }
