@@ -1642,7 +1642,24 @@ function orbTap(){
     // wanted for something real, whichever branch below runs.
     releaseMonitorForSpeech();
     if (!isAwake) { triggerWake(); return; }
-    if (isSpeaking()) { stopSpeaking(); return; }
+    /* Tapping while JARVIS is talking means "my turn", not "be quiet".
+
+       This cost a whole day of chasing microphones. The tap stopped the speech
+       and RETURNED, so the microphone was never opened; the user then spoke
+       into nothing, saw no response, and tapped again — and the second tap
+       worked. From the outside that is "sometimes it works, sometimes it
+       doesn't", and it is the oldest complaint in this project.
+
+       It got dramatically worse the day the thinking cue was added, because
+       JARVIS now makes a sound on almost every turn, so far more taps landed
+       on "speaking" and were swallowed stopping it. Reproduced against the
+       real page: first tap -> muted stays true, recogniser never starts;
+       second tap -> everything works.
+
+       Interrupting to take your turn is what barge-in means everywhere else,
+       and it is what the gesture obviously intends. So the speech stops and
+       the listening starts, in the same tap. */
+    if (isSpeaking()) { stopSpeaking({ thenListen: true }); return; }
     // Live -> stop. Claiming to listen but actually dead -> fall through to
     // startListening() below, which revives it from inside this very tap.
     if (isListening() && micIsLive()) { stopListening(); return; }
@@ -1677,12 +1694,25 @@ function stopListening(){
     renderOrb();
     playTapBurst('stop'); beep(330, 0.14); haptic([10, 35, 10]);
 }
-function stopSpeaking(){
+function stopSpeaking(opts){
     if (currentAudio) { try { currentAudio.pause(); currentAudio.currentTime = 0; } catch(e){} }
+    // Anything still being fetched belongs to the reply just interrupted.
+    speechGeneration++;
+    clearThinkingCue();
     voiceState = 'idle';
     micMuted = true;   // land back in the resting state, not straight into a hot mic
     renderOrb();
-    playTapBurst('stop'); beep(330, 0.12); haptic([10, 35, 10]);
+    playTapBurst('stop'); haptic([10, 35, 10]);
+    if (opts && opts.thenListen) {
+        /* Straight into listening, because that is what the tap meant. No
+           stop beep here: it would be the assistant making a sound at the
+           exact moment the microphone opens, which is the collision this
+           whole area has been fighting. */
+        vlog('barge-in', 'interrupted to take the turn');
+        startListening();
+        return;
+    }
+    beep(330, 0.12);
 }
 function nudgeBusy(){
     const stage = $('orb-stage');
@@ -1856,6 +1886,19 @@ let ttsBlobUrl = null; // the blob URL currently loaded into ttsAudioEl, so it c
    Restarting afterwards is already handled: the ended handler re-arms when
    press-to-talk is open, and the resting state has no listener to restore. */
 function silenceRecogniserForPlayback(){
+    /* NEVER close a microphone the user deliberately opened.
+
+       This is the whole failure it caused on the desktop, reproduced against
+       the real page: the user taps the orb, a reply from the previous turn
+       starts playing, this closed the session they had just opened, and from
+       then on they were speaking into a shut microphone. Nothing happened, on
+       every platform, and the desktop had been the one thing that worked.
+
+       Whether a reply should play at all while press-to-talk is engaged is
+       userIsCapturing()'s decision, and it says no. This is the second line of
+       that defence, not a second opinion on it: if something does reach
+       playback anyway, it must not take the user's microphone with it. */
+    if (!micMuted) { vlog('recog-kept', 'user has the microphone open'); return; }
     if (!recognitionActive && recognitionStartTimer === null) return;
     cancelPendingRecognitionStart();
     // abort(), not stop(): stop() delivers whatever it has understood so far,
