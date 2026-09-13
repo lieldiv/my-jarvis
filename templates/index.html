@@ -1894,24 +1894,51 @@ function playJarvisAudio(b64Audio, onStart, onEnded){
    behave identically no matter which one is running. Splitting this was the
    point: two copies would drift, and one of them would quietly lose the
    confirmation branch. */
+/* Every path says which one it took.
+
+   This function had three ways to discard a transcript without a sound: an
+   empty string, an utterance while asleep that was not a wake word, and — in
+   onresult above — anything arriving while press-to-talk was latched. All
+   three look identical from the user's side, and they look like the thing
+   that has been reported all week: "I talk and nothing happens."
+
+   Worse, they are indistinguishable in the log too, which is how a phone that
+   heard the user perfectly (soundstart, speechstart, a real transcript) could
+   still end a turn having visibly done nothing. */
 function handleTranscript(transcript){
-    if (!transcript) return;
+    if (!transcript) { vlog('ignored', 'empty transcript'); return; }
     if (pendingConfirmToken || pendingConfirmEvt) {
         // web_search/"places" confirmations are deliberately tokenless (see
         // resolveConfirmation) — gating on the token alone meant a spoken
         // "yes"/"no" while that sheet was open fell through to a brand-new
         // LLM command instead of approving it.
+        vlog('dispatch', 'confirmation reply');
         micMuted = true;
         handleConfirmationReply(transcript);
     } else if (!isAwake) {
         if (transcript.includes('good morning') || transcript.includes('wake up') || transcript.includes('jarvis') ||
             transcript.includes('בוקר טוב') || transcript.includes('תתעורר') ||
             /ג['׳]?רוויס|גרוויס|דרוויס|ג'ארוויס|ג'רויס|ג'ארויס|דארוויס/.test(transcript)) {
+            vlog('dispatch', 'wake word');
             wakeJarvis();
+        } else if (!micMuted) {
+            /* Asleep, but the microphone is open because the user deliberately
+               opened it. Requiring a wake word on top of a deliberate tap is
+               asking someone to knock on a door they have already opened — so
+               the utterance is taken as the command it plainly is, and the
+               wake carries it. */
+            vlog('dispatch', 'woken by a tapped command');
+            wakeJarvis(transcript);
+        } else {
+            // Listening for the wake word only. Saying so is what keeps this
+            // from looking like a failure.
+            vlog('ignored', 'asleep, no wake word');
         }
     } else if (transcript.includes('stop') || transcript.includes('עצור') || transcript.includes('תפסיק') || transcript.includes('תעצור')) {
+        vlog('dispatch', 'stop word');
         triggerStop();
     } else {
+        vlog('dispatch', 'command');
         micMuted = true;
         sendCommand(transcript);
     }
@@ -3029,7 +3056,16 @@ function initSpeechRecognition(){
            just demonstrably worked. */
         noteRecogniserHeard();
         try { vlog('result', `"${event.results[0][0].transcript}"`); } catch (e) { vlog('result'); }
-        if (micMuted) return;
+        if (micMuted) {
+            /* Press-to-talk is latched, so this is the wake-word listener
+               overhearing rather than a command. It was dropped in silence
+               before, which is the same thing the user sees when the app is
+               genuinely broken — and on a phone, where a tap and the first
+               word can land within the same few hundred milliseconds, it is
+               the likeliest way a real command gets thrown away. */
+            vlog('ignored', 'arrived while muted');
+            return;
+        }
         // Guarded because an exception thrown from inside an event handler
         // never reaches our own state machine: micMuted and voiceState would
         // stay wherever they were, leaving the orb on "מקשיב…" with no way
