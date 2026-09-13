@@ -1927,6 +1927,24 @@ let mediaRecorder = null, micStream = null, recordedChunks = [], recordStopTimer
    was never the variable. Per-session, since it is a fact about this browser
    right now and a reload should get to re-discover it. */
 let pcmForced = false;
+/* What the microphone track says it runs at, and what it calls itself.
+
+   Both turned out to matter. A log from a real phone showed the track at
+   44100Hz while the AudioContext opened at 16000Hz, and every buffer the graph
+   delivered was an exact zero — not quiet, ZERO — for four takes in a row. The
+   input was named "האוזניות שלי": a Bluetooth headset, whose hands-free
+   profile runs the capture session at a rate the page never chose. WebKit has
+   shipped and re-shipped bugs in this exact corner for five years.
+
+   So the rate is read before the graph is built and the context is asked for
+   the same one, and the name is kept because when capture cannot be made to
+   work at all, the useful thing to tell someone is which microphone is
+   actually selected. */
+let micTrackRate = 0, micTrackLabel = '';
+/* Set when raw capture has proven it delivers nothing on this device, so the
+   next take uses MediaRecorder instead. The mirror of pcmForced, which exists
+   for the opposite failure. */
+let recorderForced = false;
 
 function recorderMimeType(){
     /* The order differs by platform, and not for tidiness — it was measured.
@@ -2272,11 +2290,43 @@ function abortCapture(reason, message){
    refuses to pre-open the microphone should fall back to opening it on the tap
    exactly as before, not show an error for something the user did not ask for.
 */
+/* The track's own view of itself, read before the graph is built.
+
+   `muted` here does not mean the user muted anything — it is the platform
+   saying this track is not currently receiving media, which is precisely the
+   "attached to a microphone that delivers nothing" state that kept being
+   indistinguishable from silence.
+
+   Its sample rate is read for a harder reason: the AudioContext has to be
+   asked for the same one, or on a Bluetooth headset the graph opens at a
+   different rate from the microphone and delivers exact zeros. Called from
+   both paths that open a microphone — a take, and the warm graph kept between
+   takes — because the warm one hits the same problem.
+
+   The label is kept because when capture cannot be made to work at all, the
+   useful thing to tell someone is which microphone is actually selected. */
+function inspectMicTrack(){
+    try {
+        const [track] = micStream.getAudioTracks();
+        if (!track) { vlog('rec-track', 'NO AUDIO TRACK'); return; }
+        vlog('rec-track', `${track.label || 'mic'} enabled=${track.enabled} muted=${track.muted}`);
+        track.onmute = () => vlog('rec-track', 'went MUTED mid-recording');
+        track.onunmute = () => vlog('rec-track', 'unmuted');
+        track.onended = () => vlog('rec-track', 'ended by the platform');
+        const st = track.getSettings ? track.getSettings() : {};
+        micTrackRate = st.sampleRate || 0;
+        micTrackLabel = track.label || '';
+        vlog('rec-settings',
+             `${st.sampleRate || '?'}Hz ch=${st.channelCount || '?'} ` +
+             `ec=${st.echoCancellation} ns=${st.noiseSuppression} agc=${st.autoGainControl}`);
+    } catch (e) {}
+}
+
 async function warmMicrophone(){
     // Only the raw-capture path has a graph to keep warm; the browser's own
     // recogniser opens and closes the microphone on its own terms.
     if (!prewarmEnabled() || usingRecorder() === false) return false;
-    if (!(IS_IOS || pcmForced)) return false;
+    if (!(IS_IOS || pcmForced) || recorderForced) return false;
     if (pcmCtx || mediaRecorder || micStream) return false;   // already open
     if (!isAwake || isSpeaking() || voiceState !== 'idle') return false;
     try {
@@ -2294,6 +2344,7 @@ async function warmMicrophone(){
     }
     // Conditions can change while getUserMedia is being answered.
     if (!isAwake || isSpeaking() || micIsLive()) { releaseMicStream(); return false; }
+    inspectMicTrack();
     pcmCollecting = false;
     pcmPreroll = [];
     if (!(await startPcmCapture())) { releaseMicStream(); return false; }
@@ -2315,7 +2366,18 @@ function releaseWarmMic(){
 async function startPcmCapture(){
     const Ctor = window.AudioContext || window.webkitAudioContext;
     if (!Ctor) return false;
-    pcmCtx = new Ctor();
+    /* Asked for the rate the microphone actually runs at, rather than letting
+       the context pick. Left to itself it chose 16000Hz against a 44100Hz
+       track on a Bluetooth headset and delivered nothing but zeros. WebKit
+       resamples internally when a rate is requested, which is the path that
+       works; when it refuses the request outright, the default is still better
+       than not opening at all. */
+    try {
+        pcmCtx = micTrackRate ? new Ctor({ sampleRate: micTrackRate }) : new Ctor();
+    } catch (e) {
+        vlog('pcm-error', 'rate ' + micTrackRate + ' refused, using default');
+        pcmCtx = new Ctor();
+    }
     /* AWAITED, and that is the whole point. resume() returns a promise, and a
        context still in 'suspended' when the microphone is connected to it
        hands the processor silence — the graph is wired correctly and every
@@ -2414,7 +2476,13 @@ async function startPcmCapture(){
     pcmSilence.gain.value = 0;
     pcmNode.connect(pcmSilence);
     pcmSilence.connect(pcmCtx.destination);
-    vlog('pcm-start', `${pcmSampleRate}Hz`);
+    /* Written down because the mismatch is invisible otherwise and it is the
+       whole failure: the graph runs at one rate, the microphone at another,
+       and what comes out is silence with no error anywhere. */
+    if (micTrackRate && pcmSampleRate !== micTrackRate) {
+        vlog('pcm-rate-mismatch', `graph ${pcmSampleRate}Hz vs mic ${micTrackRate}Hz`);
+    }
+    vlog('pcm-start', `${pcmSampleRate}Hz` + (micTrackRate ? ` (mic ${micTrackRate}Hz)` : ''));
     return true;
 }
 
@@ -2494,36 +2562,11 @@ async function startRecording(){
         micMuted = true; voiceState = 'idle'; renderOrb();
         return;
     }
-    /* The track's own view of itself. `muted` here does not mean the user
-       muted anything — it is the platform saying this track is not currently
-       receiving media, which is precisely the "attached to a microphone that
-       delivers nothing" state we kept failing to distinguish from silence.
-       Logged at open, and again if it changes mid-recording. */
-    try {
-        const [track] = micStream.getAudioTracks();
-        if (!track) vlog('rec-track', 'NO AUDIO TRACK');
-        else {
-            vlog('rec-track', `${track.label || 'mic'} enabled=${track.enabled} muted=${track.muted}`);
-            /* What the browser actually applied, not what we asked for. The
-               processing chain (echo cancellation, noise suppression, automatic
-               gain) is suspected of trimming quiet word openings, and the only
-               way to tell is to have it written down next to a take that came
-               back wrong. */
-            try {
-                const st = track.getSettings ? track.getSettings() : {};
-                vlog('rec-settings',
-                     `${st.sampleRate || '?'}Hz ch=${st.channelCount || '?'} ` +
-                     `ec=${st.echoCancellation} ns=${st.noiseSuppression} agc=${st.autoGainControl}`);
-            } catch (e) {}
-            track.onmute = () => vlog('rec-track', 'went MUTED mid-recording');
-            track.onunmute = () => vlog('rec-track', 'unmuted');
-            track.onended = () => vlog('rec-track', 'ended by the platform');
-        }
-    } catch (e) {}
+    inspectMicTrack();
 
     // PCM first on iOS, and anywhere MediaRecorder has already proved empty.
     // It is the path with no dependency on a container implementation.
-    if (IS_IOS || pcmForced) {
+    if ((IS_IOS || pcmForced) && !recorderForced) {
         // Opened for this take, so it collects from the first buffer. The warm
         // path above sets this to false instead and flips it on at the tap.
         pcmCollecting = true;
@@ -2600,6 +2643,26 @@ async function finishPcmRecording(){
                      `snr ${snr ? snr.toFixed(1) + 'x' : '?'}, ${blob.size}B wav`);
 
     if (blob.size < MIN_RECORDING_BYTES) { noteCaptureFailure(); }
+    else if (peak === 0 && seconds > 0.5) {
+        /* Not quiet — a mathematically exact zero across seconds of audio.
+           A real microphone in a real room never produces that; it means the
+           graph ran, delivered buffers on schedule, and every sample in them
+           was empty. Retrying gains nothing, so the next take goes through
+           MediaRecorder, which is a different code path inside WebKit and does
+           not depend on the Web Audio capture route that just failed.
+
+           The device name is in the message because it is the part the user
+           can act on: on the phone this was found on, the selected input was a
+           Bluetooth headset whose profile the page never chose. */
+        recorderForced = true;
+        vlog('pcm-dead', `${seconds.toFixed(2)}s of exact zeros from ${micTrackLabel || 'the microphone'}`);
+        showToast(micTrackLabel
+            ? `המיקרופון "${micTrackLabel}" לא מעביר קול. מנסה דרך אחרת — אם זה נמשך, נתק אותו ודבר דרך הטלפון.`
+            : 'המיקרופון לא מעביר קול. מנסה דרך אחרת.', true);
+        voiceState = 'idle'; renderOrb();
+        warmMicrophone();
+        return;
+    }
     else if (peak < PCM_SILENCE_PEAK) {
         /* Refused here rather than sent. Whisper answers silence with
            confident invented text — "תודה" in Hebrew, "Thank you." in English
@@ -2638,7 +2701,18 @@ async function finishRecording(){
            track reported itself healthy. Switch to raw sample capture, which
            has no container implementation left to be broken, and ask for one
            more tap rather than silently re-recording behind their back. */
+        // Both paths have now failed on this device. Stop swapping between
+        // them — that only hides the problem behind a retry — and say plainly
+        // which input is selected, because changing it is the only thing left
+        // that can work.
+        if (recorderForced) {
+            vlog('rec-empty', 'both capture paths failed');
+            showToast(micTrackLabel
+                ? `לא מצליח להקליט דרך "${micTrackLabel}". נתק את האוזניות ונסה דרך מיקרופון הטלפון.`
+                : 'לא מצליח להקליט במכשיר הזה — אפשר להקליד במקום.', true);
+        }
         pcmForced = true;
+        recorderForced = false;
         noteCaptureFailure();
         vlog('rec-empty', `only ${blob.size}B from ${type}`);
         vlog('rec-fallback', 'MediaRecorder empty -> raw PCM from here on');
