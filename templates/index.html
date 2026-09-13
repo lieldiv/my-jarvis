@@ -1385,6 +1385,24 @@ let recognition = null;
 let recognitionActive = false;
 let recognitionSafetyTimer = null;  // forces recognition.stop() if the browser's own end-of-speech detection never fires (see onstart)
 let audioCaptureStarted = false;    // did onaudiostart actually fire for this session?
+/* Did any SOUND reach the recogniser this session?
+
+   onsoundstart fires on any sound at all, not just speech, so its absence
+   across a whole session is not a quiet room — it is a silent stream. That is
+   the exact signature the recogniser was abandoned for on iOS, and it is what
+   decides, on this device, whether it deserves to be. */
+let soundHeardThisSession = false;
+
+function noteSilentRecogniser(reason){
+    // Never on desktop: the recogniser is known good there, and a quiet room
+    // must not be allowed to switch the engine out from under a working setup.
+    if (!IS_IOS || sttEngine() !== 'browser') return false;
+    if (soundHeardThisSession) return false;
+    vlog('stt-engine', `recogniser heard nothing (${reason}) — switching to recording`);
+    lsSet(STT_ENGINE_KEY, 'record');
+    showToast('עובר לשיטת הקלטה אחרת — הקש ודבר שוב.', true);
+    return true;
+}
 let audioCaptureWatchdog = null;
 
 /* ================================================================================
@@ -1913,9 +1931,34 @@ const MIN_RECORDING_BYTES = 1024;             // below this it's a click, not sp
 function sttEngine(){
     const v = lsGet(STT_ENGINE_KEY, 'auto');
     if (v === 'record' || v === 'browser') return v;
-    // Follows the platform: the recogniser is good on desktop and broken on
-    // iOS, so neither is forced everywhere.
-    return IS_IOS ? 'record' : 'browser';
+    /* The browser's own recogniser, everywhere — including the iPhone.
+
+       It was dropped on iOS in 19630c3 for a documented reason: onaudiostart
+       fired, onsoundstart never did, and the session aborted with "no speech
+       detected". The stream reaching WebKit's recogniser was silent.
+
+       What has changed is that we now know WHY a stream on that phone is
+       silent, and it is nothing to do with the recogniser. The take-and-upload
+       path built to replace it has just failed on the same device in exactly
+       the same way — buffers arriving on schedule, every sample an exact zero.
+       Two completely separate subsystems, one symptom: the microphone the page
+       is handed carries nothing. The engine was never the variable.
+
+       Meanwhile the real cause of a silent session on iOS was found and fixed
+       afterwards, in releaseAudioSession: an <audio> element that has finished
+       playing is `paused` but still attached to the playback route and still
+       holding the one audio session the page gets. Detaching it is what gives
+       the session back. That fix did not exist when the recogniser was
+       judged — it was judged against a bug that is now gone.
+
+       So it gets judged again, on the merits it has: it is the path that works
+       flawlessly on the desktop, it needs no upload and no round trip, and on
+       iOS it is Apple's own dictation, which does not have to fight for the
+       audio session because it is the one handing it out.
+
+       If it really is silent on this phone, noteSilentRecogniser below moves to
+       the recording path within one attempt and remembers it. */
+    return 'browser';
 }
 function usingRecorder(){ return RECORDER_SUPPORTED && sttEngine() === 'record'; }
 
@@ -2895,6 +2938,10 @@ function initSpeechRecognition(){
     function micCaptureFailed(){
         clearTimeout(audioCaptureWatchdog);
         try { recognition.abort(); } catch (e) {}
+        // Capture never began at all — the strongest version of the same
+        // signal. Take the other path rather than explaining a limitation the
+        // user cannot do anything about from the home screen.
+        if (noteSilentRecogniser('no audiostart')) { recognitionActive = false; return; }
         recognitionActive = false;
         micMuted = true;
         voiceState = 'idle';
@@ -2915,7 +2962,7 @@ function initSpeechRecognition(){
         vlog('audiostart');
     };
     // Logged only — these exist to show how far the chain got.
-    recognition.onsoundstart = () => vlog('soundstart');
+    recognition.onsoundstart = () => { soundHeardThisSession = true; vlog('soundstart'); };
     recognition.onspeechstart = () => vlog('speechstart');
     recognition.onspeechend = () => vlog('speechend');
     recognition.onnomatch = () => vlog('nomatch', 'heard speech, recognised nothing');
@@ -2923,6 +2970,7 @@ function initSpeechRecognition(){
     recognition.onstart = () => {
         recognitionActive = true;
         audioCaptureStarted = false;
+        soundHeardThisSession = false;
         vlog('start', `lang=${recognition.lang}`);
         // 1.5s is generous: onaudiostart normally lands within a few hundred
         // milliseconds of onstart, and waiting longer just extends how long
@@ -2995,6 +3043,13 @@ function initSpeechRecognition(){
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
             showToast('הגישה למיקרופון נחסמה — אפשר אותה בהגדרות הדפדפן, או השתמש בקלט הטקסט.', true);
         } else if (event.error === 'no-speech' && isAwake && !micMuted) {
+            /* On the iPhone this is the signature the recogniser was once
+               abandoned for: the session opened, no sound of ANY kind arrived,
+               and it gave up. One attempt is enough to know — switch to
+               recording rather than making the user discover it by repeating
+               themselves. On desktop this really is just a quiet room, and
+               noteSilentRecogniser refuses to act there. */
+            if (noteSilentRecogniser('no-speech')) return;
             // Only surfaced while genuinely mid-utterance (post-tap, not
             // muted) — mobile mics/networks miss this far more than desktop,
             // and silently failing here (pre-fix) is what looked like
@@ -3002,6 +3057,11 @@ function initSpeechRecognition(){
             showToast('לא שמעתי כלום, אדוני — הקש שוב ונסה לדבר מיד.');
         } else if (event.error === 'network' && isAwake && !micMuted) {
             showToast('בעיית רשת בזיהוי הדיבור — הקש שוב.', true);
+        } else if ((event.error === 'aborted' || event.error === 'audio-capture') &&
+                   isAwake && !micMuted && noteSilentRecogniser(event.error)) {
+            /* Same signature, other spelling. "aborted — No speech detected"
+               is what the trace in 19630c3 showed on this phone, every time. */
+            return;
         } else if ((event.error === 'aborted' || event.error === 'audio-capture') && isAwake && !micMuted) {
             // Previously unhandled — silent on mobile specifically, where the
             // recognizer session gets interrupted (another app grabbing the

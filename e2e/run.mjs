@@ -58,6 +58,20 @@ async function newPage(browser, profile){
     ignoreHTTPSErrors: true,
   });
   await ctx.addCookies([{ name: 'session', value: SESSION, url: BASE }]);
+  /* Every device now starts on the browser's own recogniser — the path that
+     is smooth on the desktop — and a phone only moves to record-and-upload if
+     its recogniser proves silent. Chromium's recogniser does nothing useful
+     here, so without pinning it these runs would stop exercising the recording
+     path altogether: the check count silently dropped from 98 to 95 the moment
+     the default changed, which is exactly the kind of coverage loss that hides
+     a regression rather than reporting one. Mobile profiles are therefore
+     pinned to recording, and the desktop profile is left on the recogniser so
+     both paths stay covered. */
+  if (profile.isMobile) {
+    await ctx.addInitScript(() => {
+      try { localStorage.setItem('jarvis_stt_engine', 'record'); } catch (e) {}
+    });
+  }
   const errors = [];
   const page = await ctx.newPage();
   watch(page, errors);
