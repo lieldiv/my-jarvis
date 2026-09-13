@@ -1941,6 +1941,33 @@ let pcmForced = false;
    work at all, the useful thing to tell someone is which microphone is
    actually selected. */
 let micTrackRate = 0, micTrackLabel = '';
+/* How much to ask the microphone for.
+
+   0 asks for noise suppression, gain control and mono — measured to matter,
+   because a voice sitting close to the room's own level is what makes Whisper
+   return words nobody said.
+
+   1 asks for nothing at all. This exists because of a specific, dated piece of
+   evidence: `{ audio: true }` is what shipped in 19630c3, the version this
+   phone was confirmed working on. The constraints were added later, and takes
+   from that phone then came back as exact zeros with the track reporting
+   itself healthy. That is a real possibility worth testing rather than
+   arguing about, and the phone can test it by itself — a dead take drops to
+   the plain request before anything else is blamed.
+
+   Order matters: the better request first, the known-working one as the
+   answer to failure. */
+let micConstraintLevel = 0;
+
+function micConstraints(){
+    if (micConstraintLevel > 0) return true;
+    return {
+        channelCount: { ideal: 1 },
+        noiseSuppression: { ideal: true },
+        echoCancellation: { ideal: true },
+        autoGainControl: { ideal: true },
+    };
+}
 /* Set when raw capture has proven it delivers nothing on this device, so the
    next take uses MediaRecorder instead. The mirror of pcmForced, which exists
    for the opposite failure. */
@@ -2332,14 +2359,7 @@ async function warmMicrophone(){
     if (pcmCtx || mediaRecorder || micStream) return false;   // already open
     if (!isAwake || isSpeaking() || voiceState !== 'idle') return false;
     try {
-        micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                channelCount: { ideal: 1 },
-                noiseSuppression: { ideal: true },
-                echoCancellation: { ideal: true },
-                autoGainControl: { ideal: true },
-            },
-        });
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
     } catch (e) {
         vlog('warm-error', 'getUserMedia ' + (e && e.name));
         return false;
@@ -2532,32 +2552,21 @@ async function startRecording(){
     // recording that silently captures nothing.
     if (IS_IOS) await new Promise(r => setTimeout(r, 120));
     try {
-        /* Every one of these is asked for explicitly rather than left to the
-           browser's default, because the default is unknowable from here and
-           the wrong one is measurable.
-
-           MEASURED: the same Hebrew sentence was put through Whisper eleven
-           ways. Quiet audio, clipping, narrowband, a high-passed signal and a
+        /* Noise suppression is asked for rather than avoided, and that was
+           measured: the same Hebrew sentence went through Whisper eleven ways,
+           and quiet audio, clipping, narrowband, a high-passed signal and a
            route-switch click at the front ALL transcribed perfectly. The only
-           two variants that came back as word salad were the two with
-           background noise mixed in — and the salad they produced matched, word
-           shape for word shape, what the user reported seeing on their phone.
-           Noise is the thing that breaks this. So noise suppression is asked
-           for, not avoided, and gain control with it, since a voice that sits
-           close to the room's own level is the case that fails.
+           two that came back as word salad were the two with background noise
+           mixed in. Gain control rides along for the same reason — a voice
+           near the room's own level is the case that fails.
 
            A sampleRate constraint is still NOT requested: asking for one has a
            WebKit history of failing capture outright until Safari is
            restarted, and the AudioContext reports whatever rate it really got,
-           which is what the WAV header uses. */
-        micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                channelCount: { ideal: 1 },
-                noiseSuppression: { ideal: true },
-                echoCancellation: { ideal: true },
-                autoGainControl: { ideal: true },
-            },
-        });
+           which is what the WAV header uses.
+
+           micConstraints() can answer `true` instead — see the ladder above. */
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
     } catch (e) {
         vlog('rec-error', 'getUserMedia ' + (e && e.name));
         showToast('אין גישה למיקרופון — אשר אותה בהגדרות הדפדפן.', true);
@@ -2680,10 +2689,21 @@ async function finishPcmRecording(){
            The device name is in the message because it is the part the user
            can act on: on the phone this was found on, the selected input was a
            Bluetooth headset whose profile the page never chose. */
-        recorderForced = true;
-        pcmForced = false;
         vlog('pcm-dead', `${seconds.toFixed(2)}s of exact zeros from ${micTrackLabel || 'the microphone'}`);
-        showToast('ההקלטה יצאה ריקה — מנסה דרך אחרת. הקש ודבר שוב.', true);
+        if (micConstraintLevel === 0) {
+            /* Ask for less before blaming the engine. What this phone was
+               confirmed working on asked for nothing at all, and the
+               constraints came afterwards — so the cheaper explanation gets
+               tested first, automatically, on the device that can actually
+               answer it. */
+            micConstraintLevel = 1;
+            vlog('mic-constraints', 'dropping to a plain request');
+            showToast('ההקלטה יצאה ריקה — מנסה הגדרות מיקרופון פשוטות יותר. הקש ודבר שוב.', true);
+        } else {
+            recorderForced = true;
+            pcmForced = false;
+            showToast('ההקלטה יצאה ריקה — מנסה דרך הקלטה אחרת. הקש ודבר שוב.', true);
+        }
         voiceState = 'idle'; renderOrb();
         warmMicrophone();
         return;
@@ -2735,6 +2755,15 @@ async function finishRecording(){
            in are exhausted and saying "trying another way" would be a lie.
            Only then is capture declared broken and the keyboard offered. */
         vlog('rec-empty', `only ${blob.size}B from ${type}`);
+        if (micConstraintLevel === 0) {
+            // Same ladder, same reason: the plain request is what this was
+            // known to work with, so try it before changing anything larger.
+            micConstraintLevel = 1;
+            vlog('mic-constraints', 'dropping to a plain request');
+            showToast('ההקלטה יצאה ריקה — מנסה הגדרות מיקרופון פשוטות יותר. הקש ודבר שוב.', true);
+            voiceState = 'idle'; renderOrb();
+            return;
+        }
         if (recorderForced) {
             vlog('rec-empty', 'both capture paths failed');
             showToast(micTrackLabel
