@@ -2146,9 +2146,34 @@ let micTrackRate = 0, micTrackLabel = '';
    Order matters: the better request first, the known-working one as the
    answer to failure. */
 let micConstraintLevel = 0;
+/* Which microphone to use, when the device's own default is not the one that
+   works. On the iPhone this stopped being theoretical: getUserMedia there
+   delivered exact zeros while Apple's own dictation heard fine, and the only
+   way to find out whether another input behaves differently is to try them —
+   by ear, one at a time. So the choice is the user's, made while listening to
+   themselves, and it is remembered. */
+const MIC_DEVICE_KEY = 'jarvis_mic_device';
+
+function chosenMicId(){ return lsGet(MIC_DEVICE_KEY, '') || ''; }
+
+function setChosenMic(id){
+    if (id) lsSet(MIC_DEVICE_KEY, id); else lsSet(MIC_DEVICE_KEY, '');
+    vlog('mic-device', id ? 'chosen ' + id.slice(0, 12) : 'back to the default');
+}
+
+async function listMicDevices(){
+    try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+        const all = await navigator.mediaDevices.enumerateDevices();
+        return all.filter(d => d.kind === 'audioinput');
+    } catch (e) { return []; }
+}
 
 function micConstraints(){
-    if (micConstraintLevel > 0) return true;
+    const id = chosenMicId();
+    // `exact`, not `ideal`: a chosen microphone that cannot be honoured should
+    // fail loudly rather than quietly hand back the one that was not working.
+    if (micConstraintLevel > 0) return id ? { deviceId: { exact: id } } : true;
     /* Noise suppression and echo cancellation stay: measured, and the thing
        that turns a transcript into words nobody said is background noise.
 
@@ -2159,11 +2184,13 @@ function micConstraints(){
        room along with the voice and pumps between them, which is heard as
        words breaking up. The ratio it was meant to help is better fixed by
        suppressing the noise than by amplifying everything. */
-    return {
+    const c = {
         channelCount: { ideal: 1 },
         noiseSuppression: { ideal: true },
         echoCancellation: { ideal: true },
     };
+    if (id) c.deviceId = { exact: id };
+    return c;
 }
 /* Set when raw capture has proven it delivers nothing on this device, so the
    next take uses MediaRecorder instead. The mirror of pcmForced, which exists
@@ -2249,7 +2276,15 @@ let pcmPreroll = [];
 const PREROLL_MS = 700;
 const PREWARM_KEY = 'jarvis_prewarm';
 
-function prewarmEnabled(){ return lsGet(PREWARM_KEY, '1') === '1'; }
+/* Off, and no longer offered.
+
+   It opened the microphone between takes so a tap cost nothing, which was a
+   real fix for a real delay. But it was a third switch in a panel that already
+   had two, it lit the recording indicator while the assistant merely waited,
+   and — decisively — the delay it existed to remove turned out to be the tap
+   being swallowed while JARVIS spoke, which is now fixed at the source. One
+   confusing setting removed beats one clever optimisation kept. */
+function prewarmEnabled(){ return lsGet(PREWARM_KEY, '0') === '1'; }
 
 function setPrewarm(on){
     lsSet(PREWARM_KEY, on ? '1' : '0');
@@ -5097,6 +5132,15 @@ function renderVoiceDiag(){
         hear.onclick = () => setMonitorPlayback(!monitorPlayback);
         box.appendChild(hear);
 
+        /* Only while the test runs, for two reasons: the labels are only
+           readable once permission has been granted, and choosing a microphone
+           you cannot hear is guessing — which is the thing this replaces. */
+        const devices = el('div');
+        devices.id = 'mic-device-list';
+        devices.style.cssText = 'margin-top:8px';
+        box.appendChild(devices);
+        renderMicDeviceList();
+
         const num = el('div');
         num.id = 'mic-monitor-num';
         num.style.cssText = 'font-family:var(--font-mono);font-size:11.5px;direction:ltr;' +
@@ -5107,7 +5151,8 @@ function renderVoiceDiag(){
 
     monitorWrap.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
     monitorWrap.innerText = monitorRunning()
-        ? 'דבר עכשיו. אם המספר נשאר 0.0000 — המיקרופון לא מגיע לדף בכלל, וזו התשובה. ' +
+        ? 'דבר עכשיו. אם המספר נשאר 0.0000 — המיקרופון הזה לא מגיע לדף; בחר אחר מהרשימה ' +
+          'ונסה שוב. הבחירה נשמרת ומשמשת גם בשיחה עם JARVIS. ' +
           'המדידה נקייה כל עוד ההשמעה החוזרת כבויה; עם רמקול היא יוצרת משוב והמספר מגיע ל-1.0000 מעצמו.'
         : 'מפעיל את המיקרופון ומשמיע אותך בחזרה, עם מד עוצמה. עדיף עם אוזניות, אחרת יכול לצפצף.';
     box.appendChild(monitorWrap);
@@ -5133,18 +5178,6 @@ function renderVoiceDiag(){
     /* Here rather than in the appearance settings: this is the one control
        someone reaches for when the microphone is misbehaving, which is exactly
        what brings them to this panel. */
-    const warm = el('button', 'setup-btn' + (prewarmEnabled() ? '' : ' quiet'));
-    warm.innerText = prewarmEnabled() ? '⚡ מיקרופון מוכן מראש — פעיל'
-                                      : '⚡ מיקרופון מוכן מראש — כבוי';
-    warm.onclick = () => setPrewarm(!prewarmEnabled());
-    box.appendChild(warm);
-
-    const warmNote = el('div', 'voice-info-block');
-    warmNote.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
-    warmNote.innerText = 'פותח את המיקרופון בזמן שJARVIS ממתין, כדי שההקשה תתפוס מיד ' +
-        'ותתפוס גם מילים שנאמרו רגע לפניה. בזמן שהוא פעיל נורית ההקלטה דולקת בהמתנה.';
-    box.appendChild(warmNote);
-
     const auto = el('button', 'setup-btn' + (autoStopEnabled() ? '' : ' quiet'));
     auto.innerText = autoStopEnabled() ? '🎙️ עצירה אוטומטית — פעילה' : '🎙️ עצירה אוטומטית — כבויה';
     auto.onclick = () => setAutoStop(!autoStopEnabled());
@@ -5430,6 +5463,50 @@ async function startMicMonitor(){
         vlog('mic-monitor', 'started at ' + monitorCtx.sampleRate + 'Hz');
     }
     renderVoiceDiag();
+}
+
+/* Switch microphone without losing your place.
+
+   The point of choosing by ear is comparison, and comparison means going back
+   and forth. Stopping the test, changing a setting and starting again loses
+   the thread — so the choice is applied by restarting the capture underneath
+   while the test stays open, the meter stays on screen, and the peak resets so
+   the next reading is about the new microphone rather than the last one. */
+async function switchMicDevice(id){
+    setChosenMic(id);
+    if (!monitorRunning()) { renderVoiceDiag(); return; }
+    const wasPlayingBack = monitorPlayback;
+    stopMicMonitor();
+    monitorPlayback = wasPlayingBack;
+    await startMicMonitor();
+}
+
+async function renderMicDeviceList(){
+    const box = $('mic-device-list');
+    if (!box) return;
+    const devices = await listMicDevices();
+    box.innerHTML = '';
+    if (devices.length < 2) {
+        // One input is not a choice, and saying so beats an empty box.
+        const only = el('div', 'voice-info-block');
+        only.style.cssText = 'font-size:11.5px;opacity:.75';
+        only.innerText = devices.length
+            ? 'יש מיקרופון אחד בלבד במכשיר הזה.'
+            : 'לא הצלחתי לרשום את המיקרופונים במכשיר הזה.';
+        box.appendChild(only);
+        return;
+    }
+    const chosen = chosenMicId();
+    const row = (id, name, active) => {
+        const b = el('button', 'setup-btn' + (active ? '' : ' quiet'));
+        b.style.cssText = 'display:block;width:100%;text-align:right;margin-top:4px';
+        b.innerText = (active ? '● ' : '○ ') + name;
+        b.onclick = () => switchMicDevice(id);
+        box.appendChild(b);
+    };
+    row('', 'ברירת המחדל של המכשיר', !chosen);
+    devices.forEach((d, i) => row(d.deviceId, d.label || ('מיקרופון ' + (i + 1)),
+                                  chosen === d.deviceId));
 }
 
 function setMonitorPlayback(on){
