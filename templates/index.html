@@ -2326,7 +2326,9 @@ async function warmMicrophone(){
     // Only the raw-capture path has a graph to keep warm; the browser's own
     // recogniser opens and closes the microphone on its own terms.
     if (!prewarmEnabled() || usingRecorder() === false) return false;
-    if (!(IS_IOS || pcmForced) || recorderForced) return false;
+    // Only the raw-capture path has a graph worth keeping warm, and only once
+    // it is the path actually in use.
+    if (!pcmForced || recorderForced) return false;
     if (pcmCtx || mediaRecorder || micStream) return false;   // already open
     if (!isAwake || isSpeaking() || voiceState !== 'idle') return false;
     try {
@@ -2566,7 +2568,26 @@ async function startRecording(){
 
     // PCM first on iOS, and anywhere MediaRecorder has already proved empty.
     // It is the path with no dependency on a container implementation.
-    if ((IS_IOS || pcmForced) && !recorderForced) {
+    /* Raw sample capture is no longer tried first on iOS.
+
+       It was, because MediaRecorder on that phone answered
+       isTypeSupported('audio/webm;codecs=opus') with TRUE and then produced a
+       five-byte file. But raw capture has now failed on the same phone in a
+       way that is worse and not recoverable: logs from four separate takes,
+       with the iPhone's own microphone selected, the track reporting itself
+       healthy, the AudioContext at 48000Hz matching the track exactly, and
+       buffers arriving on schedule after 140ms — every sample in them an exact
+       zero. The graph runs and the microphone is simply not in it.
+
+       MediaRecorder is a different subsystem inside WebKit with no dependency
+       on the Web Audio capture route, and Safari 18.4 (March 2025) shipped
+       real support for Opus in WebM alongside fragmented MP4 — so the five-byte
+       behaviour that caused this ordering belongs to a Safari two years old.
+
+       The fallback still exists and still runs automatically: a recorder that
+       produces nothing usable sets pcmForced and the next take is raw capture
+       again. Whichever one works on a given phone, it gets there by itself. */
+    if (pcmForced && !recorderForced) {
         // Opened for this take, so it collects from the first buffer. The warm
         // path above sets this to false instead and flips it on at the tap.
         pcmCollecting = true;
@@ -2586,8 +2607,13 @@ async function startRecording(){
         mediaRecorder = wanted ? new MediaRecorder(micStream, { mimeType: wanted })
                                : new MediaRecorder(micStream);
     } catch (e) {
-        vlog('rec-error', 'MediaRecorder ' + (e && e.name));
-        showToast('ההקלטה לא נתמכת בדפדפן הזה.', true);
+        /* The recorder cannot even be constructed here. Raw capture is the
+           only other way in, so take it on the next tap rather than leaving
+           the user with an apology and no path forward. */
+        vlog('rec-error', 'MediaRecorder ' + (e && e.name) + ' — switching to raw capture');
+        pcmForced = true;
+        recorderForced = false;
+        showToast('מנסה דרך הקלטה אחרת — הקש ודבר שוב.', true);
         releaseMicStream();
         micMuted = true; voiceState = 'idle'; renderOrb();
         return;
@@ -2655,10 +2681,9 @@ async function finishPcmRecording(){
            can act on: on the phone this was found on, the selected input was a
            Bluetooth headset whose profile the page never chose. */
         recorderForced = true;
+        pcmForced = false;
         vlog('pcm-dead', `${seconds.toFixed(2)}s of exact zeros from ${micTrackLabel || 'the microphone'}`);
-        showToast(micTrackLabel
-            ? `המיקרופון "${micTrackLabel}" לא מעביר קול. מנסה דרך אחרת — אם זה נמשך, נתק אותו ודבר דרך הטלפון.`
-            : 'המיקרופון לא מעביר קול. מנסה דרך אחרת.', true);
+        showToast('ההקלטה יצאה ריקה — מנסה דרך אחרת. הקש ודבר שוב.', true);
         voiceState = 'idle'; renderOrb();
         warmMicrophone();
         return;
@@ -2701,22 +2726,27 @@ async function finishRecording(){
            track reported itself healthy. Switch to raw sample capture, which
            has no container implementation left to be broken, and ask for one
            more tap rather than silently re-recording behind their back. */
-        // Both paths have now failed on this device. Stop swapping between
-        // them — that only hides the problem behind a retry — and say plainly
-        // which input is selected, because changing it is the only thing left
-        // that can work.
+        /* The recorder produced nothing usable. On a Safari old enough to
+           still do this, raw capture is the answer, so the next take uses it.
+
+           Which of the two messages appears matters. If raw capture was the
+           one that sent us here — it delivered exact zeros, so we switched to
+           the recorder, and now the recorder has failed too — then both ways
+           in are exhausted and saying "trying another way" would be a lie.
+           Only then is capture declared broken and the keyboard offered. */
+        vlog('rec-empty', `only ${blob.size}B from ${type}`);
         if (recorderForced) {
             vlog('rec-empty', 'both capture paths failed');
             showToast(micTrackLabel
-                ? `לא מצליח להקליט דרך "${micTrackLabel}". נתק את האוזניות ונסה דרך מיקרופון הטלפון.`
+                ? `לא מצליח להקליט דרך "${micTrackLabel}" — אפשר להקליד במקום.`
                 : 'לא מצליח להקליט במכשיר הזה — אפשר להקליד במקום.', true);
+            noteCaptureFailure();
+        } else {
+            vlog('rec-fallback', 'MediaRecorder empty -> raw capture from here on');
+            showToast('ההקלטה יצאה ריקה — הקש שוב, אני מקליט בדרך אחרת.', true);
         }
         pcmForced = true;
         recorderForced = false;
-        noteCaptureFailure();
-        vlog('rec-empty', `only ${blob.size}B from ${type}`);
-        vlog('rec-fallback', 'MediaRecorder empty -> raw PCM from here on');
-        showToast('ההקלטה יצאה ריקה — הקש שוב, אני מקליט בדרך אחרת.', true);
         voiceState = 'idle'; renderOrb();
         return;
     }
