@@ -1523,6 +1523,26 @@ function micIsLive(){
     return !!mediaRecorder || (!!pcmCtx && pcmCollecting) ||
            recognitionActive || recognitionStartTimer !== null;
 }
+/* Is the user actually saying something to us RIGHT NOW?
+
+   Deliberately narrower than micIsLive(). That one answers "is the microphone
+   open", which on the browser engine is true almost continuously: recognition
+   runs while muted to catch the wake word, so recognitionActive is true
+   between every pair of commands.
+
+   Using it to decide whether a reply may be spoken meant the reply was thrown
+   away because the wake-word listener existed — which is how a phone with a
+   demonstrably working microphone could hear the user, answer correctly, and
+   still never say a word out loud. The text appeared, the voice did not, and
+   from the outside that is "it doesn't work".
+
+   Speaking over the wake-word listener is safe: press-to-talk is latched while
+   it runs, so anything it hears — including JARVIS's own voice — arrives at
+   onresult with micMuted set and is discarded there. */
+function userIsCapturing(){
+    return !micMuted || !!mediaRecorder || (!!pcmCtx && pcmCollecting);
+}
+
 function orbVisualState(){
     if (!isAwake) return 'sleeping';
     if (isSpeaking()) return 'speaking';
@@ -3341,7 +3361,7 @@ function scheduleThinkingCue(){
         // The same conditions the reply itself has to satisfy: if the user has
         // gone back to talking, the last thing they need is JARVIS announcing
         // that he is thinking about the previous thing.
-        if (generation !== speechGeneration || micIsLive() || !micMuted) return;
+        if (generation !== speechGeneration || userIsCapturing()) return;
         if (voiceState !== 'processing' && voiceState !== 'tool') return;
         playThinkingCue();
     }, THINKING_CUE_DELAY_MS);
@@ -3401,7 +3421,7 @@ async function fetchAndSpeak(text){
        sentence, not only the first: the chain outlives the request that began
        it, so a user who interrupts halfway through an answer must not have the
        remaining sentences played at them. */
-    const stale = () => generation !== speechGeneration || micIsLive() || !micMuted;
+    const stale = () => generation !== speechGeneration || userIsCapturing();
 
     const ask = async (index) => {
         const res = await fetch('/api/speak', {
@@ -5265,7 +5285,21 @@ async function startMicMonitor(){
         if (num) num.textContent = 'עכשיו ' + peak.toFixed(4) + '  ·  שיא ' + monitorPeak.toFixed(4);
     }, 80);
 
-    vlog('mic-monitor', 'started at ' + monitorCtx.sampleRate + 'Hz');
+    /* What the track says about itself, next to what it delivers. A reading of
+       0.0000 has two very different causes and they need different fixes: a
+       track reporting muted:true was handed over already dead — the documented
+       Safari behaviour when an earlier getUserMedia stream was never fully
+       stopped — while a healthy track that still delivers zeros is the audio
+       route itself failing. Without this line the number alone cannot tell
+       them apart. */
+    try {
+        const [t] = monitorStream.getAudioTracks();
+        const st = t && t.getSettings ? t.getSettings() : {};
+        vlog('mic-monitor', `graph ${monitorCtx.sampleRate}Hz · track ${st.sampleRate || '?'}Hz · ` +
+             `${t ? t.label || 'mic' : 'NO TRACK'} muted=${t && t.muted} state=${t && t.readyState}`);
+    } catch (e) {
+        vlog('mic-monitor', 'started at ' + monitorCtx.sampleRate + 'Hz');
+    }
     renderVoiceDiag();
 }
 
