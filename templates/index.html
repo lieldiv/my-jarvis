@@ -5205,23 +5205,51 @@ function renderVoiceDiag(){
         : 'מפעיל את המיקרופון ומשמיע אותך בחזרה, עם מד עוצמה. עדיף עם אוזניות, אחרת יכול לצפצף.';
     box.appendChild(monitorWrap);
 
-    const engine = sttEngine();
-    const engineRow = el('div', 'voice-info-block');
-    engineRow.style.cssText = 'margin-top:10px';
-    engineRow.innerHTML = 'מנוע דיבור פעיל: <b>' +
-        (engine === 'record' ? 'הקלטה ותמלול בשרת' : 'זיהוי הדפדפן') + '</b>';
-    box.appendChild(engineRow);
+    /* Which engine turns your voice into words, chosen by hand.
 
-    if (lsGet(STT_ENGINE_KEY, 'auto') !== 'auto') {
-        const reset = el('button', 'setup-btn quiet');
-        reset.innerText = '↺ חזור לבחירה האוטומטית';
-        reset.onclick = () => {
-            lsSet(STT_ENGINE_KEY, 'auto');
-            showToast('חזרנו לזיהוי הדפדפן. הקש ודבר.');
+       There are two, they fail on different devices for unrelated reasons, and
+       which one works is not something anyone can be told from here — this
+       phone's dictation returns nothing while its microphone is demonstrably
+       fine, and another phone is the other way round. So the choice is offered
+       plainly, next to the test that lets you hear whether the microphone is
+       working at all, and it is remembered.
+
+       Automatic still does the right thing on its own, and still moves off an
+       engine that proves silent. This is for when it guesses wrong. */
+    const engine = sttEngine();
+    const stored = lsGet(STT_ENGINE_KEY, 'auto');
+    const autoWould = IS_IOS ? 'record' : 'browser';
+
+    const engineTitle = el('div', 'voice-info-block');
+    engineTitle.style.cssText = 'margin-top:14px;font-weight:600';
+    engineTitle.innerText = 'מנוע דיבור';
+    box.appendChild(engineTitle);
+
+    const engineBtn = (value, name, note) => {
+        const active = stored === value;
+        const b = el('button', 'setup-btn' + (active ? '' : ' quiet'));
+        b.style.cssText = 'display:block;width:100%;text-align:right;margin-top:4px';
+        b.innerText = (active ? '● ' : '○ ') + name + (note ? '  ' + note : '');
+        b.onclick = () => {
+            lsSet(STT_ENGINE_KEY, value);
+            vlog('stt-engine', 'chosen by hand: ' + value);
+            showToast('עברת ל' + name + '. הקש ודבר כדי לבדוק.');
             renderVoiceDiag();
         };
-        box.appendChild(reset);
-    }
+        box.appendChild(b);
+    };
+
+    engineBtn('auto', 'אוטומטי',
+              '(כאן: ' + (autoWould === 'record' ? 'הקלטה בשרת' : 'זיהוי הדפדפן') + ')');
+    engineBtn('browser', 'זיהוי הדפדפן', '— מהיר, בלי העלאה');
+    engineBtn('record', 'הקלטה ותמלול בשרת', '— איטי יותר, עברית טובה יותר');
+
+    const engineNow = el('div', 'voice-info-block');
+    engineNow.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:6px';
+    engineNow.innerText = 'פעיל כרגע: ' +
+        (engine === 'record' ? 'הקלטה ותמלול בשרת' : 'זיהוי הדפדפן') +
+        '. אם אחד מהם לא שומע אותך — החלף ונסה שוב, הבחירה נשמרת.';
+    box.appendChild(engineNow);
 
     /* Here rather than in the appearance settings: this is the one control
        someone reaches for when the microphone is misbehaving, which is exactly
