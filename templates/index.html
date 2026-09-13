@@ -5477,9 +5477,25 @@ function releaseMonitorForSpeech(){
 
 async function startMicMonitor(){
     if (monitorRunning()) return;
-    // The same thing every take does first: iOS gives the page one audio
-    // session, and anything still holding it in playback starves this too.
+    /* Opened exactly the way a real take is opened, because anything less was
+       measurably different.
+
+       Reported: the test read 0.0000 on a fresh page, then the user talked to
+       JARVIS — which worked — and the test read fine afterwards. The only
+       difference between the two paths was this preamble. A take hands the
+       microphone back, gives up the audio session and then waits for iOS to
+       swing it from playback into record; the test released the session and
+       asked immediately. On that phone, asking mid-transition returns a stream
+       that carries nothing, which is the whole 0.0000. Once a take had already
+       moved the session, the test worked — which is exactly the order the user
+       saw it in.
+
+       A test that opens the microphone differently from the app is not
+       measuring the app. */
+    releaseWarmMic();
+    releaseMicStream();
     releaseAudioSession();
+    if (IS_IOS) await new Promise(r => setTimeout(r, 120));
     try {
         monitorStream = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
     } catch (e) {
