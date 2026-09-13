@@ -24,7 +24,11 @@ const FAKE_RECOGNISER = () => {
       setTimeout(() => { self.onstart && self.onstart(); self.onaudiostart && self.onaudiostart(); }, 5);
     };
     this.abort = () => { window.__recog.aborts++; setTimeout(() => { self.onerror && self.onerror({ error: 'aborted' }); self.onend && self.onend(); }, 3); };
-    this.stop  = () => { window.__recog.stops++;  setTimeout(() => { self.onend && self.onend(); }, 3); };
+    /* stop() does NOT end the session here, deliberately. The spec has it
+       deliver whatever was understood first and close afterwards, so a fake
+       that fired onend immediately would model the opposite of the behaviour
+       under test — the test drives the result and then the end itself. */
+    this.stop  = () => { window.__recog.stops++; };
     window.__recog.instances.push(this);
     window.__recog.last = this;
   }
@@ -114,6 +118,23 @@ await snap('after the second tap');
 console.log('  ' + await page.evaluate(() => window.__say('תקבע פגישה מחר')));
 await page.waitForTimeout(1500);
 await snap('after speaking again');
+
+// ---- a THIRD turn: finish by tapping, the way the user does ----
+console.log('\n=== tap to stop must SEND the sentence, not cancel it ===');
+await page.waitForTimeout(3000);
+await page.locator('#orb-stage').click();         // open the microphone
+await page.waitForTimeout(700);
+await page.evaluate(() => { const r = window.__recog.last; r.onsoundstart && r.onsoundstart(); });
+await page.locator('#orb-stage').click();         // tap again to finish
+await page.waitForTimeout(300);
+// stop() is specified to deliver what it understood before closing.
+await page.evaluate(() => {
+  const r = window.__recog.last;
+  r.onresult && r.onresult({ results: [[{ transcript: 'כמה זמן נשאר לפגישה' }]] });
+  r.onend && r.onend();
+});
+await page.waitForTimeout(1200);
+await snap('after tapping to finish');
 
 console.log('\ncommands sent to the server: ' + JSON.stringify(commands));
 const log = await page.evaluate(() => (typeof voiceLogText === 'function' ? voiceLogText() : ''));

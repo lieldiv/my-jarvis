@@ -1410,6 +1410,19 @@ let audioCaptureStarted = false;    // did onaudiostart actually fire for this s
    the exact signature the recogniser was abandoned for on iOS, and it is what
    decides, on this device, whether it deserves to be. */
 let soundHeardThisSession = false;
+/* The user tapped to finish, and the recogniser owes us one last transcript.
+
+   stop() exists precisely to deliver what was understood before closing, and
+   that transcript arrives AFTER micMuted has been set — which the muted guard
+   in onresult then threw away. So tapping to stop cancelled the sentence
+   instead of sending it, and the only way to be heard was to say nothing and
+   wait for the browser to decide you had finished. Reported exactly that way:
+   "it works only if I don't press the button".
+
+   Muting still has to happen first, or onend restarts the session 400ms later
+   and the orb visibly refuses to turn off. Hence a flag rather than a
+   reordering: one expected transcript is let through, once. */
+let awaitingFinalResult = false;
 
 /* A transcript is the strongest possible proof that sound reached the
    recogniser — stronger than onsoundstart, which a real phone turned out not
@@ -1689,7 +1702,12 @@ function stopListening(){
     cancelPendingRecognitionStart();
     clearTimeout(recognitionSafetyTimer);
     if (usingRecorder()) stopRecording();
-    else if (recognition && recognitionActive) { try { recognition.stop(); } catch(e){} }
+    else if (recognition && recognitionActive) {
+        // stop(), not abort(): abort() throws away what was understood, which
+        // is the sentence the user just finished saying.
+        awaitingFinalResult = true;
+        try { recognition.stop(); } catch(e){}
+    }
     if (voiceState === 'listening') voiceState = 'idle';
     renderOrb();
     playTapBurst('stop'); beep(330, 0.14); haptic([10, 35, 10]);
@@ -2102,8 +2120,28 @@ function sttEngine(){
        audio session because it is the one handing it out.
 
        If it really is silent on this phone, noteSilentRecogniser below moves to
-       the recording path within one attempt and remembers it. */
-    return 'browser';
+       the recording path within one attempt and remembers it.
+
+       ── and then the iPhone was moved back. ──────────────────────────────
+
+       The argument above rested on one premise: that a silent stream on that
+       phone was nothing to do with the recogniser, because our own capture
+       failed there in the same way. The microphone monitor has since disproved
+       it. On that iPhone the monitor hears the user perfectly — getUserMedia
+       delivers — while talking to JARVIS through Apple's dictation still does
+       not work. Two different audio paths, and only one of them is broken
+       there, which is the opposite of what was assumed.
+
+       So the platform split is back, now resting on a measurement rather than
+       an inference: the recogniser where it is demonstrably smooth (desktop,
+       and the Android phone that now works), and record-and-transcribe on iOS,
+       which is what the user reports working and what the monitor says the
+       microphone can actually feed.
+
+       noteSilentRecogniser still exists for the reverse case — someone pinning
+       the recogniser on an iPhone where it is silent gets moved back within
+       one attempt. */
+    return IS_IOS ? 'record' : 'browser';
 }
 function usingRecorder(){ return RECORDER_SUPPORTED && sttEngine() === 'record'; }
 
@@ -3162,6 +3200,7 @@ function initSpeechRecognition(){
         recognitionActive = true;
         audioCaptureStarted = false;
         soundHeardThisSession = false;
+        awaitingFinalResult = false;
         vlog('start', `lang=${recognition.lang}`);
         // 1.5s is generous: onaudiostart normally lands within a few hundred
         // milliseconds of onstart, and waiting longer just extends how long
@@ -3206,7 +3245,7 @@ function initSpeechRecognition(){
            just demonstrably worked. */
         noteRecogniserHeard();
         try { vlog('result', `"${event.results[0][0].transcript}"`); } catch (e) { vlog('result'); }
-        if (micMuted) {
+        if (micMuted && !awaitingFinalResult) {
             /* Press-to-talk is latched, so this is the wake-word listener
                overhearing rather than a command. It was dropped in silence
                before, which is the same thing the user sees when the app is
@@ -3215,6 +3254,12 @@ function initSpeechRecognition(){
                the likeliest way a real command gets thrown away. */
             vlog('ignored', 'arrived while muted');
             return;
+        }
+        if (awaitingFinalResult) {
+            // The one transcript stop() owed us. Taken, and the door closes
+            // again behind it.
+            awaitingFinalResult = false;
+            vlog('final', 'the sentence you finished by tapping');
         }
         // Guarded because an exception thrown from inside an event handler
         // never reaches our own state machine: micMuted and voiceState would
@@ -3291,6 +3336,9 @@ function initSpeechRecognition(){
     recognition.onend = () => {
         clearTimeout(recognitionSafetyTimer);
         clearTimeout(audioCaptureWatchdog);
+        // Whatever stop() had to give has been given by now; the door must not
+        // stay open for the next session's overhearing.
+        awaitingFinalResult = false;
         vlog('end');
         recognitionActive = false;
         // No result came in this round (no speech heard, network hiccup, the
@@ -5185,8 +5233,11 @@ function renderVoiceDiag(){
 
     const autoNote = el('div', 'voice-info-block');
     autoNote.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
-    autoNote.innerText = 'כשהיא פעילה JARVIS מזהה שסיימת לדבר ועוצר לבד. ' +
-        'ההקשה על הכדור ממשיכה לעבוד בכל מקרה.';
+    autoNote.innerText = (engine === 'record'
+        ? 'כשהיא פעילה JARVIS מזהה שסיימת לדבר ועוצר לבד. '
+        : 'במנוע הזה הדפדפן מחליט בעצמו מתי סיימת, אז ההגדרה הזו לא משפיעה עליו — ' +
+          'היא חלה על מנוע ההקלטה. ') +
+        'ההקשה על הכדור עוצרת ושולחת את מה שאמרת, תמיד.';
     box.appendChild(autoNote);
 
     const pre = el('pre');
