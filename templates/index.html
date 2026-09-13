@@ -1638,6 +1638,9 @@ function cancelPendingRecognitionStart(){
    overlapping meaning, one of them easy to miss - that was the confusion.
    The button is gone and the orb absorbed its job. */
 function orbTap(){
+    // Any deliberate touch of the orb means the microphone is about to be
+    // wanted for something real, whichever branch below runs.
+    releaseMonitorForSpeech();
     if (!isAwake) { triggerWake(); return; }
     if (isSpeaking()) { stopSpeaking(); return; }
     // Live -> stop. Claiming to listen but actually dead -> fall through to
@@ -2103,11 +2106,20 @@ let micConstraintLevel = 0;
 
 function micConstraints(){
     if (micConstraintLevel > 0) return true;
+    /* Noise suppression and echo cancellation stay: measured, and the thing
+       that turns a transcript into words nobody said is background noise.
+
+       Automatic gain does NOT. It was added in the same breath on the
+       reasoning that a voice near the room's level needs lifting, but that was
+       reasoning, not measurement — and its signature is exactly what came back
+       from the phone: "every small sound gets huge meaning". AGC lifts the
+       room along with the voice and pumps between them, which is heard as
+       words breaking up. The ratio it was meant to help is better fixed by
+       suppressing the noise than by amplifying everything. */
     return {
         channelCount: { ideal: 1 },
         noiseSuppression: { ideal: true },
         echoCancellation: { ideal: true },
-        autoGainControl: { ideal: true },
     };
 }
 /* Set when raw capture has proven it delivers nothing on this device, so the
@@ -3002,6 +3014,8 @@ function armMicrophone(){
     // Anything already fetching speech is now stale — see fetchAndSpeak.
     speechGeneration++;
     clearThinkingCue();
+    // The test and a real take cannot share the microphone.
+    releaseMonitorForSpeech();
     if (usingRecorder()) startRecording();
     else startRecognitionSafely();
 }
@@ -5286,6 +5300,26 @@ renderAlarmSetup();
 
 function monitorRunning(){ return !!monitorCtx; }
 
+/* A test that holds the microphone until somebody remembers to switch it off
+   is a trap, and it was one: nothing stopped it but its own button. Left
+   running it keeps a getUserMedia stream and an AudioContext open, and from
+   then on every attempt to talk to JARVIS is two consumers fighting over one
+   microphone — which is heard as a voice that stutters and words that arrive
+   broken, on ANY platform. That is a fault this test introduced into the thing
+   it was built to diagnose.
+
+   So it lets go by itself the moment the microphone is wanted for real, and
+   after a minute regardless. */
+const MONITOR_MAX_MS = 60000;
+let monitorDeadline = null;
+
+function releaseMonitorForSpeech(){
+    if (!monitorRunning()) return false;
+    vlog('mic-monitor', 'released — the microphone is needed for a command');
+    stopMicMonitor();
+    return true;
+}
+
 async function startMicMonitor(){
     if (monitorRunning()) return;
     // The same thing every take does first: iOS gives the page one audio
@@ -5316,6 +5350,13 @@ async function startMicMonitor(){
     monitorGainNode.connect(monitorCtx.destination);
 
     monitorPeak = 0;
+    clearTimeout(monitorDeadline);
+    monitorDeadline = setTimeout(() => {
+        if (monitorRunning()) {
+            vlog('mic-monitor', 'stopped on its own after a minute');
+            stopMicMonitor();
+        }
+    }, MONITOR_MAX_MS);
     const buf = new Float32Array(analyser.fftSize);
     monitorTimer = setInterval(() => {
         analyser.getFloatTimeDomainData(buf);
@@ -5355,6 +5396,7 @@ function setMonitorPlayback(on){
 }
 
 function stopMicMonitor(){
+    clearTimeout(monitorDeadline); monitorDeadline = null;
     if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
     if (monitorStream) { try { monitorStream.getTracks().forEach(t => t.stop()); } catch (e) {} monitorStream = null; }
     if (monitorCtx) { try { monitorCtx.close(); } catch (e) {} monitorCtx = null; }
