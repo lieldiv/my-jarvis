@@ -1479,11 +1479,17 @@ function isListening(){ return isAwake && !micMuted && SPEECH_RECOGNITION_SUPPOR
    deliberately keep using intent, so the orb reacts on the tap instead of
    flickering through 'ready' for the 150ms until onstart fires. */
 function micIsLive(){
-    // Every way the microphone can currently be open. pcmCtx belongs here as
-    // much as mediaRecorder does: with raw capture running, mediaRecorder is
-    // null, so leaving it out made the second tap start a SECOND recording
-    // instead of stopping the first — the orb refusing to turn off, again.
-    return !!mediaRecorder || !!pcmCtx || recognitionActive || recognitionStartTimer !== null;
+    // Every way the microphone can currently be TAKING A COMMAND. pcmCtx
+    // belongs here as much as mediaRecorder does: with raw capture running,
+    // mediaRecorder is null, so leaving it out made the second tap start a
+    // SECOND recording instead of stopping the first — the orb refusing to
+    // turn off, again.
+    //
+    // The graph being merely warm does not count. It is open, it is measuring
+    // the room and holding a pre-roll, but nothing is being recorded and a tap
+    // should start a take rather than stop one.
+    return !!mediaRecorder || (!!pcmCtx && pcmCollecting) ||
+           recognitionActive || recognitionStartTimer !== null;
 }
 function orbVisualState(){
     if (!isAwake) return 'sleeping';
@@ -1746,6 +1752,7 @@ function wakeJarvis(initialCommand){
 }
 function triggerStop(){
     isAwake = false;
+    releaseWarmMic();
     micMuted = false;
     voiceState = 'idle';
     if (currentAudio) currentAudio.pause();
@@ -1793,6 +1800,9 @@ function playJarvisAudio(b64Audio, onStart, onEnded){
        identical from outside — no audio was generated at all, play() was
        blocked, or it played fine and iOS routed it to the earpiece after
        getUserMedia. Only the trace can tell them apart. */
+    // Speaking and recording fight over one audio session on iOS, so the warm
+    // microphone steps aside for the length of the reply and comes back after.
+    releaseWarmMic();
     currentAudio.onplay = () => {
         vlog('tts-play', `${Math.round((currentAudio.duration || 0) * 10) / 10}s vol=${currentAudio.volume} muted=${currentAudio.muted}`);
         voiceState = 'done'; renderOrb(); if (onStart) onStart();
@@ -1807,6 +1817,7 @@ function playJarvisAudio(b64Audio, onStart, onEnded){
         // the engine choice entirely. Two engines fighting over one microphone
         // is its own failure on top of whichever one was already broken.
         if (isAwake && !micMuted) armMicrophone();
+        else warmMicrophone();
         setTimeout(() => { if (voiceState === 'idle') clearOrbBubbles(); }, 2600);
     };
     currentAudio.onerror = () => {
@@ -1970,6 +1981,49 @@ function releaseMicStream(){
    ================================================================================ */
 let pcmCtx = null, pcmSource = null, pcmNode = null, pcmSilence = null;
 let pcmChunks = [], pcmSampleRate = 0, pcmPeak = 0;
+/* Whether the open graph is recording a command, or just kept warm.
+
+   Reported, after the noise fix landed: "you have to wait a few seconds after
+   tapping before it hears you." That wait is real and it is not the indicator
+   lying — opening the microphone means asking iOS to swing the audio session
+   into record, and the buffers during that swing are empty. Every take paid
+   for it, and anything said inside it was gone.
+
+   So the graph is opened BETWEEN takes instead: after a reply finishes, while
+   the orb sits awake and idle, the microphone is already open, already
+   measuring the room, and discarding everything. The tap then costs nothing —
+   there is no route to switch, because it was switched a while ago.
+
+   It is torn down whenever JARVIS speaks, sleeps, or the page goes away. The
+   visible cost is the recording indicator staying lit while the assistant is
+   awake and waiting, which is why there is a switch for it. */
+let pcmCollecting = false;
+/* The last moments before the tap, kept and handed to the take.
+
+   The other half of the same complaint: people start talking as they tap, not
+   after. Those words used to land in a graph that was not collecting yet and
+   were simply lost. Now they are already in hand when the take begins. */
+let pcmPreroll = [];
+const PREROLL_MS = 700;
+const PREWARM_KEY = 'jarvis_prewarm';
+
+function prewarmEnabled(){ return lsGet(PREWARM_KEY, '1') === '1'; }
+
+function setPrewarm(on){
+    lsSet(PREWARM_KEY, on ? '1' : '0');
+    if (!on) releaseWarmMic();
+    else warmMicrophone();
+    renderVoiceDiag();
+    showToast(on ? 'המיקרופון ייפתח מראש — ההקשה תתפוס מיד.'
+                 : 'המיקרופון ייפתח רק בהקשה.');
+}
+
+function prerollSeconds(){
+    if (!pcmSampleRate) return 0;
+    let total = 0;
+    for (const c of pcmPreroll) total += c.length;
+    return total / pcmSampleRate;
+}
 /* Whether real audio has actually started arriving.
 
    Connecting the graph is not the same as the microphone delivering. On iOS
@@ -2190,7 +2244,9 @@ function stopPcmGraph(){
    and transcribed as if it were a sentence. Saying the take was interrupted is
    both true and cheaper than a command nobody gave. */
 function abortCapture(reason, message){
-    if (!micIsLive()) return false;
+    // A warm graph is not a take, but it must still be let go when the page is
+    // going away or the audio route has changed under it.
+    if (!micIsLive()) { releaseWarmMic(); return false; }
     vlog('capture-abort', reason);
     clearThinkingCue();
     clearTimeout(recordStopTimer);
@@ -2207,6 +2263,52 @@ function abortCapture(reason, message){
     voiceState = 'idle';
     renderOrb();
     if (message) showToast(message, true);
+    return true;
+}
+
+/* Open the graph without recording anything, so the next tap is instant.
+
+   Deliberately quiet about failure: this is an optimisation, and a phone that
+   refuses to pre-open the microphone should fall back to opening it on the tap
+   exactly as before, not show an error for something the user did not ask for.
+*/
+async function warmMicrophone(){
+    // Only the raw-capture path has a graph to keep warm; the browser's own
+    // recogniser opens and closes the microphone on its own terms.
+    if (!prewarmEnabled() || usingRecorder() === false) return false;
+    if (!(IS_IOS || pcmForced)) return false;
+    if (pcmCtx || mediaRecorder || micStream) return false;   // already open
+    if (!isAwake || isSpeaking() || voiceState !== 'idle') return false;
+    try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                channelCount: { ideal: 1 },
+                noiseSuppression: { ideal: true },
+                echoCancellation: { ideal: true },
+                autoGainControl: { ideal: true },
+            },
+        });
+    } catch (e) {
+        vlog('warm-error', 'getUserMedia ' + (e && e.name));
+        return false;
+    }
+    // Conditions can change while getUserMedia is being answered.
+    if (!isAwake || isSpeaking() || micIsLive()) { releaseMicStream(); return false; }
+    pcmCollecting = false;
+    pcmPreroll = [];
+    if (!(await startPcmCapture())) { releaseMicStream(); return false; }
+    vlog('mic-warm', 'open and listening to the room');
+    return true;
+}
+
+function releaseWarmMic(){
+    if (pcmCollecting) return false;      // a real take is running; leave it alone
+
+    if (!pcmCtx && !micStream) return false;
+    stopPcmGraph();
+    releaseMicStream();
+    pcmPreroll = [];
+    vlog('mic-cold', 'warm graph released');
     return true;
 }
 
@@ -2273,6 +2375,20 @@ async function startPcmCapture(){
             vlog('pcm-live', `first buffer after ${Date.now() - warmStart}ms`);
             renderOrb();
         }
+        if (!pcmCollecting) {
+            /* Warm, not recording. The room is still measured — so a take that
+               starts in a moment already knows the noise floor instead of
+               spending its first 300ms working it out — and the most recent
+               moments are kept, so words said while reaching for the orb are
+               already in hand when the take begins. */
+            if (!vadNoiseFloor || rms < vadNoiseFloor) vadNoiseFloor = rms;
+            pcmPreroll.push(new Float32Array(data));
+            while (pcmPreroll.length > 1 && prerollSeconds() > PREROLL_MS / 1000) {
+                pcmPreroll.shift();
+            }
+            return;
+        }
+
         // Copied, not referenced: the event reuses its buffer, so keeping the
         // original would leave every chunk holding the newest audio. Buffers
         // from before the route settled are kept too — they cost nothing and
@@ -2302,8 +2418,43 @@ async function startPcmCapture(){
     return true;
 }
 
+/* The take begins on a graph that is already running. No microphone to open,
+   no session to switch, and the words already caught in the pre-roll come with
+   it — which is the whole point: the tap is no longer the moment the
+   microphone starts, it is only the moment we start keeping what it hears. */
+function beginCollectingOnWarmGraph(){
+    pcmChunks = pcmPreroll;
+    pcmPreroll = [];
+    pcmCollecting = true;
+    // The pre-roll is real audio and has to count towards the loudness checks,
+    // so the peak is taken over it rather than starting from zero.
+    pcmPeak = 0;
+    for (const c of pcmChunks) {
+        for (let i = 0; i < c.length; i++) {
+            const v = c[i] < 0 ? -c[i] : c[i];
+            if (v > pcmPeak) pcmPeak = v;
+        }
+    }
+    // The room was measured while warm, so calibration is already done — which
+    // also fixes the one case the detector could not handle before: someone
+    // who starts talking the instant the take opens no longer poisons the
+    // noise floor with their own voice, because it was taken beforehand.
+    const knownFloor = vadNoiseFloor;
+    resetVad();
+    vadNoiseFloor = knownFloor;
+    vadCalibratedUntil = 0;
+    pcmLive = true;
+    vlog('pcm-warm-start', `${prerollSeconds().toFixed(2)}s of pre-roll, floor ${knownFloor.toFixed(4)}`);
+    voiceState = 'listening';
+    renderOrb();
+    clearTimeout(recordStopTimer);
+    recordStopTimer = setTimeout(() => { vlog('rec-timeout'); stopRecording(); }, MAX_RECORDING_MS);
+}
+
 async function startRecording(){
     if (mediaRecorder) return;
+    // Already open and warm: nothing to set up, just start keeping the audio.
+    if (pcmCtx && !pcmCollecting) { beginCollectingOnWarmGraph(); return; }
     releaseAudioSession();
     // iOS does not switch the session from playback to record instantly, and
     // asking for the microphone mid-transition is how it ends up attached to
@@ -2373,6 +2524,9 @@ async function startRecording(){
     // PCM first on iOS, and anywhere MediaRecorder has already proved empty.
     // It is the path with no dependency on a container implementation.
     if (IS_IOS || pcmForced) {
+        // Opened for this take, so it collects from the first buffer. The warm
+        // path above sets this to false instead and flips it on at the tap.
+        pcmCollecting = true;
         if (await startPcmCapture()) {
             voiceState = 'listening';
             renderOrb();
@@ -2425,6 +2579,7 @@ function stopRecording(){
 }
 
 async function finishPcmRecording(){
+    pcmCollecting = false;
     const rate = pcmSampleRate;
     const chunks = pcmChunks;
     pcmChunks = [];
@@ -2531,6 +2686,7 @@ async function uploadForTranscription(blob, filename){
             auth:         'התחבר מחדש כדי להשתמש בדיבור.',
         }[key] || 'התמלול נכשל — נסה שוב.', true);
         voiceState = 'idle'; renderOrb();
+        warmMicrophone();
         return;
     }
 
@@ -2544,6 +2700,7 @@ async function uploadForTranscription(blob, filename){
             ? 'יש הרבה רעש רקע — קרב את הטלפון או דבר חזק יותר.'
             : 'לא שמעתי כלום — נסה שוב.', snr && snr < SNR_POOR);
         voiceState = 'idle'; renderOrb();
+        warmMicrophone();
         return;
     }
 
@@ -4543,6 +4700,18 @@ function renderVoiceDiag(){
     /* Here rather than in the appearance settings: this is the one control
        someone reaches for when the microphone is misbehaving, which is exactly
        what brings them to this panel. */
+    const warm = el('button', 'setup-btn' + (prewarmEnabled() ? '' : ' quiet'));
+    warm.innerText = prewarmEnabled() ? '⚡ מיקרופון מוכן מראש — פעיל'
+                                      : '⚡ מיקרופון מוכן מראש — כבוי';
+    warm.onclick = () => setPrewarm(!prewarmEnabled());
+    box.appendChild(warm);
+
+    const warmNote = el('div', 'voice-info-block');
+    warmNote.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
+    warmNote.innerText = 'פותח את המיקרופון בזמן שJARVIS ממתין, כדי שההקשה תתפוס מיד ' +
+        'ותתפוס גם מילים שנאמרו רגע לפניה. בזמן שהוא פעיל נורית ההקלטה דולקת בהמתנה.';
+    box.appendChild(warmNote);
+
     const auto = el('button', 'setup-btn' + (autoStopEnabled() ? '' : ' quiet'));
     auto.innerText = autoStopEnabled() ? '🎙️ עצירה אוטומטית — פעילה' : '🎙️ עצירה אוטומטית — כבויה';
     auto.onclick = () => setAutoStop(!autoStopEnabled());
