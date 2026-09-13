@@ -4890,6 +4890,31 @@ function renderVoiceDiag(){
         'הרשימה מראה עד לאיזה שלב הגיע התהליך, וזה מה שמזהה איפה הוא נשבר.';
     box.appendChild(intro);
 
+    /* Which engine is actually running, and a way back to the start.
+
+       The app moves itself off the recogniser when a phone proves it silent,
+       and remembers that. Without this row there is no way to see which path a
+       take used, and no way to re-test the other one after a switch — which
+       makes a test that cannot be repeated, and a repeated test is the whole
+       point of this panel. */
+    const engine = sttEngine();
+    const engineRow = el('div', 'voice-info-block');
+    engineRow.style.cssText = 'margin-top:10px';
+    engineRow.innerHTML = 'מנוע דיבור פעיל: <b>' +
+        (engine === 'record' ? 'הקלטה ותמלול בשרת' : 'זיהוי הדפדפן') + '</b>';
+    box.appendChild(engineRow);
+
+    if (lsGet(STT_ENGINE_KEY, 'auto') !== 'auto') {
+        const reset = el('button', 'setup-btn quiet');
+        reset.innerText = '↺ חזור לבחירה האוטומטית';
+        reset.onclick = () => {
+            lsSet(STT_ENGINE_KEY, 'auto');
+            showToast('חזרנו לזיהוי הדפדפן. הקש ודבר.');
+            renderVoiceDiag();
+        };
+        box.appendChild(reset);
+    }
+
     /* Here rather than in the appearance settings: this is the one control
        someone reaches for when the microphone is misbehaving, which is exactly
        what brings them to this panel. */
