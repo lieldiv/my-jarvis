@@ -1350,17 +1350,6 @@ function buildActivityRow(item){
     row.append(left, status);
     return row;
 }
-function buildLogRow(item){
-    const row = el('div','log-row');
-    const top = el('div','top');
-    const txt = el('span'); txt.textContent = item.text;
-    const status = el('span'); status.textContent = STATUS_LABELS[item.status] || item.status;
-    status.style.cssText = `font-size:11.5px;font-weight:600;color:${STATUS_COLORS[item.status] || 'var(--color-text-dim)'};flex-shrink:0;`;
-    top.append(txt, status);
-    const meta = el('div','meta'); meta.textContent = `${item.tool} · ${item.time}`;
-    row.append(top, meta);
-    return row;
-}
 let justUpdatedTab = null, justUpdatedTimer = null;
 function flashNav(tabKey){
     justUpdatedTab = tabKey;
