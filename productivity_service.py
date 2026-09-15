@@ -305,7 +305,8 @@ def request_create_calendar_event(user_id: str, summary: str, start_iso: str, en
     token = request_confirmation(
         description_text, impl, *cb_args,
         meta={"kind": "calendar_event", "provider": target, "user_id": user_id},
-        cancelled_message=f"Okay, I didn't create '{summary}', sir.",
+        cancelled_message=f"❌ ביטלתי — '{summary}' לא נוצרה.",
+        approved_message=f"✅ יצרתי את '{summary}'.",
     )
     # `kind` + `details` let the HUD render a proper card instead of a text
     # blob — see resolveConfirmation()/renderConfirmationModal() in
@@ -342,7 +343,8 @@ def request_delete_calendar_event(user_id: str, event_id: str, summary: str = ""
         # Denying a delete PROPOSAL means the event was kept, not cancelled
         # — the generic "Cancelled: Cancel calendar event 'X'" fallback
         # reads backwards here.
-        cancelled_message=f"Okay, I left '{summary or event_id}' on your calendar, sir.",
+        cancelled_message=f"❌ ביטלתי את הביטול — '{summary or event_id}' נשארה בלוח שלך.",
+        approved_message=f"✅ ביטלתי את '{summary or event_id}'.",
     )
     return {
         "status": "confirmation_required", "token": token, "message": description_text,
@@ -432,7 +434,8 @@ def request_update_calendar_event(user_id: str, summary_hint: str = "",
         description_text, google_service.update_calendar_event,
         user_id, event["id"], new_start_iso, new_end_iso,
         meta={"kind": "calendar_event_update", "user_id": user_id},
-        cancelled_message=f"Okay, I didn't change '{event['summary']}', sir.",
+        cancelled_message=f"❌ ביטלתי — '{event['summary']}' לא שונתה.",
+        approved_message=f"✅ עדכנתי את '{event['summary']}'.",
     )
     return {
         "status": "confirmation_required", "token": token, "message": description_text,
@@ -530,7 +533,8 @@ def request_send_email(user_id: str, to: str, subject: str, body: str, provider:
     token = request_confirmation(
         description_text, impl, *cb_args,
         meta={"kind": "email", "provider": target, "user_id": user_id, "attachments": attachments},
-        cancelled_message="Okay, I didn't send that email, sir.",
+        cancelled_message=f"❌ ביטלתי — הדוא"ל לא נשלח.",
+        approved_message=f"✅ שלחתי את הדוא"ל ל-{to}.",
     )
     return {
         "status": "confirmation_required", "token": token, "message": description_text,
@@ -603,8 +607,11 @@ def request_set_reminder(user_id: str, text: str, remind_at_iso: str,
         return {"status": "error", "message": "That time is already in the past, sir."}
 
     users.add_reminder(user_id, text, remind_at_epoch, emoji=emoji, flourish=flourish)
-    when_label = dt.astimezone(LOCAL_TZ).strftime("%A, %B %d at %H:%M")
-    return {"status": "ok", "message": f"I'll remind you to {text} on {when_label}, sir."}
+    dt_local = dt.astimezone(LOCAL_TZ)
+    # Hebrew formatted date
+    hebrew_weekday = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"][dt_local.weekday()]
+    when_label = f"{hebrew_weekday}, {dt_local.day}.{dt_local.month} בשעה {dt_local.hour:02d}:{dt_local.minute:02d}"
+    return {"status": "ok", "message": f"✅ הוספתי לך תזכורת: {text} ב-{when_label}. תישלח לך דוא״ל."}
 
 
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -641,9 +648,11 @@ def request_set_recurring_reminder(user_id: str, text: str, weekday: int, hour: 
     recurrence = f"{weekday}:{hour}:{minute}"
     users.add_reminder(user_id, text, first_fire.timestamp(), recurrence=recurrence,
                        emoji=emoji, flourish=flourish)
+    # Weekday name in Hebrew for the response
+    hebrew_weekday = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"][weekday]
     return {
         "status": "ok",
-        "message": f"I'll remind you to {text} every {WEEKDAY_NAMES[weekday]} at {hour:02d}:{minute:02d}, sir.",
+        "message": f"✅ הוספתי לך תזכורת קבועה: {text} כל {hebrew_weekday} בשעה {hour:02d}:{minute:02d}. תישלח לך דוא״ל בכל פעם.",
     }
 
 

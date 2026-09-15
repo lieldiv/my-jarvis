@@ -194,7 +194,7 @@ _LOCK = threading.Lock()
 
 
 def request_confirmation(description: str, callback, *cb_args, meta: dict = None,
-                          cancelled_message: str = None, **cb_kwargs) -> str:
+                          cancelled_message: str = None, approved_message: str = None, **cb_kwargs) -> str:
     """Register a destructive action. Returns a token to show the user.
     `callback(*cb_args, **cb_kwargs)` runs only on approval.
 
@@ -209,6 +209,9 @@ def request_confirmation(description: str, callback, *cb_args, meta: dict = None
     the user, and for calendar_event_delete specifically the generic
     fallback reads backwards ("Cancelled: Cancel calendar event 'X'" —
     denying a delete proposal means the event was kept, not cancelled).
+
+    `approved_message`, if given, is what resolve_confirmation() returns on
+    approval instead of the generic "Done: {description}" fallback.
     """
     token = secrets.token_hex(16)  # 128 bits — token_hex(4) (32 bits) was cheaply guessable
     with _LOCK:
@@ -220,6 +223,7 @@ def request_confirmation(description: str, callback, *cb_args, meta: dict = None
             "created": time.time(),
             "meta": meta or {},
             "cancelled_message": cancelled_message,
+            "approved_message": approved_message,
         }
     logger.info(f"Confirmation requested [{token}]: {description}")
     return token
@@ -305,6 +309,8 @@ def resolve_confirmation(token: str, approve: bool) -> str:
         return entry.get("cancelled_message") or f"Cancelled: {entry['description']}"
     try:
         result = entry["callback"](*entry["args"], **entry["kwargs"])
+        if entry.get("approved_message"):
+            return entry["approved_message"]
         return result if isinstance(result, str) else f"Done: {entry['description']}"
     except Exception as e:
         # Full detail goes to the log; the spoken reply stays clean — this
