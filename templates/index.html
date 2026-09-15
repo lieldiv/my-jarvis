@@ -1431,15 +1431,58 @@ let awaitingFinalResult = false;
    microphone that demonstrably works. */
 function noteRecogniserHeard(){ soundHeardThisSession = true; }
 
-function noteSilentRecogniser(reason){
-    // Never on desktop: the recogniser is known good there, and a quiet room
-    // must not be allowed to switch the engine out from under a working setup.
-    if (!IS_IOS || sttEngine() !== 'browser') return false;
-    if (soundHeardThisSession) return false;
-    vlog('stt-engine', `recogniser heard nothing (${reason}) — switching to recording`);
+/* Did this session produce a transcript at all? Separate from
+   soundHeardThisSession on purpose: together they tell the two failures
+   apart, and they mean opposite things about the microphone.
+
+     no sound, no words      the stream reaching the recogniser is silent
+     sound heard, no words   the stream is fine and the dictation is not
+
+   The second is the Redmi, and nothing in the app used to react to it. */
+let transcriptThisSession = false;
+/* Did the browser identify what it heard as SPEECH, rather than just sound?
+
+   The distinction decides whether a session that produced nothing is a verdict
+   on the dictation or just a noise in the room. onsoundstart fires for a chair
+   scraping; onspeechstart is the browser saying a person is talking. Moving a
+   desktop that has never missed onto a slower path because somebody coughed
+   would be a fix that costs more than the bug. */
+let speechHeardThisSession = false;
+/* Moving off the browser's recogniser is a fact about this device, decided
+   once and remembered. One place does it so both verdicts below leave the
+   same trail in the log. */
+let engineSwitchedThisSession = false;
+function switchToRecording(reason){
+    if (!RECORDER_SUPPORTED || sttEngine() !== 'browser') return false;
+    if (engineSwitchedThisSession) return false;
+    engineSwitchedThisSession = true;
+    vlog('stt-engine', `${reason} — switching to recording`);
     lsSet(STT_ENGINE_KEY, 'record');
-    showToast('עובר לשיטת הקלטה אחרת — הקש ודבר שוב.', true);
+    showToast('עובר לתמלול בשרת — הקש ודבר שוב.', true);
     return true;
+}
+function noteSilentRecogniser(reason){
+    /* Never on the desktop: the recogniser is known good there, and a quiet
+       room must not be allowed to switch the engine out from under a working
+       setup. On a phone, a whole session with no sound at all IS the
+       silent-stream signature, and one attempt is enough to know. */
+    if (!IS_MOBILE) return false;
+    if (soundHeardThisSession) return false;
+    return switchToRecording(`recogniser heard nothing (${reason})`);
+}
+function noteRecogniserDeaf(reason, explicit){
+    /* Speech reached it and no words came back. That is a verdict on the
+       dictation and not on the room, so it counts everywhere — including the
+       desktop, where it should simply never happen, and where one occurrence
+       is worth more than a hundred guesses about why.
+
+       `explicit` is onnomatch: the engine stating outright that it heard
+       speech and matched none of it. Without it, the session having merely
+       ended empty is not enough — the browser must have called what it heard
+       speech, or a cough in a quiet room would move a working setup. */
+    if (!explicit && !speechHeardThisSession) return false;
+    if (!soundHeardThisSession && !explicit) return false;
+    return switchToRecording(`heard speech, returned nothing (${reason})`);
 }
 let audioCaptureWatchdog = null;
 
@@ -1483,6 +1526,25 @@ function voiceLogText(){
 /* iPadOS reports itself as a Mac, hence the touch-point check. */
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+/* Any phone or tablet, iOS or not — the line along which the speech engine is
+   chosen.
+
+   The iPhone was moved off the browser's recogniser on evidence. The Android
+   evidence is now just as clear and it points the same way: a Redmi, in a
+   home-screen app, on the recogniser — audiostart, soundstart, speechstart,
+   six and a half seconds of speech, and then `nomatch`. Twice in a row. The
+   microphone on that phone is demonstrably fine; the test in Settings peaks
+   at 0.94 there. Its Hebrew dictation simply returned no words.
+
+   The desktop is the one place the recogniser has been smooth every single
+   time, so the desktop keeps it. Everywhere else records and lets Whisper
+   read it, which is our own code end to end and the same on every device.
+
+   A touch laptop reports touch points and is not a phone, hence the
+   pointer:fine test — a mouse present means desktop. */
+const IS_MOBILE = IS_IOS || /Android|Mobi|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 &&
+     !(window.matchMedia && window.matchMedia('(pointer: fine)').matches));
 /* Added to the home screen, i.e. running without Safari around it. WebKit
    treats that as a different context, and speech recognition is one of the
    things that does not survive the move — see the note on micCaptureFailed. */
@@ -1517,7 +1579,14 @@ function isSpeaking(){ return !!(currentAudio && !currentAudio.paused && !curren
    tap toggle. recognitionActive is NOT that: recognition also runs while
    muted to catch the wake phrase, so keying off it would make a tap in the
    resting state read as "stop" and appear to do nothing. */
-function isListening(){ return isAwake && !micMuted && SPEECH_RECOGNITION_SUPPORTED && !textOnlyMode; }
+/* Can this browser take speech AT ALL, by whichever path is in use? Asking
+   only about SpeechRecognition wrote off every browser that has a microphone
+   and no dictation — Firefox above all — and sent it to the keyboard, even
+   though the recording path is ours end to end and works there perfectly. */
+function speechInputSupported(){
+    return usingRecorder() ? RECORDER_SUPPORTED : SPEECH_RECOGNITION_SUPPORTED;
+}
+function isListening(){ return isAwake && !micMuted && speechInputSupported() && !textOnlyMode; }
 /* Whether the microphone is genuinely open (or about to be), as opposed to
    isListening() above, which is only the press-to-talk INTENT.
 
@@ -1590,7 +1659,7 @@ function renderOrb(){
     label.innerText = STATE_LABELS[visualState] || '';
 
     let cta = ORB_CTA[visualState] || '';
-    if (visualState === 'ready' && (!SPEECH_RECOGNITION_SUPPORTED || textOnlyMode)) cta = 'הקש כדי להקליד';
+    if (visualState === 'ready' && (!speechInputSupported() || textOnlyMode)) cta = 'הקש כדי להקליד';
     // Honest about the gap between "the microphone is open" and "it is
     // actually delivering audio" — speaking into that gap is what produced
     // "I didn't hear anything" on the first try.
@@ -1679,7 +1748,7 @@ function orbTap(){
     // Mid-request there is nothing safe to cancel - the command is already
     // with the server - but the tap must not feel dead either. Nudge instead.
     if (voiceState === 'processing' || voiceState === 'tool') { nudgeBusy(); return; }
-    if (!SPEECH_RECOGNITION_SUPPORTED || textOnlyMode) { $('cmd-input').focus(); return; }
+    if (!speechInputSupported() || textOnlyMode) { $('cmd-input').focus(); return; }
     startListening();
 }
 function startListening(){
@@ -2092,6 +2161,11 @@ const MIN_RECORDING_BYTES = 1024;             // below this it's a click, not sp
    stored key is still honoured, so a value set earlier keeps working and
    there is still a way to force an engine while debugging. */
 function sttEngine(){
+    /* No dictation in this browser at all, but a microphone and a recorder —
+       so it gets speech through our own path rather than being told to type.
+       Checked before the stored value, because a value stored on a browser
+       that had dictation must not strand one that does not. */
+    if (!SPEECH_RECOGNITION_SUPPORTED && RECORDER_SUPPORTED) return 'record';
     const v = lsGet(STT_ENGINE_KEY, 'auto');
     if (v === 'record' || v === 'browser') return v;
     /* The browser's own recogniser, everywhere — including the iPhone.
@@ -2138,12 +2212,43 @@ function sttEngine(){
        which is what the user reports working and what the monitor says the
        microphone can actually feed.
 
-       noteSilentRecogniser still exists for the reverse case — someone pinning
-       the recogniser on an iPhone where it is silent gets moved back within
-       one attempt. */
-    return IS_IOS ? 'record' : 'browser';
+       ── and then the Android phone joined it. ───────────────────────────
+
+       Same shape of evidence, the other manufacturer. A Redmi, home-screen
+       app, on the recogniser: audiostart, soundstart, speechstart, six and a
+       half seconds of speech, `nomatch`. Twice. The microphone test on that
+       phone peaks at 0.94, so the stream is fine and the dictation is not.
+
+       That is two phones out of two, from different vendors, failing in the
+       browser's recogniser and working through a microphone we open
+       ourselves. The desktop has never missed. So the split is by device
+       class rather than by vendor: phones record and Whisper reads it, the
+       desktop keeps the path that is instant and has earned it.
+
+       The user should never be the one deciding this, and no longer is —
+       there is nothing to pick in Settings. The two notes below still move a
+       device automatically the moment either engine proves itself wrong. */
+    return IS_MOBILE ? 'record' : 'browser';
 }
 function usingRecorder(){ return RECORDER_SUPPORTED && sttEngine() === 'record'; }
+
+/* The engine was a setting for exactly one day, and a value chosen by hand
+   during it would now be unreachable — nothing in the UI can undo it any
+   more, and it can pin a phone to the very engine the measurements moved it
+   off. So such a value is cleared, once.
+
+   Once is the whole point of the marker: a switch made automatically later is
+   a verdict about this device, and it has to survive every reload. */
+const STT_ENGINE_MIGRATED_KEY = 'jarvis_stt_engine_auto_v2';
+function migrateStoredEngine(){
+    if (lsGet(STT_ENGINE_MIGRATED_KEY, '')) return;
+    lsSet(STT_ENGINE_MIGRATED_KEY, '1');
+    const stored = lsGet(STT_ENGINE_KEY, 'auto');
+    if (stored === 'record' || stored === 'browser') {
+        lsSet(STT_ENGINE_KEY, 'auto');
+        vlog('stt-engine', `cleared a hand-picked "${stored}" — the device decides now`);
+    }
+}
 
 let mediaRecorder = null, micStream = null, recordedChunks = [], recordStopTimer = null;
 /* Set once MediaRecorder has demonstrably produced nothing on this device, so
@@ -3132,8 +3237,20 @@ function armMicrophone(){
     clearThinkingCue();
     // The test and a real take cannot share the microphone.
     releaseMonitorForSpeech();
-    if (usingRecorder()) startRecording();
-    else startRecognitionSafely();
+    if (usingRecorder()) {
+        /* Nor can the recogniser and the recorder. A wake-word session can
+           still be open at this point — the gate starts one before the engine
+           has even been consulted — and two consumers on one microphone is
+           the oldest way a take comes back empty on a phone. Close it first,
+           every time, rather than hoping the platform sorts it out. */
+        cancelPendingRecognitionStart();
+        if (recognition && recognitionActive) {
+            vlog('recog-closed', 'recording needs the microphone to itself');
+            try { recognition.abort(); } catch (e) {}
+            recognitionActive = false;
+        }
+        startRecording();
+    } else startRecognitionSafely();
 }
 
 function initSpeechRecognition(){
@@ -3192,14 +3309,23 @@ function initSpeechRecognition(){
     };
     // Logged only — these exist to show how far the chain got.
     recognition.onsoundstart = () => { soundHeardThisSession = true; vlog('soundstart'); };
-    recognition.onspeechstart = () => vlog('speechstart');
+    recognition.onspeechstart = () => { speechHeardThisSession = true; vlog('speechstart'); };
     recognition.onspeechend = () => vlog('speechend');
-    recognition.onnomatch = () => vlog('nomatch', 'heard speech, recognised nothing');
+    /* Not a log line any more. This is the dictation saying, in the clearest
+       words it has, that it heard the user and understood none of it — the
+       Redmi's failure exactly. Reacting to it is the difference between
+       "sometimes it works" and moving to a path that does. */
+    recognition.onnomatch = () => {
+        vlog('nomatch', 'heard speech, recognised nothing');
+        if (isAwake && !micMuted) noteRecogniserDeaf('nomatch', true);
+    };
 
     recognition.onstart = () => {
         recognitionActive = true;
         audioCaptureStarted = false;
         soundHeardThisSession = false;
+        transcriptThisSession = false;
+        speechHeardThisSession = false;
         awaitingFinalResult = false;
         vlog('start', `lang=${recognition.lang}`);
         // 1.5s is generous: onaudiostart normally lands within a few hundred
@@ -3244,6 +3370,7 @@ function initSpeechRecognition(){
            'no-speech' move a working recogniser off a microphone that had
            just demonstrably worked. */
         noteRecogniserHeard();
+        transcriptThisSession = true;
         try { vlog('result', `"${event.results[0][0].transcript}"`); } catch (e) { vlog('result'); }
         if (micMuted && !awaitingFinalResult) {
             /* Press-to-talk is latched, so this is the wake-word listener
@@ -3350,6 +3477,17 @@ function initSpeechRecognition(){
         // already moved voiceState to 'processing' before onend fires here,
         // so this is a no-op in that case.)
         if (voiceState === 'listening') voiceState = 'idle';
+        /* The session is over, the microphone plainly heard someone talking,
+           and not one word came back. Chrome fires onnomatch for this, other
+           browsers fire nothing at all, and the user sees the same thing
+           either way: they spoke, and the orb went quiet. This is the last
+           moment at which anything can still be done about it. */
+        if (!transcriptThisSession && soundHeardThisSession && isAwake && !micMuted &&
+            noteRecogniserDeaf('session ended with no transcript')) {
+            micMuted = true;
+            renderOrb();
+            return;
+        }
         if (!micMuted && (!currentAudio || currentAudio.paused)) {
             setTimeout(() => {
                 if (!recognitionActive && !micMuted) {
@@ -5205,50 +5343,25 @@ function renderVoiceDiag(){
         : 'מפעיל את המיקרופון ומשמיע אותך בחזרה, עם מד עוצמה. עדיף עם אוזניות, אחרת יכול לצפצף.';
     box.appendChild(monitorWrap);
 
-    /* Which engine turns your voice into words, chosen by hand.
+    /* The engine is no longer a question put to the user.
 
-       There are two, they fail on different devices for unrelated reasons, and
-       which one works is not something anyone can be told from here — this
-       phone's dictation returns nothing while its microphone is demonstrably
-       fine, and another phone is the other way round. So the choice is offered
-       plainly, next to the test that lets you hear whether the microphone is
-       working at all, and it is remembered.
+       It was offered as three buttons for exactly one day, and asking someone
+       to understand two speech engines in order to talk to an assistant was
+       the wrong thing to ship — picking the wrong one only produces a subtler
+       failure. The device decides now, on measurements: phones record and
+       Whisper reads it, the desktop uses its own recogniser, and either one
+       that proves itself wrong loses the device within a single take.
 
-       Automatic still does the right thing on its own, and still moves off an
-       engine that proves silent. This is for when it guesses wrong. */
+       What stays here is the microphone, which IS worth choosing by hand,
+       because only the person in the room can hear which one sounds right.
+       The line below is information, not a control. */
     const engine = sttEngine();
-    const stored = lsGet(STT_ENGINE_KEY, 'auto');
-    const autoWould = IS_IOS ? 'record' : 'browser';
-
-    const engineTitle = el('div', 'voice-info-block');
-    engineTitle.style.cssText = 'margin-top:14px;font-weight:600';
-    engineTitle.innerText = 'מנוע דיבור';
-    box.appendChild(engineTitle);
-
-    const engineBtn = (value, name, note) => {
-        const active = stored === value;
-        const b = el('button', 'setup-btn' + (active ? '' : ' quiet'));
-        b.style.cssText = 'display:block;width:100%;text-align:right;margin-top:4px';
-        b.innerText = (active ? '● ' : '○ ') + name + (note ? '  ' + note : '');
-        b.onclick = () => {
-            lsSet(STT_ENGINE_KEY, value);
-            vlog('stt-engine', 'chosen by hand: ' + value);
-            showToast('עברת ל' + name + '. הקש ודבר כדי לבדוק.');
-            renderVoiceDiag();
-        };
-        box.appendChild(b);
-    };
-
-    engineBtn('auto', 'אוטומטי',
-              '(כאן: ' + (autoWould === 'record' ? 'הקלטה בשרת' : 'זיהוי הדפדפן') + ')');
-    engineBtn('browser', 'זיהוי הדפדפן', '— מהיר, בלי העלאה');
-    engineBtn('record', 'הקלטה ותמלול בשרת', '— איטי יותר, עברית טובה יותר');
-
     const engineNow = el('div', 'voice-info-block');
-    engineNow.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:6px';
-    engineNow.innerText = 'פעיל כרגע: ' +
-        (engine === 'record' ? 'הקלטה ותמלול בשרת' : 'זיהוי הדפדפן') +
-        '. אם אחד מהם לא שומע אותך — החלף ונסה שוב, הבחירה נשמרת.';
+    engineNow.id = 'stt-engine-note';
+    engineNow.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:10px';
+    engineNow.innerText = 'תמלול: ' +
+        (engine === 'record' ? 'בשרת שלנו (Whisper)' : 'זיהוי הדפדפן') +
+        ' — נבחר אוטומטית למכשיר הזה, ומתחלף לבד אם הוא לא מבין אותך.';
     box.appendChild(engineNow);
 
     /* Here rather than in the appearance settings: this is the one control
@@ -5723,7 +5836,7 @@ function finishMicScan(){
 }
 function startWakePhraseStep(){
     $('mic-scan-visual').style.display = 'none';
-    if (!SPEECH_RECOGNITION_SUPPORTED) {
+    if (!speechInputSupported()) {
         $('mic-listen-visual').style.display = 'none';
         $('mic-title').innerText = 'קלט קולי אינו נתמך';
         $('mic-subtitle').innerText = 'הדפדפן הזה לא תומך בזיהוי דיבור (נפוץ ב-iOS Safari) — אפשר עדיין להקליד כל פקודה.';
@@ -5731,8 +5844,16 @@ function startWakePhraseStep(){
         return;
     }
     $('mic-listen-visual').style.display = 'block';
-    $('mic-title').innerText = 'אמור "WAKE UP" או "בוקר טוב" כדי להתחיל';
-    $('mic-subtitle').innerText = 'מאזין…';
+    /* On the recording engine there is no wake word, because wake-word
+       listening needs a permanently open microphone and recording deliberately
+       is not one. Asking someone to say a phrase nothing is listening for is
+       the worst possible first screen, so the gate says what actually works
+       here: tap. */
+    const byTap = usingRecorder();
+    $('mic-title').innerText = byTap
+        ? 'הקש כדי להתחיל'
+        : 'אמור "WAKE UP" או "בוקר טוב" כדי להתחיל';
+    $('mic-subtitle').innerText = byTap ? 'לחיצה אחת, ואפשר לדבר.' : 'מאזין…';
     // A spoken wake word is never a "user gesture" as far as the browser's
     // autoplay policy is concerned, no matter how many times it's repeated
     // — if the getUserMedia-grant unlock attempt above didn't stick (Safari
@@ -5740,6 +5861,12 @@ function startWakePhraseStep(){
     // left to tap on this screen at all. This button both starts the
     // conversation and, being a real tap, reliably unlocks audio.
     $('mic-tap-start-btn').classList.add('show');
+    /* And on the recording engine nothing is started here at all. A gate
+       recogniser left running is a second consumer of the microphone waiting
+       for the user's first take — the phone then records into a contended
+       microphone and gets an empty file, which is indistinguishable from
+       "it just doesn't hear me". */
+    if (byTap) return;
     if (!micInitialized) { initSpeechRecognition(); micInitialized = true; }
     startRecognitionSafely();
 }
@@ -5857,6 +5984,7 @@ wakeJarvis = function(initialCommand){
 /* ================================================================================
    Boot.
    ================================================================================ */
+migrateStoredEngine();
 checkGoogleAuthGate();
 </script>
 </body>
