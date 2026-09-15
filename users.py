@@ -144,7 +144,25 @@ def _init_db():
 
 @contextmanager
 def _connect():
-    conn = sqlite3.connect(DB_PATH)
+    # timeout=10: how long a call waits for a lock held by another thread
+    # before raising "database is locked", instead of the 5s default —
+    # gunicorn's --threads 16 means up to 16 real OS threads can hit this
+    # file at once (see render.yaml's own docstring: threads went 2->16
+    # after a similar pool-exhaustion incident with /api/stream). A
+    # slightly longer wait here trades a bit of latency under contention
+    # for not surfacing a raw OperationalError to the user over a write
+    # that would have succeeded a moment later.
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    # WAL mode lets readers and a writer run concurrently instead of the
+    # default rollback-journal mode's "writer blocks every reader" — the
+    # actual fix for 16 threads sharing one file, timeout above is just a
+    # safety net for the writer-vs-writer case WAL doesn't eliminate.
+    # journal_mode is stored in the database file itself (not per
+    # connection), so this is a one-time no-op after the first call ever
+    # sets it — cheap enough to just always ask for it here rather than
+    # only in _init_db(), which guarantees it even if the file already
+    # existed from before this line was added.
+    conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
         conn.commit()
@@ -437,23 +455,37 @@ def get_last_completion(task_id: int) -> float | None:
     return row[0] if row and row[0] is not None else None
 
 
-def count_completions_between(user_id: str, start: float, end: float) -> int:
-    """Total tasks finished in [start, end) — one-time tasks (tasks.completed_at)
-    plus recurring-task check-offs (task_completions) combined into a single
-    count, since from the user's perspective "how many things did I get done
-    today" doesn't distinguish between the two kinds."""
+def get_completion_timestamps_since(user_id: str, since: float) -> list[float]:
+    """Every individual completion timestamp (one-time tasks via
+    tasks.completed_at, recurring check-offs via task_completions) since
+    `since`, unsorted and un-bucketed — ONE connection, two queries,
+    regardless of how many time windows the caller needs.
+
+    This replaced a version (count_completions_between) that the caller —
+    get_task_stats — used to call once per window (today/week/each of the
+    last 7 days = 9 separate connections, 18 queries, for a single stats
+    request). Under this app's concurrency model (Render free tier,
+    gunicorn --workers 1 --threads 16 — one process, sixteen real OS
+    threads sharing one SQLite file with no WAL mode and no explicit busy
+    timeout), nine sequential connection/lock attempts per request was a
+    real contention risk: a burst of concurrent requests (exactly what
+    happens when someone is actively trying out a brand-new feature) could
+    pile up threads waiting on SQLite's default rollback-journal locking
+    long enough to make the whole worker unresponsive — including to
+    Render's own internal health check, which is what makes Render's
+    routing layer conclude the instance is dead. One connection per stats
+    request removes that amplification; the caller buckets these
+    timestamps into today/week/daily counts in plain Python instead."""
     with _connect() as conn:
         onetime = conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE user_id = ? AND completed = 1"
-            " AND completed_at >= ? AND completed_at < ?",
-            (user_id, start, end),
-        ).fetchone()[0]
+            "SELECT completed_at FROM tasks WHERE user_id = ? AND completed = 1 AND completed_at >= ?",
+            (user_id, since),
+        ).fetchall()
         recurring = conn.execute(
-            "SELECT COUNT(*) FROM task_completions WHERE user_id = ?"
-            " AND completed_at >= ? AND completed_at < ?",
-            (user_id, start, end),
-        ).fetchone()[0]
-    return onetime + recurring
+            "SELECT completed_at FROM task_completions WHERE user_id = ? AND completed_at >= ?",
+            (user_id, since),
+        ).fetchall()
+    return [r[0] for r in onetime] + [r[0] for r in recurring]
 
 
 _init_db()

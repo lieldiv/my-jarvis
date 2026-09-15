@@ -884,21 +884,38 @@ def get_task_stats(user_id: str) -> dict:
     """Completion statistics for the HUD's stats card: how many tasks were
     finished today and this week, plus a 7-day daily breakdown for a bar
     chart. Counts one-time completions and recurring check-offs together
-    (see users.count_completions_between) — from the user's perspective
-    "how many things did I get done" doesn't distinguish between them."""
+    (see users.get_completion_timestamps_since) — from the user's
+    perspective "how many things did I get done" doesn't distinguish
+    between them.
+
+    ONE query pair covering the whole 7-day window, bucketed here in
+    Python — not one connection per window (today/week/each of 7 days).
+    That earlier version opened 9 SQLite connections per stats request;
+    under this app's concurrency (Render free tier, --workers 1 --threads
+    16 — one process, sixteen threads sharing one file), that was a real
+    thread-pile-up risk under concurrent load, exactly the kind of bug
+    that first looked like a Render platform issue. Don't reintroduce a
+    per-window query here — bucket in Python instead."""
     now = datetime.now(LOCAL_TZ)
     midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = midnight_today - timedelta(days=now.weekday())  # Monday
+    chart_start = midnight_today - timedelta(days=6)  # 7-day chart window, oldest day
+    query_start = min(week_start, chart_start)
 
-    today_count = users.count_completions_between(user_id, midnight_today.timestamp(), time.time())
-    week_count = users.count_completions_between(user_id, week_start.timestamp(), time.time())
+    timestamps = users.get_completion_timestamps_since(user_id, query_start.timestamp())
+
+    today_start_ts = midnight_today.timestamp()
+    week_start_ts = week_start.timestamp()
+    today_count = sum(1 for t in timestamps if t >= today_start_ts)
+    week_count = sum(1 for t in timestamps if t >= week_start_ts)
 
     hebrew_day_labels = ["ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳", "א׳"]  # Mon..Sun, matches now.weekday()
     daily = []
     for i in range(6, -1, -1):  # oldest to newest, last 7 days including today
-        day_start = midnight_today - timedelta(days=i)
-        day_end = day_start + timedelta(days=1)
-        count = users.count_completions_between(user_id, day_start.timestamp(), day_end.timestamp())
-        daily.append({"label": hebrew_day_labels[day_start.weekday()], "count": count, "is_today": i == 0})
+        day_start = (midnight_today - timedelta(days=i)).timestamp()
+        day_end = day_start + 86400
+        count = sum(1 for t in timestamps if day_start <= t < day_end)
+        label = hebrew_day_labels[(midnight_today - timedelta(days=i)).weekday()]
+        daily.append({"label": label, "count": count, "is_today": i == 0})
 
     return {"today": today_count, "week": week_count, "daily": daily}
