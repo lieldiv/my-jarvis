@@ -428,7 +428,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 /* Globe */
 .globe-panel{ margin-top:16px; padding:22px 16px 18px; border-radius:var(--radius-md); background:var(--color-panel); border:var(--border-default); position:relative; overflow:hidden; backdrop-filter:var(--blur-panel); text-align:center; }
 .globe-panel-label{ font-weight:700; font-size:11.5px; color:var(--color-text-dim); margin-bottom:16px; }
-.globe-outer{ display:flex; justify-content:center; }
+.globe-outer{ display:flex; justify-content:center; position:relative; }
 .globe-container{ position:relative; width:220px; height:220px; perspective:1100px; cursor:grab; touch-action:none; }
 .globe-container.dragging{ cursor:grabbing; }
 .globe-orbit-a{ position:absolute; inset:-22px; border-radius:50%; border:1px solid rgba(var(--accent-rgb),0.4); transform:rotateX(78deg); animation:jm-spin 10s linear infinite; pointer-events:none; }
@@ -446,6 +446,63 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .globe-stat-card .k{ font-family:var(--font-display); font-size:9px; letter-spacing:var(--tracking-wide); color:var(--color-text-dim); margin-bottom:4px; }
 .globe-stat-card .v{ font-size:11px; font-weight:700; color:var(--color-green); }
 .globe-footer{ text-align:center; margin-top:12px; font-size:10.5px; font-weight:600; color:var(--color-text-dim); }
+
+/* Satellite suggestion chips — orbit the globe, each a command worth trying.
+   Two-step transform trick (rotate, translate out, rotate back) so the arm
+   sweeps a perfect circle while the chip itself stays upright and readable
+   the whole way round, rather than spinning with it. */
+.globe-satellites{ position:absolute; top:50%; left:50%; width:0; height:0; pointer-events:none; z-index:5; }
+.globe-sat-orbit{ position:absolute; top:0; left:0; width:0; height:0; animation:jm-sat-orbit 34s linear infinite; }
+@keyframes jm-sat-orbit{
+    from{ transform:rotate(0deg) translateX(var(--sat-radius, 118px)) rotate(0deg); }
+    to  { transform:rotate(360deg) translateX(var(--sat-radius, 118px)) rotate(-360deg); }
+}
+.globe-satellite{
+    position:absolute; top:0; left:0; transform:translate(-50%,-50%);
+    display:flex; align-items:center; gap:5px; padding:6px 12px 6px 10px;
+    border-radius:var(--radius-pill); background:rgba(4,18,38,0.9);
+    border:1px solid rgba(var(--accent-rgb),0.45);
+    font-size:10.5px; font-weight:700; color:var(--color-white); white-space:nowrap;
+    cursor:pointer; pointer-events:auto; backdrop-filter:blur(4px);
+    box-shadow:0 0 10px rgba(var(--accent-rgb),0.22);
+    transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
+}
+.globe-satellite:hover, .globe-satellite:focus-visible{
+    transform:translate(-50%,-50%) scale(1.16);
+    box-shadow:0 0 20px rgba(var(--accent-rgb),0.6);
+    border-color:rgba(var(--accent-rgb),0.95);
+}
+.globe-satellite:active{ transform:translate(-50%,-50%) scale(0.88); opacity:.8; }
+.globe-satellite .ic{ font-size:13px; line-height:1; }
+/* The beam: a short-lived streak fired from wherever the clicked chip
+   currently sits (read via getBoundingClientRect, since its position moves
+   continuously) toward the globe's centre — the "dynamic" link between the
+   suggestion and the globe the click actually came from. */
+.globe-beam{
+    position:fixed; height:2px; left:0; top:0; pointer-events:none; z-index:200;
+    transform-origin:0 50%;
+    background:linear-gradient(90deg, rgba(var(--accent-rgb),0) 0%, rgba(var(--accent-rgb),0.95) 55%, rgba(var(--accent-rgb),0) 100%);
+    animation:jm-beam-fire .5s ease-out forwards;
+}
+@keyframes jm-beam-fire{
+    0%{ opacity:0; }
+    18%{ opacity:1; }
+    100%{ opacity:0; }
+}
+.globe-rim.pulse{ animation:jm-rim-pulse .65s ease-out; }
+@keyframes jm-rim-pulse{
+    0%{ box-shadow:0 0 36px 5px rgba(var(--accent-rgb),0.45), inset 0 0 22px rgba(var(--accent-rgb),0.25); }
+    35%{ box-shadow:0 0 62px 16px rgba(var(--accent-rgb),0.95), inset 0 0 36px rgba(var(--accent-rgb),0.6); }
+    100%{ box-shadow:0 0 36px 5px rgba(var(--accent-rgb),0.45), inset 0 0 22px rgba(var(--accent-rgb),0.25); }
+}
+@media (prefers-reduced-motion: reduce){
+    /* The orbit's resting transform (set inline per satellite, alongside
+       animation-delay — see renderGlobeSatellites) already places each chip
+       at its correct spread-out angle; removing just the animation here
+       leaves them sitting there motionless instead of collapsing to the
+       centre, which is what `animation:none` alone would do. */
+    .globe-sat-orbit{ animation:none; }
+}
 
 /* Recent activity / log */
 .activity-section{ margin-top:22px; border-top:var(--border-default); padding-top:16px; }
@@ -856,6 +913,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
                   </div>
                   <div class="globe-rim"></div>
                 </div>
+                <div class="globe-satellites" id="globe-satellites"></div>
               </div>
               <div class="globe-stats">
                 <div class="globe-stat-card">
@@ -1415,6 +1473,88 @@ const QUICK_ACTIONS = [
    its own layout hinted at (its `orbTap`/`quickAction` switch already handled
    'places' and 'current' as tool-panel keys, just never listed them as chips).
    'market' (מדדי המניות) is dropped per the brief — no backing endpoint. */
+
+/* ================================================================================
+   Globe satellites — suggested commands orbiting the home-tab globe, each a
+   thing worth trying. Distinct from the quick-action grid above: these live
+   on the globe panel deliberately, as an answer to "what can I even ask it" —
+   the globe already sits there as the app's one ambient, always-moving
+   visual, so new-command discovery rides along on it instead of competing
+   for its own separate block of screen.
+   ================================================================================ */
+const GLOBE_SATELLITES = [
+    { icon:'📍', label:'מקום קרוב', run: () => openToolPanel('places') },
+    { icon:'⏰', label:'תזכורת חדשה', run: () => { setTab('agenda'); setTimeout(() => $('reminder-text-input')?.focus(), 350); } },
+    { icon:'✅', label:'הוסף משימה', run: () => { setTab('tasks'); setTimeout(() => $('task-input')?.focus(), 350); } },
+    { icon:'☀️', label:'מזג האוויר', run: () => runVoiceCommand('מה מזג האוויר?') },
+];
+const GLOBE_ORBIT_SECONDS = 34;
+// Kept just outside the globe's own 110px radius but well inside the
+// panel's clipping box (globe-panel has overflow:hidden — app-body's 20px
+// side padding plus the panel's own 16px leaves only ~179px from centre to
+// the panel edge on a 430px-wide phone, and a chip's own half-width eats
+// into that further; 118px leaves comfortable margin instead of getting
+// silently clipped).
+const GLOBE_SAT_RADIUS = 118;
+function renderGlobeSatellites(){
+    const wrap = $('globe-satellites');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const n = GLOBE_SATELLITES.length;
+    GLOBE_SATELLITES.forEach((s, i) => {
+        // Evenly spaced around the circle, and the SAME angle drives both
+        // the resting (pre-animation / reduced-motion) position and the
+        // animation-delay — a negative delay starts the animation already
+        // partway through its cycle, at exactly that angle, so there's no
+        // jump when it starts moving.
+        const angleDeg = (360 / n) * i;
+        const orbit = el('div', 'globe-sat-orbit');
+        orbit.style.setProperty('--sat-radius', GLOBE_SAT_RADIUS + 'px');
+        orbit.style.transform = `rotate(${angleDeg}deg) translateX(${GLOBE_SAT_RADIUS}px) rotate(${-angleDeg}deg)`;
+        orbit.style.animationDelay = `-${(GLOBE_ORBIT_SECONDS / n) * i}s`;
+        const chip = el('div', 'globe-satellite');
+        chip.setAttribute('role', 'button');
+        chip.setAttribute('tabindex', '0');
+        chip.innerHTML = `<span class="ic">${s.icon}</span><span>${s.label}</span>`;
+        chip.onmouseenter = () => { orbit.style.animationPlayState = 'paused'; };
+        chip.onmouseleave = () => { orbit.style.animationPlayState = 'running'; };
+        chip.onclick = () => fireGlobeSatellite(chip, s.run);
+        chip.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fireGlobeSatellite(chip, s.run); } };
+        orbit.appendChild(chip);
+        wrap.appendChild(orbit);
+    });
+}
+/* The "dynamic" link between a suggestion and the globe: a short beam fired
+   from wherever the clicked chip actually is right now (it never stops
+   moving, so this is read live via getBoundingClientRect rather than
+   computed from its orbit angle) to the globe's centre, plus a brief flash
+   on the globe's own rim — visually "the suggestion feeding the globe the
+   command" rather than a plain, static button press. */
+function fireGlobeSatellite(chipEl, action){
+    const globeEl = $('globe-container');
+    if (!globeEl) { action(); return; }
+    const c = chipEl.getBoundingClientRect(), g = globeEl.getBoundingClientRect();
+    const x1 = c.left + c.width / 2, y1 = c.top + c.height / 2;
+    const x2 = g.left + g.width / 2, y2 = g.top + g.height / 2;
+    const dx = x2 - x1, dy = y2 - y1;
+    const beam = document.createElement('div');
+    beam.className = 'globe-beam';
+    beam.style.left = x1 + 'px'; beam.style.top = y1 + 'px';
+    beam.style.width = Math.hypot(dx, dy) + 'px';
+    beam.style.transform = `rotate(${Math.atan2(dy, dx) * 180 / Math.PI}deg)`;
+    document.body.appendChild(beam);
+    setTimeout(() => beam.remove(), 550);
+
+    const rim = document.querySelector('.globe-rim');
+    if (rim) { rim.classList.remove('pulse'); void rim.offsetWidth; rim.classList.add('pulse'); }
+
+    chipEl.style.transform = 'translate(-50%,-50%) scale(0.85)';
+    chipEl.style.opacity = '.7';
+    setTimeout(() => { chipEl.style.transform = ''; chipEl.style.opacity = ''; }, 220);
+
+    setTimeout(action, 180);
+}
+renderGlobeSatellites();
 
 /* ================================================================================
    Orb / voice state machine — idle · listening · processing · tool · done,
