@@ -550,8 +550,8 @@ def request_send_email(user_id: str, to: str, subject: str, body: str, provider:
     token = request_confirmation(
         description_text, impl, *cb_args,
         meta={"kind": "email", "provider": target, "user_id": user_id, "attachments": attachments},
-        cancelled_message=f"❌ ביטלתי — הדוא"ל לא נשלח.",
-        approved_message=f"✅ שלחתי את הדוא"ל ל-{to}.",
+        cancelled_message="❌ ביטלתי — הדוא״ל לא נשלח.",
+        approved_message=f"✅ שלחתי את הדוא״ל ל-{to}.",
     )
     return {
         "status": "confirmation_required", "token": token, "message": description_text,
