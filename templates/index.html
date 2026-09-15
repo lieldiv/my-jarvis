@@ -425,18 +425,21 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 /* Discover panel — replaces the old rotating globe (it showed a static,
    never-updating "connected" badge and a hardcoded fake sparkline; no real
    information). A circle standing in for JARVIS's own presence sits above
-   a list of suggested things to try — ambient glow at rest, plus a beam +
-   flash/nudge reaction fired at it from wherever a tapped row actually is,
-   every time one is tapped (see fireDiscoverSuggestion). No orbit math here
-   (unlike the earlier satellite attempt this replaces) — the glow is
-   flex-centred and rows are plain block flow, sized against a 375px-wide
-   phone's ~303px available content width (app-body's 20px side padding +
-   this panel's own 16px), not just the ~430px case. */
+   a short list of suggested things to try — its own icon cycling through
+   the same suggestions while idle, so there's always something specific
+   and legible to look at rather than an empty glow, plus a beam +
+   flash/nudge reaction (and an immediate icon-swap) fired at it from
+   wherever a tapped row actually is (see fireDiscoverSuggestion). No orbit
+   math here (unlike the earlier satellite attempt this replaces) — the
+   glow is flex-centred and rows are plain block flow, sized against a
+   375px-wide phone's ~303px available content width (app-body's 20px side
+   padding + this panel's own 16px), not just the ~430px case. */
 .discover-panel{ overflow:hidden; text-align:center; }
-.discover-orb-wrap{ position:relative; display:flex; justify-content:center; align-items:center; height:112px; margin-bottom:16px; }
-.discover-orb-glow{ position:absolute; width:150px; height:150px; border-radius:50%; background:radial-gradient(circle, rgba(var(--accent-rgb),.38), transparent 70%); filter:blur(13px); animation:jm-pulse 4.2s ease-in-out infinite; pointer-events:none; }
-.discover-orb{ position:relative; width:76px; height:76px; border-radius:50%; background:radial-gradient(circle at 50% 50%, #01060d 0%, #010a14 62%, rgba(var(--accent-rgb),.16) 100%); box-shadow:0 0 15px rgba(var(--accent-rgb),.55), inset 0 0 18px rgba(var(--accent-rgb),.16); }
+.discover-orb-wrap{ position:relative; display:flex; justify-content:center; align-items:center; height:122px; margin-bottom:16px; }
+.discover-orb-glow{ position:absolute; width:170px; height:170px; border-radius:50%; background:radial-gradient(circle, rgba(var(--accent-rgb),.38), transparent 70%); filter:blur(13px); animation:jm-pulse 4.2s ease-in-out infinite; pointer-events:none; }
+.discover-orb{ position:relative; width:88px; height:88px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 50%, #01060d 0%, #010a14 62%, rgba(var(--accent-rgb),.16) 100%); box-shadow:0 0 15px rgba(var(--accent-rgb),.55), inset 0 0 18px rgba(var(--accent-rgb),.16); }
 .discover-orb.nudge{ animation:jm-nudge .45s ease; }
+.discover-orb-icon{ position:relative; z-index:1; font-size:32px; line-height:1; transition:opacity .18s ease; filter:drop-shadow(0 0 6px rgba(var(--accent-rgb),.5)); }
 .discover-orb-rim{ position:absolute; inset:0; border-radius:50%; pointer-events:none; border:1.5px solid rgba(var(--accent-rgb),.6); box-shadow:0 0 14px rgba(var(--accent-rgb),.4), inset 0 0 14px rgba(var(--accent-rgb),.2); }
 .discover-orb-rim.pulse{ animation:jm-rim-pulse .65s ease-out; }
 .discover-list{ display:flex; flex-direction:column; gap:8px; text-align:right; }
@@ -457,7 +460,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
     35%{ box-shadow:0 0 30px 8px rgba(var(--accent-rgb),.9), inset 0 0 24px rgba(var(--accent-rgb),.55); }
     100%{ box-shadow:0 0 14px rgba(var(--accent-rgb),.4), inset 0 0 14px rgba(var(--accent-rgb),.2); }
 }
-.discover-more-toggle{ display:block; text-align:center; margin-top:10px; }
 .discover-footer{ margin-top:14px; text-align:center; font-size:10.5px; font-weight:600; color:var(--color-text-dim); }
 @media (prefers-reduced-motion: reduce){
     .discover-orb-glow{ animation:none; opacity:.7; }
@@ -866,11 +868,11 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
               <div class="discover-orb-wrap">
                 <div class="discover-orb-glow"></div>
                 <div class="discover-orb" id="discover-orb">
+                  <span class="discover-orb-icon" id="discover-orb-icon">📍</span>
                   <div class="discover-orb-rim" id="discover-orb-rim"></div>
                 </div>
               </div>
               <div class="discover-list" id="discover-list"></div>
-              <div class="discover-more-toggle" id="discover-more-toggle" onclick="toggleDiscoverMore()"></div>
               <div class="discover-footer">📧 <span id="home-unread-label">— חדשים</span> · Google מחובר</div>
             </div>
 
@@ -1425,67 +1427,63 @@ const QUICK_ACTIONS = [
    actually is, and a flash/nudge on the circle itself — every time a
    suggestion is tapped. The goal is awareness: most of what's listed here
    is easy to forget JARVIS can do at all (Waze navigation, a real stock
-   chart, a ringing alarm) — a rotating subset each day plus a manual
-   "show more" surfaces the full set over time instead of freezing on
-   whichever 8 happened to ship first.
+   chart) — kept deliberately short (four items, the ones worth showing,
+   not a long menu that makes the user stop and read instead of just
+   tapping one). The circle's own icon cycles through the same four while
+   idle — always something legible to look at, not just an abstract glow —
+   and snaps to match whichever one gets tapped.
    ================================================================================ */
 const DISCOVER_SUGGESTIONS = [
     { icon:'📍', text:'איפה יש מסעדה טובה קרובה אליי?', run: () => { $('places-query').value = 'מסעדה טובה'; submitPlaces(); } },
     { icon:'🚗', text:'קח אותי לקניון הגדול עם וויז', run: () => runVoiceCommand('קח אותי לקניון הגדול עם וויז') },
     { icon:'📈', text:'מה המניה של אפל?', run: () => { openToolPanel('stocks'); $('stock-query').value = 'AAPL'; searchStock(); } },
-    { icon:'🌎', text:'מה שלום מדדי המניות היום?', run: () => runVoiceCommand('מה שלום מדדי המניות היום?') },
-    { icon:'☀️', text:'מה מזג האוויר בתל אביב?', run: () => runVoiceCommand('מה מזג האוויר בתל אביב?') },
-    { icon:'⏰', text:'תזכיר לי מחר ב-9 בבוקר להתקשר לרופא שיניים', run: () => runVoiceCommand('תזכיר לי מחר ב-9 בבוקר להתקשר לרופא שיניים') },
-    { icon:'⏲️', text:'תעיר אותי מחר ב-7:00', run: () => runVoiceCommand('תעיר אותי מחר ב-7:00') },
     { icon:'✅', text:'תוסיף לי משימה לקנות חלב', run: () => runVoiceCommand('תוסיף לי משימה לקנות חלב') },
-    { icon:'🎵', text:'תנגן לי משהו בספוטיפיי', run: () => runVoiceCommand('תנגן לי משהו בספוטיפיי') },
-    { icon:'🔁', text:'כל יום ראשון בעשר תזכיר לי לשלוח דוח שבועי', run: () => runVoiceCommand('כל יום ראשון בעשר תזכיר לי לשלוח דוח שבועי') },
-    { icon:'📰', text:'מה קרה היום בחדשות הטכנולוגיה?', run: () => { openToolPanel('current'); $('current-query').value = 'מה קרה היום בחדשות הטכנולוגיה?'; submitCurrent(); } },
-    { icon:'✉️', text:'שלח לי סיכום שבועי במייל עכשיו', run: () => sendWeeklySummaryNow() },
-    { icon:'🧮', text:'כמה זה 20% טיפ על חשבון של 180 שקל?', run: () => { openToolPanel('qa'); $('qa-query').value = 'כמה זה 20% טיפ על חשבון של 180 שקל?'; submitQa(); } },
 ];
-const DISCOVER_DEFAULT_COUNT = 8;
-let discoverExpanded = false;
-// Deterministic by calendar day — no storage, identical on every load the
-// same day, cycles the whole pool over ~13 days. Answers "we have tons of
-// features" without a static top-8 that never changes.
-function pickDiscoverPool(){
-    const n = DISCOVER_SUGGESTIONS.length;
-    const dayIndex = Math.floor(Date.now() / 86400000);
-    const offset = dayIndex % n;
-    return DISCOVER_SUGGESTIONS.slice(offset).concat(DISCOVER_SUGGESTIONS.slice(0, offset));
-}
-function toggleDiscoverMore(){ discoverExpanded = !discoverExpanded; renderDiscoverList(); }
-function buildDiscoverRow(s){
+function buildDiscoverRow(s, idx){
     const row = el('div','discover-row');
     row.setAttribute('role','button');
     row.setAttribute('tabindex','0');
     row.innerHTML = `<span class="ic">${s.icon}</span><span class="txt" dir="auto">${s.text}</span><span class="go">‹</span>`;
-    row.onclick = () => fireDiscoverSuggestion(row, s.run);
-    row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fireDiscoverSuggestion(row, s.run); } };
+    row.onclick = () => fireDiscoverSuggestion(row, s.run, idx);
+    row.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fireDiscoverSuggestion(row, s.run, idx); } };
     return row;
 }
 function renderDiscoverList(){
     const wrap = $('discover-list');
     if (!wrap) return;
     wrap.innerHTML = '';
-    const pool = pickDiscoverPool();
-    const shown = discoverExpanded ? pool : pool.slice(0, DISCOVER_DEFAULT_COUNT);
-    shown.forEach(s => wrap.appendChild(buildDiscoverRow(s)));
-    const toggle = $('discover-more-toggle');
-    if (toggle) {
-        const hiddenCount = pool.length - DISCOVER_DEFAULT_COUNT;
-        toggle.innerText = discoverExpanded ? 'הצג פחות ▴' : `עוד ${hiddenCount} הצעות ▾`;
-    }
+    DISCOVER_SUGGESTIONS.forEach((s, idx) => wrap.appendChild(buildDiscoverRow(s, idx)));
+}
+/* The circle's icon cycles through the suggestion list on its own — a
+   quiet crossfade every 2.2s — so there's always something specific and
+   legible to look at instead of a static glow with nothing to read.
+   discoverIconIdx is shared state: the auto-cycle advances it on a timer,
+   a tap sets it directly and restarts the timer (see fireDiscoverSuggestion)
+   so the circle doesn't immediately drift away from what was just tapped. */
+let discoverIconIdx = 0;
+let discoverIconTimer = null;
+function setDiscoverIcon(idx, immediate){
+    const iconEl = $('discover-orb-icon');
+    if (!iconEl) return;
+    discoverIconIdx = idx;
+    if (immediate) { iconEl.textContent = DISCOVER_SUGGESTIONS[idx].icon; return; }
+    iconEl.style.opacity = '0';
+    setTimeout(() => { iconEl.textContent = DISCOVER_SUGGESTIONS[idx].icon; iconEl.style.opacity = '1'; }, 180);
+}
+function startDiscoverIconCycle(){
+    clearInterval(discoverIconTimer);
+    discoverIconTimer = setInterval(() => {
+        setDiscoverIcon((discoverIconIdx + 1) % DISCOVER_SUGGESTIONS.length);
+    }, 2200);
 }
 /* The dynamic link between a suggestion and the circle: a beam fired from
    wherever the tapped row actually is (read live via getBoundingClientRect,
    correct however the panel is scrolled) to the circle's centre, plus a
-   flash+nudge on the circle itself — fired immediately on click, before the
-   command resolves, since tactile feedback shouldn't wait on a network
-   round trip (same reasoning as .orb-stage.pressing firing on pointerdown,
-   not on response). */
-function fireDiscoverSuggestion(rowEl, action){
+   flash+nudge on the circle itself and its icon snapping to match — fired
+   immediately on click, before the command resolves, since tactile
+   feedback shouldn't wait on a network round trip (same reasoning as
+   .orb-stage.pressing firing on pointerdown, not on response). */
+function fireDiscoverSuggestion(rowEl, action, idx){
     const orbEl = $('discover-orb');
     if (orbEl) {
         const r = rowEl.getBoundingClientRect(), o = orbEl.getBoundingClientRect();
@@ -1503,10 +1501,13 @@ function fireDiscoverSuggestion(rowEl, action){
         const rim = $('discover-orb-rim');
         if (rim) { rim.classList.remove('pulse'); void rim.offsetWidth; rim.classList.add('pulse'); }
         orbEl.classList.remove('nudge'); void orbEl.offsetWidth; orbEl.classList.add('nudge');
+        if (idx !== undefined) { setDiscoverIcon(idx, true); startDiscoverIconCycle(); }
     }
     action();
 }
 renderDiscoverList();
+setDiscoverIcon(0, true);
+startDiscoverIconCycle();
 
 /* ================================================================================
    Orb / voice state machine — idle · listening · processing · tool · done,
