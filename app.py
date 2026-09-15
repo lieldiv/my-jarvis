@@ -186,7 +186,21 @@ if not GROQ_API_KEY:
         "Get a free key at https://console.groq.com/keys\n"
     )
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+# timeout/max_retries explicit, not the SDK default (60s timeout, 2 retries
+# — found by reading groq/_constants.py directly). Without this, a single
+# groq_client.chat.completions.create() call has no cap of our own: the SDK
+# retries transient failures internally UP TO 2 more times, each up to 60s,
+# and run_llm() below can call this whole thing twice more on top of that
+# (_complete_with_retry's own retry on a malformed tool call, times
+# MAX_TOOL_ROUNDS=2 loop iterations) — worst case, over ten minutes with a
+# gunicorn thread checked out of the --threads 16 pool the entire time,
+# serving nothing else. Same class of bug as the SSE thread-pinning issue
+# fixed separately: anything that can hold a worker thread for an
+# unbounded/very long time, under Render's single-worker/16-thread
+# concurrency model, is a path to the whole app going dark under load —
+# not by crashing, but by quietly running out of threads to serve
+# anything else, including Render's own health check.
+groq_client = Groq(api_key=GROQ_API_KEY, timeout=30.0, max_retries=1)
 
 # ---------------------------------------------------------------------------
 # Speech to text
