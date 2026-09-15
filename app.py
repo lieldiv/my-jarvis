@@ -3389,10 +3389,35 @@ def stream():
     which is correct since it has no user to receive events on behalf of."""
     user_id = session.get("user_id")
 
+    # Hard cap on how long any single SSE connection is allowed to pin a
+    # worker thread. Render's gunicorn config is `--workers 1 --threads 16`
+    # — one process, 16 real OS threads — and this generator otherwise runs
+    # `while True` for as long as the tab stays open, which occupies its
+    # thread for the ENTIRE connection lifetime (the thread that iterates
+    # this generator is checked out of gunicorn's pool until the response
+    # ends — see gunicorn's gthread ThreadWorker.handle_request, which
+    # drives `for item in respiter: resp.write(item)` on that same thread).
+    # A mobile client that loses its connection uncleanly (backgrounding
+    # the app, losing signal — routine on phones, not an edge case) never
+    # sends a clean FIN/RST, so the *next* `resp.write()` on that socket
+    # can block for a long time (default TCP retransmission timeout, not
+    # bounded by anything in this codebase — no SO_KEEPALIVE, no socket
+    # send timeout is set anywhere) with `finally: unsubscribe()` below
+    # never running, because we never get back into this generator's own
+    # code while stuck inside that write. Each such disconnect leaks one
+    # thread, permanently, until the process restarts. Closing the
+    # connection from our side well before that can happen — the browser's
+    # EventSource reconnects automatically — bounds the damage: a dead
+    # peer can strand a thread for at most this long, not indefinitely,
+    # and a healthy connection just reconnects transparently every few
+    # minutes with no visible effect on the HUD.
+    _SSE_MAX_SECONDS = 240
+
     def gen():
         q = event_stream.subscribe(user_id) if user_id else None
+        started = time.time()
         try:
-            while True:
+            while time.time() - started < _SSE_MAX_SECONDS:
                 try:
                     if q is None:
                         raise queue.Empty
