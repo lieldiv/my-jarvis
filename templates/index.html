@@ -495,6 +495,18 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .small-btn.send{ background:rgba(0,255,136,0.14); border-color:rgba(0,255,136,0.4); color:var(--color-green); }
 .small-btn.cancel{ background:rgba(255,59,59,0.1); border-color:rgba(255,59,59,0.4); color:var(--color-red); }
 
+/* Tasks tab */
+.task-input-row{ display:flex; gap:8px; padding:12px 0 16px; }
+.task-input{ flex:1; min-width:0; background:rgba(0,0,0,0.5); border:var(--border-default); border-radius:var(--radius-pill); padding:10px 16px; color:var(--color-white); font-size:13px; }
+.task-input:focus{ outline:none; border-color:var(--color-cyan); box-shadow:0 0 10px rgba(var(--accent-rgb),.25); }
+.task-add-btn{ width:38px; height:38px; flex-shrink:0; border-radius:50%; background:var(--color-cyan); color:var(--color-bg); border:none; font-size:18px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.task-add-btn:hover{ opacity:0.8; }
+.task-card{ padding:14px 12px; border-radius:var(--radius-sm); background:rgba(0,255,136,0.04); border-bottom:1px solid rgba(0,255,136,0.15); display:flex; align-items:center; gap:12px; }
+.task-checkbox{ width:20px; height:20px; min-width:20px; cursor:pointer; }
+.task-text{ flex:1; font-size:14px; color:var(--color-white); word-break:break-word; }
+.task-delete-btn{ width:28px; height:28px; min-width:28px; border-radius:50%; background:rgba(255,59,59,0.1); border:1px solid rgba(255,59,59,0.3); color:var(--color-red); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.task-delete-btn:hover{ background:rgba(255,59,59,0.2); }
+
 /* Settings tab */
 .account-card{ display:flex; align-items:center; gap:12px; padding:14px; background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-md); margin-bottom:18px; backdrop-filter:var(--blur-panel); }
 .account-avatar{ width:42px; height:42px; border-radius:50%; background:var(--color-cyan-soft); border:var(--border-default); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--color-cyan); font-size:16px; flex-shrink:0; }
@@ -899,9 +911,13 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
           </div>
 
           <!-- LOG -->
-          <div class="tab-panel" id="tab-log">
-            <div class="section-title">יומן פקודות</div>
-            <div id="log-list"><div class="events-empty">טרם הופעלו פקודות.</div></div>
+          <div class="tab-panel" id="tab-tasks">
+            <div class="section-title">משימות שלך</div>
+            <div class="task-input-row">
+              <input type="text" id="task-input" placeholder="הוסף משימה..." class="task-input" />
+              <button onclick="addTaskFromInput()" class="task-add-btn">+</button>
+            </div>
+            <div id="tasks-list"><div class="events-empty">אין לך משימות, sir.</div></div>
           </div>
 
           <!-- SETTINGS -->
@@ -1320,7 +1336,7 @@ function flashNav(tabKey){
    ================================================================================ */
 const NAV_DEFS = [
     { key: 'home', label: 'בית' }, { key: 'agenda', label: 'יומן' }, { key: 'inbox', label: 'דואר' },
-    { key: 'log', label: 'היסטוריה' }, { key: 'settings', label: 'הגדרות' },
+    { key: 'tasks', label: 'משימות' }, { key: 'settings', label: 'הגדרות' },
 ];
 let currentTab = 'home';
 function renderNav(){
@@ -1342,6 +1358,7 @@ function setTab(key){
     renderNav();
     if (key === 'inbox') loadInboxTab();
     if (key === 'agenda') loadAgendaTab();
+    if (key === 'tasks') loadTasksTab();
 }
 renderNav();
 
@@ -5980,6 +5997,82 @@ wakeJarvis = function(initialCommand){
     container.addEventListener('touchmove', e => { if (e.touches[0]) { continueDrag(e.touches[0].clientX); } }, { passive: true });
     container.addEventListener('touchend', endDrag);
 })();
+
+/* ================================================================================
+   Tasks / To-Do List
+   ================================================================================ */
+let tasksCache = [];
+async function loadTasksTab(){
+    const list = $('tasks-list');
+    list.innerHTML = '<div class="events-empty">טוען…</div>';
+    try {
+        const res = await fetch('/api/tasks');
+        const data = await res.json();
+        tasksCache = data.tasks || [];
+    } catch (e) {
+        list.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>';
+        return;
+    }
+    renderTasksList();
+}
+function renderTasksList(){
+    const list = $('tasks-list');
+    list.innerHTML = '';
+    if (!tasksCache.length) {
+        list.innerHTML = '<div class="events-empty">אין לך משימות, sir.</div>';
+        return;
+    }
+    tasksCache.forEach((t, i) => {
+        const card = el('div','task-card');
+        const checkbox = el('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'task-checkbox';
+        checkbox.onchange = () => markTaskComplete(t.id, t.text);
+
+        const text = el('div','task-text');
+        text.textContent = t.text;
+
+        const delBtn = el('button','task-delete-btn');
+        delBtn.innerHTML = '✕';
+        delBtn.onclick = () => deleteTask(t.id);
+
+        card.append(checkbox, text, delBtn);
+        list.appendChild(card);
+    });
+}
+function addTaskFromInput(){
+    const input = $('task-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    runVoiceCommand(`הוסף משימה: ${text}`);
+}
+async function markTaskComplete(taskId, taskText){
+    try {
+        const res = await fetch('/api/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: `סמן משימה כשלמה: ${taskText}` }),
+        });
+        await res.json();
+        loadTasksTab();
+    } catch (e) {
+        showToast('לא הצלחתי לסמן את המשימה.');
+    }
+}
+async function deleteTask(taskId){
+    try {
+        const res = await fetch('/api/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: `מחק משימה מספר ${taskId}` }),
+        });
+        await res.json();
+        loadTasksTab();
+    } catch (e) {
+        showToast('לא הצלחתי למחוק את המשימה.');
+    }
+}
 
 /* ================================================================================
    Boot.

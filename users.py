@@ -83,6 +83,23 @@ def _init_db():
             except sqlite3.OperationalError:
                 pass  # column already exists
 
+        # Tasks/to-do items — one row per task a user creates
+        # completed is 0/1; recurring_day is "Monday", "Wednesday" (null for one-time)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                category TEXT,
+                recurring_day TEXT,
+                created_at REAL NOT NULL,
+                completed_at REAL
+            )
+            """
+        )
+
         # Browser push subscriptions (see push_service.py) — one row per
         # device/browser a user has granted notification permission on
         # (someone could enable this on both their phone and their laptop,
@@ -291,6 +308,74 @@ def delete_push_subscription(endpoint: str) -> None:
     scoping exists to prevent."""
     with _connect() as conn:
         conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+
+
+def add_task(user_id: str, text: str, category: str | None = None, recurring_day: str | None = None) -> int:
+    """Add a new task for a user. recurring_day: "Monday", "Tuesday", etc for weekly tasks."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO tasks (user_id, text, category, recurring_day, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, text, category or None, recurring_day or None, time.time()),
+        )
+        return cur.lastrowid
+
+
+def get_user_tasks(user_id: str, include_completed: bool = False) -> list[dict]:
+    """Get all tasks for a user. By default excludes completed ones."""
+    completed_filter = "" if include_completed else "AND completed = 0"
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, text, completed, category, recurring_day, created_at, completed_at "
+            f"FROM tasks WHERE user_id = ? {completed_filter} ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    return [
+        {"id": r[0], "text": r[1], "completed": r[2], "category": r[3], "recurring_day": r[4],
+         "created_at": r[5], "completed_at": r[6]}
+        for r in rows
+    ]
+
+
+def mark_task_complete(task_id: int, user_id: str) -> bool:
+    """Mark a task complete. Scoped by user_id for safety."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE tasks SET completed = 1, completed_at = ? WHERE id = ? AND user_id = ?",
+            (time.time(), task_id, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_task(task_id: int, user_id: str) -> bool:
+    """Delete a task. Scoped by user_id for safety."""
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
+        return cur.rowcount > 0
+
+
+def update_task(task_id: int, user_id: str, text: str | None = None,
+                category: str | None = None, recurring_day: str | None = None) -> bool:
+    """Update a task's details. Omitted fields are left unchanged."""
+    updates = []
+    params = []
+    if text is not None:
+        updates.append("text = ?")
+        params.append(text)
+    if category is not None:
+        updates.append("category = ?")
+        params.append(category)
+    if recurring_day is not None:
+        updates.append("recurring_day = ?")
+        params.append(recurring_day)
+    if not updates:
+        return False
+    params.extend([task_id, user_id])
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE tasks SET {', '.join(updates)} WHERE id = ? AND user_id = ?",
+            params,
+        )
+        return cur.rowcount > 0
 
 
 _init_db()

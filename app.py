@@ -1667,6 +1667,63 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_tasks",
+            "description": "Get the user's to-do list (incomplete tasks only).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_task",
+            "description": (
+                "Add a new task to the to-do list. Can be a one-time task or "
+                "recurring on a specific day of the week (e.g., 'throw trash every Wednesday'). "
+                "Set recurring_day to 'Monday', 'Tuesday', 'Wednesday', 'Thursday', "
+                "'Friday', 'Saturday', or 'Sunday' for weekly reminders."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "What the task is"},
+                    "recurring_day": {"type": "string", "description": "Day of week for recurring tasks, e.g. 'Wednesday' (optional)"},
+                },
+                "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_task_complete",
+            "description": "Mark a task as completed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "number", "description": "The task's ID number"},
+                    "task_text": {"type": "string", "description": "The task text to help identify it"},
+                },
+                "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_task",
+            "description": "Delete a task from the to-do list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "number", "description": "The task's ID number"},
+                },
+                "required": ["task_id"],
+            },
+        },
+    },
 ]
 
 # open_application/close_application/computer_use are always dead weight in
@@ -1703,6 +1760,22 @@ def _delete_workspace_path(user_id, args):
         }, user_id=user_id)
         return f"Please confirm, sir: {result['message']} (token {result['token']})"
     return result["message"]
+
+
+def _format_tasks_for_hud(user_id):
+    tasks = productivity_service.get_user_tasks_structured(user_id)
+    if not tasks:
+        return "You have no tasks right now, sir."
+    lines = [f"- {t['text']}" for t in tasks]
+    return "Your tasks:\n" + "\n".join(lines)
+
+
+def _mark_task_complete(user_id, args):
+    task_id = args.get("task_id", 0)
+    task_text = args.get("task_text", "")
+    if not task_id:
+        return "I need a task ID, sir."
+    return productivity_service.request_mark_task_complete(user_id, task_id)
 
 
 def _create_calendar_event(user_id, args):
@@ -2462,6 +2535,10 @@ def _build_tool_impl(user_id: str, shortcuts: list = None, persona: str = "jarvi
         "read_workspace_file": lambda args: file_tools.read_file(args.get("path", ""), user_id=user_id),
         "write_workspace_file": lambda args: file_tools.write_file(args.get("path", ""), args.get("content", ""), user_id=user_id),
         "delete_workspace_path": lambda args: _delete_workspace_path(user_id, args),
+        "get_tasks": lambda args: _format_tasks_for_hud(user_id),
+        "add_task": lambda args: productivity_service.request_add_task(user_id, args.get("text", ""), args.get("recurring_day")),
+        "mark_task_complete": lambda args: _mark_task_complete(user_id, args),
+        "delete_task": lambda args: productivity_service.request_delete_task(user_id, args.get("task_id", 0)),
     })
     return impl
 
@@ -2862,6 +2939,15 @@ def upcoming_events():
     if events is None:
         return jsonify({"configured": False, "events": []})
     return jsonify({"configured": True, "events": events})
+
+
+@app.route("/api/tasks")
+def list_tasks():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"tasks": []})
+    tasks = productivity_service.get_user_tasks_structured(user_id)
+    return jsonify({"tasks": tasks})
 
 
 @app.route("/api/reminders")

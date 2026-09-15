@@ -252,6 +252,14 @@ def get_daily_agenda_text(user_id: str) -> str:
     elif any_mail_configured():
         parts.append("Inbox is clear.")
 
+    tasks = users.get_user_tasks(user_id, include_completed=False)
+    if tasks:
+        parts.append(f"You have {len(tasks)} task(s) today:")
+        for t in tasks[:5]:
+            parts.append(f"  - {t['text']}")
+        if len(tasks) > 5:
+            parts.append(f"  ... and {len(tasks) - 5} more.")
+
     return "\n".join(parts)
 
 
@@ -263,14 +271,23 @@ def get_weekly_summary_text(user_id: str) -> str:
         return "No calendar is connected, sir — see the README to set one up."
 
     events = _collect_events(user_id, days_ahead=7, max_results=30) or []
-    if not events:
-        return "Nothing on your calendar for the week ahead, sir."
 
-    parts = [f"Your week ahead — {len(events)} item(s):"]
-    for e in events:
-        where = f" at {e['location']}" if e.get("location") else ""
-        parts.append(f"  {_format_time(e['start'])} — {e['summary']}{where}")
-    return "\n".join(parts)
+    parts = []
+    if events:
+        parts.append(f"Your week ahead — {len(events)} item(s):")
+        for e in events:
+            where = f" at {e['location']}" if e.get("location") else ""
+            parts.append(f"  {_format_time(e['start'])} — {e['summary']}{where}")
+    else:
+        parts.append("Nothing on your calendar for the week ahead, sir.")
+
+    tasks = users.get_user_tasks(user_id, include_completed=False)
+    if tasks:
+        parts.append(f"\nYour outstanding tasks:")
+        for t in tasks:
+            parts.append(f"  - {t['text']}")
+
+    return "\n".join(parts) if parts else "Nothing scheduled or pending for the week ahead, sir."
 
 
 # ---------------------------------------------------------------------------
@@ -747,3 +764,54 @@ def request_update_reminder(
     users.update_reminder(current["id"], user_id, final_text, current["remind_at"], current["recurrence"],
                           emoji=final_emoji, flourish=final_flourish)
     return {"status": "ok", "message": f"Updated the reminder to: {final_text}, sir."}
+
+
+# ============================================================================
+# Tasks / To-Do List
+# ============================================================================
+
+def get_user_tasks_structured(user_id: str) -> list[dict]:
+    """Structured task list for the HUD — all incomplete tasks."""
+    return users.get_user_tasks(user_id, include_completed=False)
+
+
+def request_add_task(user_id: str, text: str, recurring_day: str | None = None) -> str:
+    """Add a new task, with optional recurring reminder (e.g. 'Wednesday')."""
+    task_id = users.add_task(user_id, text, recurring_day=recurring_day)
+
+    # If recurring, also set up a reminder for that day
+    if recurring_day:
+        try:
+            weekday = WEEKDAY_NAMES.index(recurring_day)
+            next_fire = next_weekday_occurrence(weekday, 9, 0)  # 9am default
+            recurrence = f"{weekday}:9:0"
+            users.add_reminder(user_id, f"Task: {text}", next_fire.timestamp(), recurrence,
+                             emoji="✓", flourish="זמן לביצוע המשימה!")
+        except (ValueError, IndexError):
+            pass  # invalid day name, task added but no reminder
+
+    return f"✅ הוספתי לך משימה: {text}" + (f" כל {recurring_day}" if recurring_day else "")
+
+
+def request_mark_task_complete(user_id: str, task_id: int) -> str:
+    """Mark a task as complete."""
+    if users.mark_task_complete(task_id, user_id):
+        return f"✅ סיימת את המשימה!"
+    return f"לא מצאתי את המשימה הזו, sir."
+
+
+def request_delete_task(user_id: str, task_id: int) -> str:
+    """Delete a task."""
+    if users.delete_task(task_id, user_id):
+        return f"✅ מחקתי את המשימה."
+    return f"לא מצאתי את המשימה הזו, sir."
+
+
+def get_tasks_for_daily_briefing(user_id: str) -> str:
+    """Format tasks for the daily briefing — spoken list of incomplete tasks."""
+    tasks = users.get_user_tasks(user_id, include_completed=False)
+    if not tasks:
+        return ""
+
+    task_list = "\n".join([f"- {t['text']}" for t in tasks])
+    return f"משימות שלך היום:\n{task_list}"
