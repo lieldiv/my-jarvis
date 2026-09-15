@@ -3639,6 +3639,28 @@ function commandBody(command){
     // here takes effect on the very next thing said.
     return JSON.stringify({ command, persona: currentMode(), shortcuts: getShortcuts() });
 }
+/* Every call site that talks to /api/command shares this — plain fetch()
+   has no timeout of its own, so a slow/stuck backend call (the LLM taking
+   a very long time, a dropped connection that never errors) used to leave
+   whatever UI was waiting on it stuck forever, with no way out except
+   reloading. 65s comfortably covers a normal response (even a slow
+   multi-tool-call one) while still giving up before the user assumes the
+   app is broken. Throws (AbortError on timeout, or the underlying network
+   error) exactly like a bare failed fetch would — every caller already has
+   a try/catch around its own fetch for that. */
+async function postCommand(text){
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 65000);
+    try {
+        const res = await fetch('/api/command', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: commandBody(text), signal: controller.signal,
+        });
+        return await res.json();
+    } finally {
+        clearTimeout(timer);
+    }
+}
 async function sendCommand(commandText){
     if (!commandText || !commandText.trim()) return;
     $('cmd-input').value = '';
@@ -3657,11 +3679,7 @@ async function sendCommand(commandText){
 
     logCommandStart(commandText, 'שיחה');
     try {
-        const res = await fetch('/api/command', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: commandBody(commandText),
-        });
-        const data = await res.json();
+        const data = await postCommand(commandText);
         finishCommand(data.response, data.audio, data.speak);
         // If this command needed approval, a confirmation sheet is already
         // showing by now (its SSE push lands before this response usually
@@ -3670,7 +3688,7 @@ async function sendCommand(commandText){
         if (!pendingConfirmEvt) logCommandSettle('executed');
     } catch (err) {
         voiceState = 'idle'; renderOrb();
-        showToast('לא הצלחתי להתחבר לשרת.', true);
+        showToast(err.name === 'AbortError' ? 'לקח יותר מדי זמן — נסה שוב, אדוני.' : 'לא הצלחתי להתחבר לשרת.', true);
         logCommandSettle('cancelled');
     }
 }
@@ -4110,16 +4128,13 @@ function submitEventForm(){
 async function submitBackgroundCommand(text, toolLabel){
     logCommandStart(text, toolLabel);
     try {
-        const res = await fetch('/api/command', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: commandBody(text),
-        });
-        const data = await res.json();
+        const data = await postCommand(text);
         // A confirmation sheet, if one was needed, has already claimed
         // inFlightLogId by now — this only settles the plain-answer case.
         if (!pendingConfirmEvt) { logCommandSettle('executed'); showToast(data.response || '', false); }
     } catch (err) {
         logCommandSettle('cancelled');
-        showToast('לא הצלחתי להתחבר לשרת.', true);
+        showToast(err.name === 'AbortError' ? 'לקח יותר מדי זמן — נסה שוב, אדוני.' : 'לא הצלחתי להתחבר לשרת.', true);
     }
 }
 
@@ -4133,17 +4148,13 @@ async function submitReminder(){
     $('reminder-text-input').value = '';
     logCommandStart(`תזכורת: ${text} בשעה ${time}`, 'set_reminder');
     try {
-        const res = await fetch('/api/command', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: commandBody(`תזכיר לי "${text}" בשעה ${time}`),
-        });
-        const data = await res.json();
+        const data = await postCommand(`תזכיר לי "${text}" בשעה ${time}`);
         logCommandSettle('executed');
         showToast(data.response || 'התזכורת נקבעה.');
         loadReminders();
     } catch (err) {
         logCommandSettle('cancelled');
-        showToast('לא הצלחתי להתחבר לשרת.', true);
+        showToast(err.name === 'AbortError' ? 'לקח יותר מדי זמן — נסה שוב, אדוני.' : 'לא הצלחתי להתחבר לשרת.', true);
     }
 }
 async function sendWeeklySummaryNow(){
@@ -4437,11 +4448,10 @@ async function submitQa(){
     const box = $('qa-answer'); box.classList.add('show'); box.innerText = 'חושב…';
     logCommandStart(q, 'qa');
     try {
-        const res = await fetch('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: commandBody(q) });
-        const data = await res.json();
+        const data = await postCommand(q);
         box.innerText = data.response || '';
         if (!pendingConfirmEvt) logCommandSettle('executed');
-    } catch (err) { box.innerText = 'לא הצלחתי להתחבר לשרת.'; logCommandSettle('cancelled'); }
+    } catch (err) { box.innerText = err.name === 'AbortError' ? 'לקח יותר מדי זמן — נסה שוב.' : 'לא הצלחתי להתחבר לשרת.'; logCommandSettle('cancelled'); }
     finally { qaBusy = false; }
 }
 let currentBusy = false;
@@ -4453,11 +4463,10 @@ async function submitCurrent(){
     const box = $('current-answer'); box.classList.add('show'); box.innerText = 'בודק…';
     logCommandStart(q, 'get_current_info');
     try {
-        const res = await fetch('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: commandBody(q) });
-        const data = await res.json();
+        const data = await postCommand(q);
         box.innerText = data.response || '';
         if (!pendingConfirmEvt) logCommandSettle('executed');
-    } catch (err) { box.innerText = 'לא הצלחתי להתחבר לשרת.'; logCommandSettle('cancelled'); }
+    } catch (err) { box.innerText = err.name === 'AbortError' ? 'לקח יותר מדי זמן — נסה שוב.' : 'לא הצלחתי להתחבר לשרת.'; logCommandSettle('cancelled'); }
     finally { currentBusy = false; }
 }
 /* Places: no dedicated endpoint — routed through the normal command flow
@@ -4471,10 +4480,9 @@ async function submitPlaces(){
     closeToolPanel();
     logCommandStart(`חיפוש מקומות: ${q}`, 'find_nearby_places');
     try {
-        const res = await fetch('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: commandBody(`${q} קרוב אליי`) });
-        const data = await res.json();
+        const data = await postCommand(`${q} קרוב אליי`);
         if (!pendingConfirmEvt) { logCommandSettle('executed'); showToast(data.response || ''); }
-    } catch (err) { logCommandSettle('cancelled'); showToast('לא הצלחתי להתחבר לשרת.', true); }
+    } catch (err) { logCommandSettle('cancelled'); showToast(err.name === 'AbortError' ? 'לקח יותר מדי זמן — נסה שוב, אדוני.' : 'לא הצלחתי להתחבר לשרת.', true); }
     finally { placesBusy = false; }
 }
 
