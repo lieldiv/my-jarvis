@@ -84,7 +84,9 @@ def _init_db():
                 pass  # column already exists
 
         # Tasks/to-do items — one row per task a user creates
-        # completed is 0/1; recurring_day is "Monday", "Wednesday" (null for one-time)
+        # completed is 0/1 (one-time tasks only — see task_completions below
+        # for recurring tasks); recurring_day is "Monday".."Sunday", "daily",
+        # or NULL for a one-time task.
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
@@ -96,6 +98,26 @@ def _init_db():
                 recurring_day TEXT,
                 created_at REAL NOT NULL,
                 completed_at REAL
+            )
+            """
+        )
+
+        # One row per time a RECURRING task ("walk the dog", every day/every
+        # Wednesday) gets checked off. Recurring tasks never flip tasks.completed
+        # to 1 permanently — a daily task marked done today has to reappear
+        # unchecked tomorrow, not vanish forever like a one-time task would.
+        # This table is both how "is this recurring task done for its current
+        # period (today/this week)" gets answered (a row here within that
+        # window) and where the completion-count statistics come from — a
+        # streak/weekly-chart needs a full timestamped history, not just a
+        # single completed_at column that the next occurrence would overwrite.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS task_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                user_id TEXT NOT NULL,
+                completed_at REAL NOT NULL
             )
             """
         )
@@ -376,6 +398,62 @@ def update_task(task_id: int, user_id: str, text: str | None = None,
             params,
         )
         return cur.rowcount > 0
+
+
+def get_task(task_id: int, user_id: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, text, completed, category, recurring_day, created_at, completed_at"
+            " FROM tasks WHERE id = ? AND user_id = ?",
+            (task_id, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "text": row[1], "completed": row[2], "category": row[3],
+            "recurring_day": row[4], "created_at": row[5], "completed_at": row[6]}
+
+
+def record_task_completion(task_id: int, user_id: str) -> None:
+    """Log one check-off of a RECURRING task. Unlike mark_task_complete,
+    this never touches tasks.completed — a recurring task has to reappear
+    unchecked next period (tomorrow for daily, next week for weekly), not
+    vanish the way a one-time task does."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO task_completions (task_id, user_id, completed_at) VALUES (?, ?, ?)",
+            (task_id, user_id, time.time()),
+        )
+
+
+def get_last_completion(task_id: int) -> float | None:
+    """Most recent check-off timestamp for a recurring task, or None if it's
+    never been done. Used to decide whether it's already done for the
+    current period (today/this week) — see productivity_service.py."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(completed_at) FROM task_completions WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
+def count_completions_between(user_id: str, start: float, end: float) -> int:
+    """Total tasks finished in [start, end) — one-time tasks (tasks.completed_at)
+    plus recurring-task check-offs (task_completions) combined into a single
+    count, since from the user's perspective "how many things did I get done
+    today" doesn't distinguish between the two kinds."""
+    with _connect() as conn:
+        onetime = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE user_id = ? AND completed = 1"
+            " AND completed_at >= ? AND completed_at < ?",
+            (user_id, start, end),
+        ).fetchone()[0]
+        recurring = conn.execute(
+            "SELECT COUNT(*) FROM task_completions WHERE user_id = ?"
+            " AND completed_at >= ? AND completed_at < ?",
+            (user_id, start, end),
+        ).fetchone()[0]
+    return onetime + recurring
 
 
 _init_db()

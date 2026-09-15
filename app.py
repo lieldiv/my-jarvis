@@ -1680,16 +1680,17 @@ TOOLS = [
         "function": {
             "name": "add_task",
             "description": (
-                "Add a new task to the to-do list. Can be a one-time task or "
-                "recurring on a specific day of the week (e.g., 'throw trash every Wednesday'). "
-                "Set recurring_day to 'Monday', 'Tuesday', 'Wednesday', 'Thursday', "
-                "'Friday', 'Saturday', or 'Sunday' for weekly reminders."
+                "Add a new task to the to-do list. Can be a one-time task, "
+                "recurring every day (e.g., 'remind me to walk the dog every day'), "
+                "or recurring on a specific day of the week (e.g., 'throw trash every Wednesday'). "
+                "Set recurring_day to 'daily' for every day, or 'Monday', 'Tuesday', "
+                "'Wednesday', 'Thursday', 'Friday', 'Saturday', or 'Sunday' for weekly."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "What the task is"},
-                    "recurring_day": {"type": "string", "description": "Day of week for recurring tasks, e.g. 'Wednesday' (optional)"},
+                    "recurring_day": {"type": "string", "description": "'daily', or a day of week for weekly tasks, e.g. 'Wednesday' (optional)"},
                 },
                 "required": ["text"],
             },
@@ -2948,6 +2949,51 @@ def list_tasks():
         return jsonify({"tasks": []})
     tasks = productivity_service.get_user_tasks_structured(user_id)
     return jsonify({"tasks": tasks})
+
+
+@app.route("/api/tasks/stats")
+def task_stats():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"today": 0, "week": 0, "daily": []})
+    return jsonify(productivity_service.get_task_stats(user_id))
+
+
+@app.route("/api/tasks", methods=["POST"])
+def create_task():
+    """Backs the HUD's task-input row — a direct create, same as
+    add_task the LLM tool does, without a Groq round trip for what's
+    already exact structured input (typed text + an optional day picker)."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "message": "Task text is required."}), 400
+    message = productivity_service.request_add_task(user_id, text, data.get("recurring_day"))
+    return jsonify({"ok": True, "message": message})
+
+
+@app.route("/api/tasks/<int:task_id>/complete", methods=["POST"])
+def complete_task(task_id):
+    """Backs the HUD's task checkbox — goes straight to the DB instead of
+    through the LLM (which the free-text voice path still uses), so
+    checking off a task is instant and doesn't depend on Groq being up."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    message = productivity_service.request_mark_task_complete(user_id, task_id)
+    return jsonify({"ok": True, "message": message})
+
+
+@app.route("/api/tasks/<int:task_id>", methods=["DELETE"])
+def remove_task(task_id):
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"ok": False, "message": "Please sign in first, sir."}), 401
+    message = productivity_service.request_delete_task(user_id, task_id)
+    return jsonify({"ok": True, "message": message})
 
 
 @app.route("/api/reminders")

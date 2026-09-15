@@ -496,14 +496,31 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .small-btn.cancel{ background:rgba(255,59,59,0.1); border-color:rgba(255,59,59,0.4); color:var(--color-red); }
 
 /* Tasks tab */
-.task-input-row{ display:flex; gap:8px; padding:12px 0 16px; }
+.task-stats-card{ padding:16px; border-radius:var(--radius-md); background:var(--color-panel); border:var(--border-default); margin-bottom:16px; backdrop-filter:var(--blur-panel); }
+.task-stats-row{ display:flex; align-items:center; margin-bottom:16px; }
+.task-stat{ flex:1; text-align:center; }
+.task-stat-num{ font-family:var(--font-display); font-size:26px; font-weight:700; color:rgb(var(--accent-rgb)); text-shadow:0 0 10px rgba(var(--accent-rgb),.4); line-height:1.2; font-variant-numeric:tabular-nums; }
+.task-stat-label{ font-size:11px; color:var(--color-text-dim); margin-top:2px; }
+.task-stat-divider{ width:1px; height:34px; background:rgba(var(--accent-rgb),0.2); }
+.task-chart{ display:flex; align-items:flex-end; justify-content:space-between; gap:6px; height:64px; padding-top:4px; }
+.task-bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px; }
+.task-bar{ width:100%; max-width:22px; min-height:3px; border-radius:3px 3px 0 0; background:rgba(var(--accent-rgb),0.25); transition:height .3s ease; }
+.task-bar.has-count{ background:rgb(var(--accent-rgb)); box-shadow:0 0 6px rgba(var(--accent-rgb),.5); }
+.task-bar-col.is-today .task-bar-label{ color:rgb(var(--accent-rgb)); font-weight:700; }
+.task-bar-label{ font-size:10px; color:var(--color-text-dim); }
+.task-input-row{ display:flex; gap:8px; padding:0 0 8px; }
+.task-input-row2{ display:flex; gap:8px; padding:0 0 16px; }
 .task-input{ flex:1; min-width:0; background:rgba(0,0,0,0.5); border:var(--border-default); border-radius:var(--radius-pill); padding:10px 16px; color:var(--color-white); font-size:13px; }
 .task-input:focus{ outline:none; border-color:var(--color-cyan); box-shadow:0 0 10px rgba(var(--accent-rgb),.25); }
-.task-add-btn{ width:38px; height:38px; flex-shrink:0; border-radius:50%; background:var(--color-cyan); color:var(--color-bg); border:none; font-size:18px; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; }
-.task-add-btn:hover{ opacity:0.8; }
+.task-recurring-select{ flex-shrink:0; width:110px; background:rgba(0,0,0,0.5); border:var(--border-default); border-radius:var(--radius-pill); padding:10px 10px; color:var(--color-white); font-size:12.5px; }
+.task-recurring-select:focus{ outline:none; border-color:var(--color-cyan); }
+.task-add-btn-wide{ flex:1; border-radius:var(--radius-pill); background:var(--color-cyan); color:var(--color-bg); border:none; font-size:13px; font-weight:700; cursor:pointer; }
+.task-add-btn-wide:hover{ opacity:0.8; }
 .task-card{ padding:14px 12px; border-radius:var(--radius-sm); background:rgba(0,255,136,0.04); border-bottom:1px solid rgba(0,255,136,0.15); display:flex; align-items:center; gap:12px; }
 .task-checkbox{ width:20px; height:20px; min-width:20px; cursor:pointer; }
-.task-text{ flex:1; font-size:14px; color:var(--color-white); word-break:break-word; }
+.task-body{ flex:1; min-width:0; }
+.task-text{ font-size:14px; color:var(--color-white); word-break:break-word; }
+.task-recurring-badge{ display:inline-block; margin-top:3px; font-size:10.5px; color:var(--color-cyan); background:var(--color-cyan-soft); border-radius:var(--radius-pill); padding:2px 8px; }
 .task-delete-btn{ width:28px; height:28px; min-width:28px; border-radius:50%; background:rgba(255,59,59,0.1); border:1px solid rgba(255,59,59,0.3); color:var(--color-red); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
 .task-delete-btn:hover{ background:rgba(255,59,59,0.2); }
 
@@ -913,9 +930,38 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
           <!-- LOG -->
           <div class="tab-panel" id="tab-tasks">
             <div class="section-title">משימות שלך</div>
+
+            <div class="task-stats-card">
+              <div class="task-stats-row">
+                <div class="task-stat">
+                  <div class="task-stat-num" id="task-stat-today">0</div>
+                  <div class="task-stat-label">הושלמו היום</div>
+                </div>
+                <div class="task-stat-divider"></div>
+                <div class="task-stat">
+                  <div class="task-stat-num" id="task-stat-week">0</div>
+                  <div class="task-stat-label">השבוע</div>
+                </div>
+              </div>
+              <div class="task-chart" id="task-chart"></div>
+            </div>
+
             <div class="task-input-row">
               <input type="text" id="task-input" placeholder="הוסף משימה..." class="task-input" />
-              <button onclick="addTaskFromInput()" class="task-add-btn">+</button>
+            </div>
+            <div class="task-input-row2">
+              <select id="task-recurring-select" class="task-recurring-select">
+                <option value="">חד פעמי</option>
+                <option value="daily">כל יום</option>
+                <option value="Sunday">כל ראשון</option>
+                <option value="Monday">כל שני</option>
+                <option value="Tuesday">כל שלישי</option>
+                <option value="Wednesday">כל רביעי</option>
+                <option value="Thursday">כל חמישי</option>
+                <option value="Friday">כל שישי</option>
+                <option value="Saturday">כל שבת</option>
+              </select>
+              <button onclick="addTaskFromInput()" class="task-add-btn-wide">הוסף משימה</button>
             </div>
             <div id="tasks-list"><div class="events-empty">אין לך משימות, sir.</div></div>
           </div>
@@ -6002,6 +6048,10 @@ wakeJarvis = function(initialCommand){
    Tasks / To-Do List
    ================================================================================ */
 let tasksCache = [];
+const RECURRING_DAY_LABELS = {
+    daily: 'כל יום', Sunday: 'כל ראשון', Monday: 'כל שני', Tuesday: 'כל שלישי',
+    Wednesday: 'כל רביעי', Thursday: 'כל חמישי', Friday: 'כל שישי', Saturday: 'כל שבת',
+};
 async function loadTasksTab(){
     const list = $('tasks-list');
     list.innerHTML = '<div class="events-empty">טוען…</div>';
@@ -6014,6 +6064,7 @@ async function loadTasksTab(){
         return;
     }
     renderTasksList();
+    loadTaskStats();
 }
 function renderTasksList(){
     const list = $('tasks-list');
@@ -6022,56 +6073,108 @@ function renderTasksList(){
         list.innerHTML = '<div class="events-empty">אין לך משימות, sir.</div>';
         return;
     }
-    tasksCache.forEach((t, i) => {
+    // Recurring tasks not yet done this period first (the ones needing
+    // action), then done-this-period recurring, then one-time — keeps
+    // "what do I still need to do" at the top instead of buried under
+    // already-checked recurring tasks.
+    const sorted = [...tasksCache].sort((a, b) => {
+        const rank = t => !t.recurring_day ? 1 : (t.done_this_period ? 2 : 0);
+        return rank(a) - rank(b);
+    });
+    sorted.forEach(t => {
         const card = el('div','task-card');
         const checkbox = el('input');
         checkbox.type = 'checkbox';
         checkbox.className = 'task-checkbox';
-        checkbox.onchange = () => markTaskComplete(t.id, t.text);
+        checkbox.checked = !!t.done_this_period;
+        checkbox.disabled = !!t.done_this_period;  // recurring-done-today: nothing to undo here
+        checkbox.onchange = () => markTaskComplete(t.id);
 
+        const body = el('div','task-body');
         const text = el('div','task-text');
         text.textContent = t.text;
+        body.appendChild(text);
+        if (t.recurring_day) {
+            const badge = el('span','task-recurring-badge');
+            badge.textContent = RECURRING_DAY_LABELS[t.recurring_day] || t.recurring_day;
+            body.appendChild(badge);
+        }
 
         const delBtn = el('button','task-delete-btn');
         delBtn.innerHTML = '✕';
         delBtn.onclick = () => deleteTask(t.id);
 
-        card.append(checkbox, text, delBtn);
+        card.append(checkbox, body, delBtn);
         list.appendChild(card);
     });
 }
-function addTaskFromInput(){
+async function addTaskFromInput(){
     const input = $('task-input');
     const text = input.value.trim();
     if (!text) return;
+    const recurring_day = $('task-recurring-select').value || null;
     input.value = '';
-    runVoiceCommand(`הוסף משימה: ${text}`);
-}
-async function markTaskComplete(taskId, taskText){
+    $('task-recurring-select').value = '';
     try {
-        const res = await fetch('/api/command', {
+        const res = await fetch('/api/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: `סמן משימה כשלמה: ${taskText}` }),
+            body: JSON.stringify({ text, recurring_day }),
         });
-        await res.json();
-        loadTasksTab();
+        const data = await res.json();
+        if (data.ok) loadTasksTab();
+        else showToast(data.message || 'לא הצלחתי להוסיף את המשימה.');
+    } catch (e) {
+        showToast('לא הצלחתי להתחבר לשרת.');
+    }
+}
+async function markTaskComplete(taskId){
+    try {
+        const res = await fetch(`/api/tasks/${taskId}/complete`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) loadTasksTab();
+        else showToast(data.message || 'לא הצלחתי לסמן את המשימה.');
     } catch (e) {
         showToast('לא הצלחתי לסמן את המשימה.');
     }
 }
 async function deleteTask(taskId){
     try {
-        const res = await fetch('/api/command', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: `מחק משימה מספר ${taskId}` }),
-        });
-        await res.json();
-        loadTasksTab();
+        const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.ok) loadTasksTab();
+        else showToast(data.message || 'לא הצלחתי למחוק את המשימה.');
     } catch (e) {
         showToast('לא הצלחתי למחוק את המשימה.');
     }
+}
+async function loadTaskStats(){
+    let stats;
+    try {
+        const res = await fetch('/api/tasks/stats');
+        stats = await res.json();
+    } catch (e) {
+        return;  // stats card just keeps showing zeros — not worth a toast
+    }
+    $('task-stat-today').textContent = stats.today || 0;
+    $('task-stat-week').textContent = stats.week || 0;
+    renderTaskChart(stats.daily || []);
+}
+function renderTaskChart(daily){
+    const chart = $('task-chart');
+    chart.innerHTML = '';
+    const maxCount = Math.max(1, ...daily.map(d => d.count));
+    daily.forEach(d => {
+        const col = el('div','task-bar-col' + (d.is_today ? ' is-today' : ''));
+        const bar = el('div','task-bar' + (d.count > 0 ? ' has-count' : ''));
+        const pct = Math.max(6, Math.round((d.count / maxCount) * 100));
+        bar.style.height = (d.count > 0 ? pct : 6) + '%';
+        bar.title = `${d.count}`;
+        const label = el('div','task-bar-label');
+        label.textContent = d.label;
+        col.append(bar, label);
+        chart.appendChild(col);
+    });
 }
 
 /* ================================================================================
