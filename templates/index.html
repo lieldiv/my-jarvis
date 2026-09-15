@@ -1337,14 +1337,6 @@ function renderActivity(){
     } else {
         activityLog.slice(0, 3).forEach(item => home.appendChild(buildActivityRow(item)));
     }
-    const log = $('log-list');
-    log.innerHTML = '';
-    if (activityLog.length === 0) {
-        log.innerHTML = '<div class="events-empty">טרם הופעלו פקודות.</div>';
-    } else {
-        activityLog.forEach(item => log.appendChild(buildLogRow(item)));
-    }
-    flashNav('log');
 }
 function buildActivityRow(item){
     const row = el('div','activity-row');
