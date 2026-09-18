@@ -63,14 +63,19 @@
    A theme is the accent AND the neutrals that have to move with it — a
    hue-shifted accent over an unchanged ground reads as a recolour, not as a
    palette. Semantic colours shift only where the accent would otherwise
-   swallow them: a gold accent against gold alert borders makes every warning
-   disappear, so those themes lift --color-gold to a paler yellow that still
-   separates by luminance. Same reason --color-green moves in the green theme.
+   swallow them: an orange accent against gold alert borders makes every
+   warning disappear, so that theme lifts --color-gold to a paler yellow
+   that still separates by luminance — same reason --color-green moves in
+   the green theme and --color-red moves in the red theme. Gold and amber
+   used to be two separate theme entries here; they read as near-identical
+   swatches (17° apart in hue) so they're merged into one stronger orange.
    Applied as data-theme on <html>; no attribute at all is the cyan original,
    so the default page is byte-for-byte what it always was. */
-[data-theme="gold"]{  --accent-rgb:255,176,0;  --color-bg:#0d0903; --color-panel:rgba(38,26,4,0.75);  --color-text-dim:#d2b478; --color-gold:#fff0a8; }
-[data-theme="amber"]{ --accent-rgb:255,120,20; --color-bg:#100702; --color-panel:rgba(40,20,4,0.75);  --color-text-dim:#d8a179; --color-gold:#ffd24a; }
-[data-theme="green"]{ --accent-rgb:0,255,136;  --color-bg:#02120a; --color-panel:rgba(4,34,22,0.75);  --color-text-dim:#7fd3a6; --color-green:#a8ffe0; }
+[data-theme="orange"]{ --accent-rgb:255,140,0;  --color-bg:#0e0700; --color-panel:rgba(40,22,2,0.75);  --color-text-dim:#d9a878; --color-gold:#fff0a8; }
+[data-theme="green"]{  --accent-rgb:0,255,136;  --color-bg:#02120a; --color-panel:rgba(4,34,22,0.75);   --color-text-dim:#7fd3a6; --color-green:#a8ffe0; }
+[data-theme="red"]{    --accent-rgb:255,45,45;  --color-bg:#120302; --color-panel:rgba(40,6,4,0.75);    --color-text-dim:#d99a92; --color-red:#ffb3b3; }
+[data-theme="purple"]{ --accent-rgb:170,70,255; --color-bg:#0a0512; --color-panel:rgba(24,10,42,0.75);  --color-text-dim:#c1a3e0; }
+[data-theme="pink"]{   --accent-rgb:255,45,140; --color-bg:#12030b; --color-panel:rgba(42,6,26,0.75);   --color-text-dim:#e099bd; }
 
 /* ===== Ultron =============================================================
    Not a theme — a mode. It replaces the surfaces as well as the accent:
@@ -289,7 +294,17 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .app-header-word{ font-family:var(--font-display); font-weight:700; font-size:14px; letter-spacing:var(--tracking-widest); color:var(--color-white); text-shadow:0 0 10px rgba(var(--accent-rgb),.6); }
 .app-header-time{ font-weight:500; font-size:12px; color:var(--color-text-dim); }
 
-.app-body{ flex:1; min-height:0; overflow-y:auto; padding:4px 20px 130px; position:relative; -webkit-overflow-scrolling:touch; }
+/* Bottom padding must clear BOTH fixed bars (.cmd-input-row at bottom:76px
+   plus its own ~45px height, and .bottom-nav below it) with real margin —
+   130px flat was already tight against that on a plain device, and
+   .bottom-nav grows further on a notched phone via its own
+   env(safe-area-inset-bottom) padding, which the flat number didn't
+   account for at all. That's exactly what made the last item in a long
+   tab (Settings' disconnect button) unreachable: scrolling maxed out
+   with it still hidden behind the fixed bars. Padding this container by
+   the same safe-area inset keeps it clearing the fixed bars on every
+   device, not just non-notched ones. */
+.app-body{ flex:1; min-height:0; overflow-y:auto; padding:4px 20px calc(170px + env(safe-area-inset-bottom)); position:relative; -webkit-overflow-scrolling:touch; }
 .app-body::-webkit-scrollbar{ width:0; }
 .tab-panel{ display:none; }
 .tab-panel.show{ display:block; animation:jm-fadeup .4s ease both; }
@@ -5408,10 +5423,12 @@ async function sendTestPush(){
    there is no per-element restyling to undo, and nothing can be left behind.
    ================================================================================ */
 const THEMES = {
-    cyan:  { name: 'ג׳רוויס', rgb: '0,243,255'  },
-    gold:  { name: 'זהב',     rgb: '255,176,0'  },
-    amber: { name: 'ענבר',    rgb: '255,120,20' },
-    green: { name: 'ירוק',    rgb: '0,255,136'  },
+    cyan:   { name: 'ג׳רוויס', rgb: '0,243,255'  },
+    green:  { name: 'ירוק',    rgb: '0,255,136'  },
+    orange: { name: 'כתום',    rgb: '255,140,0'  },
+    red:    { name: 'אדום',    rgb: '255,45,45'  },
+    purple: { name: 'סגול',    rgb: '170,70,255' },
+    pink:   { name: 'ורוד',    rgb: '255,45,140' },
 };
 const THEME_KEY = 'jarvis_theme', MODE_KEY = 'jarvis_mode', ULTRON_KEY = 'jarvis_ultron_unlocked';
 
