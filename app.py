@@ -1187,13 +1187,10 @@ TOOLS = [
                     "description": {
                         "type": "string",
                         "description": (
-                            "Any extra context the user gave beyond the bare title/time — what "
-                            "the event is actually about, who/what's involved, plans, etc. This "
-                            "is what they'll see when they click the event later to remind "
-                            "themselves what it was for, so don't leave it out or invent details "
-                            "they didn't mention. If they gave nothing beyond the title, say so "
-                            "plainly (in their language) instead of leaving it blank — e.g. "
-                            "'לא ניתן מידע נוסף.'"
+                            "Any extra context the user gave beyond the bare title/time — don't "
+                            "invent details they didn't mention. If they gave nothing extra, say "
+                            "so plainly in their language (e.g. 'לא ניתן מידע נוסף.') instead of "
+                            "leaving it blank."
                         ),
                     },
                     "location": {"type": "string"},
@@ -1208,16 +1205,14 @@ TOOLS = [
         "function": {
             "name": "update_calendar_event",
             "description": (
-                "Change the time of a meeting that ALREADY EXISTS on the calendar — "
-                "rescheduling it, or extending/shortening it (e.g. 'that meeting is "
-                "running long, push the end to 10:50', 'move my 3pm to 4pm'). Do NOT "
-                "use this to create a new event — that's create_calendar_event. This "
-                "finds the matching real event and, like every other calendar write, "
-                "only registers a confirmation the user must approve — nothing changes "
-                "until then. Give summary_hint from how the user referred to it (leave "
-                "it empty if they just said 'the meeting' and one is clearly in "
-                "progress right now); give only the time field(s) that actually change "
-                "— leave the other blank to keep it as-is."
+                "Change the time of a meeting that ALREADY EXISTS — reschedule, "
+                "or extend/shorten it ('push the end to 10:50', 'move my 3pm "
+                "to 4pm'). NOT for creating a new event (use "
+                "create_calendar_event). Like every calendar write, only "
+                "registers a confirmation — nothing changes until approved. "
+                "Give summary_hint from how the user referred to it (blank if "
+                "one is clearly in progress now); give only the field(s) that "
+                "change."
             ),
             "parameters": {
                 "type": "object",
@@ -1235,18 +1230,13 @@ TOOLS = [
         "function": {
             "name": "send_email",
             "description": (
-                "Propose sending an email. This does NOT send it immediately — "
-                "it registers a confirmation request the user must approve. "
-                "'to' MUST be an actual email address (name@domain), not a "
-                "person's name — if the user only gives a bare name with no "
-                "address at all ('email Omri'), ask for the address before "
-                "calling this; don't put the name itself into 'to', no mailbox "
-                "provider can deliver to that. But if they DID attempt to say "
-                "an address out loud (e.g. 'omri dot levi at gmail dot com'), "
-                "normalize it into proper email format yourself ('omri.levi@"
-                "gmail.com') and go ahead — don't make them repeat it by voice "
-                "a second time on the chance you misheard; the confirmation "
-                "card lets them fix the address by typing if you got it wrong."
+                "Propose sending an email — does NOT send immediately, asks "
+                "the user to approve first. 'to' must be a real address "
+                "(name@domain), not a bare name — ask for the address if "
+                "they only gave a name. If they spoke an address aloud "
+                "('omri dot levi at gmail dot com'), normalize it yourself "
+                "('omri.levi@gmail.com') and proceed rather than asking them "
+                "to repeat it — the confirmation card lets them fix it if wrong."
             ),
             "parameters": {
                 "type": "object",
@@ -1265,14 +1255,12 @@ TOOLS = [
         "function": {
             "name": "set_reminder",
             "description": (
-                "Set a reminder for a future time — delivered later as a phone "
-                "notification (or email if the user hasn't enabled notifications). "
-                "Executes immediately, no approval needed — it's a private "
-                "note-to-self, not an action on anyone's real calendar or mailbox. "
-                "Use ISO 8601 with the local UTC offset given in the current-time "
-                "system message, same as create_calendar_event. Always fill in "
-                "emoji and flourish too — they're what makes the notification feel "
-                "like it understood the request instead of a generic alarm."
+                "Set a reminder for a future time — delivered later as a push "
+                "notification (or email if not enabled). Executes immediately, "
+                "no approval needed — a private note-to-self, not a real "
+                "calendar/mailbox action. ISO 8601 with the local UTC offset "
+                "from the current-time system message, same as "
+                "create_calendar_event. Always fill in emoji and flourish."
             ),
             "parameters": {
                 "type": "object",
@@ -1282,21 +1270,17 @@ TOOLS = [
                     "emoji": {
                         "type": "string",
                         "description": (
-                            "Exactly ONE emoji that matches what this reminder is actually about — "
-                            "gym/workout 💪, dog walk 🐕, trash 🗑️, dentist/doctor 🦷, birthday 🎂, "
-                            "flight ✈️, groceries 🛒, call 📞, medication 💊, study 📚. Pick the one "
-                            "that fits THIS reminder; don't default to ⏰ unless nothing else fits."
+                            "Exactly ONE emoji matching the reminder's topic — gym 💪, dog 🐕, "
+                            "trash 🗑️, dentist 🦷, birthday 🎂, flight ✈️, groceries 🛒, call 📞, "
+                            "medication 💊, study 📚. Don't default to ⏰ unless nothing fits."
                         ),
                     },
                     "flourish": {
                         "type": "string",
                         "description": (
-                            "One SHORT warm line shown under the reminder on the lock screen — proof "
-                            "it understood, not a restatement of the text. Gym -> 'בהצלחה באימון!'; "
-                            "dog walk -> 'תהנו בחוץ 🐾'; dentist -> 'בהצלחה, יהיה בסדר'; flight -> "
-                            "'נסיעה טובה!'. MUST be in the same language the user used for the "
-                            "reminder itself (Hebrew request -> Hebrew line). Max ~6 words. Never "
-                            "just repeat the reminder text back."
+                            "One short warm line under the reminder on the lock screen — proof it "
+                            "understood, not a restatement. E.g. gym -> 'בהצלחה באימון!', dog -> "
+                            "'תהנו בחוץ 🐾'. Same language as the reminder itself. Max ~6 words."
                         ),
                     },
                 },
@@ -1310,13 +1294,10 @@ TOOLS = [
             "name": "set_recurring_reminder",
             "description": (
                 "Set a WEEKLY repeating reminder — 'every Wednesday at 3pm, "
-                "remind me to walk the dog'. Use this instead of set_reminder "
-                "whenever the user says 'every <day>' / 'each week' / any "
-                "repeating cadence, rather than a single one-off moment. "
-                "Same delivery mechanism as set_reminder (a phone notification "
-                "when due), except this one keeps firing every week instead of "
-                "once. Executes immediately, no approval needed. Always fill in "
-                "emoji and flourish too — same rules as set_reminder."
+                "remind me to walk the dog'. Use instead of set_reminder for "
+                "'every <day>' / 'each week' / any repeating cadence. Same "
+                "delivery as set_reminder, but fires every week. Executes "
+                "immediately, no approval needed. Fill in emoji/flourish too."
             ),
             "parameters": {
                 "type": "object",
@@ -1330,20 +1311,11 @@ TOOLS = [
                     "minute": {"type": "integer", "description": "Minute, 0-59. Defaults to 0 if not given."},
                     "emoji": {
                         "type": "string",
-                        "description": (
-                            "Exactly ONE emoji matching what this reminder is about — gym/workout 💪, "
-                            "dog walk 🐕, trash 🗑️, medication 💊, call 📞, groceries 🛒. Pick what fits "
-                            "THIS reminder; don't default to ⏰ unless nothing else fits."
-                        ),
+                        "description": "Exactly ONE emoji matching the topic — gym 💪, dog 🐕, trash 🗑️, medication 💊, call 📞, groceries 🛒. Don't default to ⏰ unless nothing fits.",
                     },
                     "flourish": {
                         "type": "string",
-                        "description": (
-                            "One SHORT warm line shown under the reminder on the lock screen, proving it "
-                            "understood — gym -> 'בהצלחה באימון!', dog walk -> 'תהנו בחוץ 🐾'. MUST match "
-                            "the language the user used for the reminder itself. Max ~6 words. Never just "
-                            "repeat the reminder text back."
-                        ),
+                        "description": "One short warm line under the reminder — gym -> 'בהצלחה באימון!', dog -> 'תהנו בחוץ 🐾'. Same language as the reminder. Max ~6 words.",
                     },
                 },
                 "required": ["text", "weekday", "hour", "emoji", "flourish"],
@@ -1355,16 +1327,13 @@ TOOLS = [
         "function": {
             "name": "update_reminder",
             "description": (
-                "Change an EXISTING reminder — its text, its time, or switch it "
-                "between one-time and weekly. Do NOT use this to create a new "
-                "reminder — that's set_reminder/set_recurring_reminder. Give "
-                "text_hint from how the user referred to it (e.g. 'the dog "
-                "reminder'); leave it empty only if there's clearly just one "
-                "active reminder. Give only the field(s) that actually change — "
-                "leave the rest blank to keep them as they are. One exception: if "
-                "new_text changes what the reminder is actually ABOUT (gym -> "
-                "dentist), send new_emoji and new_flourish too, or the "
-                "notification keeps the old subject's emoji and encouragement."
+                "Change an EXISTING reminder — text, time, or one-time/weekly. "
+                "NOT for creating a new one (use set_reminder/"
+                "set_recurring_reminder). Give text_hint from how the user "
+                "referred to it; leave blank only if there's clearly one "
+                "active reminder. Give only the field(s) that change. "
+                "Exception: if new_text changes the SUBJECT (gym -> dentist), "
+                "also send new_emoji/new_flourish, or they stay stale."
             ),
             "parameters": {
                 "type": "object",
@@ -1388,35 +1357,24 @@ TOOLS = [
             "name": "play_music",
             "description": (
                 "Play a song on the user's phone through Spotify. Needs no "
-                "shortcut and no setup, so prefer it over run_shortcut for "
-                "music.\n\n"
-                "DO NOT call this the moment music comes up. BOTH of these "
-                "must be true first:\n"
-                "(1) They explicitly asked to HEAR it — 'play me', 'put on', "
-                "'תשמיע לי', 'תנגן לי'. Saying a song's name, quoting lyrics, "
-                "singing, or talking ABOUT a song is NOT a request to play it. "
-                "If someone says 'שרה שרה שיר שמח' they are saying words, not "
-                "asking for Spotify. When in doubt, they were not asking.\n"
-                "(2) You already offered in an earlier message and they "
-                "agreed. On their FIRST request, call no tool at all — reply "
-                "with a short question naming what you'd play, such as "
-                "'להשמיע את <שיר> בספוטיפיי?', and stop there.\n\n"
-                "Then, once they say yes, call this immediately — do not ask a "
-                "second time. If they say no, drop it and don't offer again."
+                "setup.\n\n"
+                "DO NOT call this the moment music comes up — BOTH must be "
+                "true first: (1) they explicitly asked to HEAR it ('play "
+                "me', 'תשמיע לי') — naming a song, quoting lyrics, or "
+                "singing is NOT a request ('שרה שרה שיר שמח' is just words, "
+                "not asking for Spotify; when in doubt, they weren't "
+                "asking). (2) You already offered and they agreed — on "
+                "their FIRST request, call no tool, just ask "
+                "'להשמיע את <שיר> בספוטיפיי?' and stop.\n\n"
+                "Once they say yes, call this immediately, no second ask. "
+                "If no, drop it."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": (
-                            "What to play, as the user said it — a song title, "
-                            "an artist, or both ('Bohemian Rhapsody Queen'). "
-                            "Keep their language and spelling; the music "
-                            "services' own search handles Hebrew and "
-                            "transliteration better than a guess at the "
-                            "'official' title would."
-                        ),
+                        "description": "What to play, as the user said it — song title, artist, or both. Keep their language/spelling.",
                     },
                     "app": {
                         "type": "string",
@@ -1515,38 +1473,24 @@ TOOLS = [
         "function": {
             "name": "navigate_to",
             "description": (
-                "Start driving navigation on the user's PHONE to a specific "
-                "place they named — an address, a business, a landmark "
-                "('הקניון הגדול פתח תקווה', 'Ben Gurion Airport', "
-                "'דיזנגוף 50 תל אביב'). Use this whenever the user says they "
-                "want to drive, go, or travel to somewhere specific. It puts "
-                "a route on their HUD which they tap to open, so do not ask "
-                "for confirmation yourself — just call it. This is NOT the "
-                "same as desktop application control, which is unavailable; "
-                "navigating the user's phone always works. Use "
-                "find_nearby_places instead when there is no specific "
-                "destination and they are looking for a category near them "
-                "('find me a restaurant')."
+                "Start driving navigation on the user's PHONE to a place "
+                "they named — an address, business, or landmark. Puts a "
+                "route on the HUD which they tap to open — don't ask for "
+                "confirmation yourself, just call it. Use find_nearby_places "
+                "instead when there's no specific destination, just a "
+                "category ('find me a restaurant')."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "destination": {
                         "type": "string",
-                        "description": (
-                            "The destination exactly as the user said it, in "
-                            "their own language. This is their data, not your "
-                            "speech — never translate a Hebrew place name into "
-                            "English, the navigation app needs the local name."
-                        ),
+                        "description": "The destination exactly as the user said it, in their own language — never translate a Hebrew place name into English.",
                     },
                     "app": {
                         "type": "string",
                         "enum": ["waze", "google_maps"],
-                        "description": (
-                            "Which navigation app to open. Default to waze "
-                            "unless the user specifically asks for Google Maps."
-                        ),
+                        "description": "Default to waze unless the user specifically asks for Google Maps.",
                     },
                 },
                 "required": ["destination"],
@@ -1559,15 +1503,11 @@ TOOLS = [
             "name": "find_nearby_places",
             "description": (
                 "Propose a Google Maps search for nearby places — restaurants, "
-                "pizza, pharmacies, gas stations, and the like. This does NOT "
-                "search immediately — it registers a confirmation the user must "
-                "approve on the HUD before anything opens (a link only opens on "
-                "their own device from a real click, never automatically). ONLY "
-                "use this for an explicit 'find me X near me' / 'where's the "
-                "nearest X' request. Never use it for general knowledge "
-                "questions, and never as a fallback just because you don't know "
-                "an answer — if it's not a genuine nearby-place request, say so "
-                "instead of proposing a search."
+                "pizza, pharmacies, gas stations. Does NOT search immediately "
+                "— registers a confirmation the user must approve (a link "
+                "only opens from their own real click). Only for an explicit "
+                "'find me X near me' request — never as a fallback for a "
+                "question you don't know the answer to."
             ),
             "parameters": {
                 "type": "object",
@@ -1596,17 +1536,12 @@ TOOLS = [
         "function": {
             "name": "get_current_info",
             "description": (
-                "Look up real-time or current-events information via a live "
-                "web search — news, sports scores, or anything else that "
-                "could have happened after your own training cutoff. For "
-                "general market/stock-index questions use get_market_summary "
-                "instead — it's free and always available, this tool needs "
-                "Tavily configured and may not be. ONLY use this when the "
-                "question genuinely needs up-to-date information you cannot "
-                "already know. Never use it for general knowledge you "
-                "already know, and never reach for it just because you're "
-                "unsure — think first, and only call this when the answer "
-                "could plausibly have changed since you were trained."
+                "Live web search for current-events info — news, sports "
+                "scores, anything after your training cutoff. For market/"
+                "stock-index questions use get_market_summary instead (free, "
+                "always available). Only call this when the answer could "
+                "plausibly have changed since training — never for general "
+                "knowledge you already know."
             ),
             "parameters": {
                 "type": "object",
@@ -1694,19 +1629,15 @@ TOOLS = [
         "function": {
             "name": "add_task",
             "description": (
-                "Add a new task to the to-do list. Can be a one-time task, "
-                "recurring every day (e.g., 'remind me to walk the dog every day'), "
-                "or recurring on one or more specific days of the week (e.g., "
-                "'throw trash every Wednesday', or 'walk the dog on Sundays and Mondays' — "
-                "a task only recurs on the day(s) given, it won't show up on other days). "
-                "Set recurring_day to 'daily' for every day, a single day like 'Wednesday', "
-                "or a comma-separated list like 'Sunday,Monday' for specific days."
+                "Add a task — one-time, daily, or recurring on specific "
+                "weekday(s) ('walk the dog every Wednesday', or 'Sundays and "
+                "Mondays' — only shows up on the day(s) given)."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "What the task is"},
-                    "recurring_day": {"type": "string", "description": "'daily', a single weekday ('Wednesday'), or a comma-separated set of weekdays ('Sunday,Monday') for tasks that only recur on those specific days (optional)"},
+                    "recurring_day": {"type": "string", "description": "'daily', a weekday ('Wednesday'), or comma-separated weekdays ('Sunday,Monday') — optional"},
                 },
                 "required": ["text"],
             },
@@ -1750,7 +1681,15 @@ TOOLS = [
 # free-tier rate limit for tools that could only ever return a canned
 # refusal. Computed once at import time (DESKTOP_TOOLS_ENABLED doesn't
 # change at runtime), not filtered per-request.
-_DESKTOP_ONLY_TOOL_NAMES = {"open_application", "close_application", "computer_use"}
+#
+# run_shortcut/set_alarm belong here for the same reason even though
+# they're not strictly "desktop": both only work for a user who has
+# already registered a specifically-named iPhone Shortcut pointing back
+# at this exact server (_shortcut_url/ALARM_SHORTCUT_NAME) — a one-time
+# setup step from the original single-user desktop app that essentially
+# no cloud sign-up has done, so these two ~1,100 chars of schema were
+# being paid on every request for tools that almost never fire.
+_DESKTOP_ONLY_TOOL_NAMES = {"open_application", "close_application", "computer_use", "run_shortcut", "set_alarm"}
 ACTIVE_TOOLS = TOOLS if DESKTOP_TOOLS_ENABLED else [
     t for t in TOOLS if t["function"]["name"] not in _DESKTOP_ONLY_TOOL_NAMES
 ]
@@ -2945,6 +2884,9 @@ def agenda_week():
     if not user_id:
         return jsonify({"text": "Please sign in first, sir."})
     text = productivity_service.get_calendar_events_text(user_id, days_ahead=7, max_results=30)
+    tasks_text = productivity_service.get_week_tasks_text(user_id)
+    if tasks_text:
+        text = f"{text}\n\nמשימות השבוע:\n{tasks_text}"
     return jsonify({"text": text})
 
 

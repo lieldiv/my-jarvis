@@ -925,6 +925,29 @@ def get_tasks_for_daily_briefing(user_id: str) -> str:
     return f"משימות שלך היום:\n{task_list}"
 
 
+def get_week_tasks_text(user_id: str) -> str:
+    """Tasks for the "this week" agenda view (/api/agenda/week) — unlike
+    get_user_tasks_structured (today-only, for the Tasks tab's own list),
+    this shows every open task with which day(s) it recurs on, so "what
+    does my week look like" actually includes tasks alongside calendar
+    events instead of just the calendar. Returns "" when there are no
+    open tasks at all, so the caller can skip an empty "Tasks:" section
+    rather than showing a header with nothing under it."""
+    tasks = users.get_user_tasks(user_id, include_completed=False)
+    if not tasks:
+        return ""
+    lines = []
+    for t in tasks:
+        if not t["recurring_day"]:
+            lines.append(f"- {t['text']}")
+        elif t["recurring_day"] == RECURRING_DAILY:
+            lines.append(f"- {t['text']} (כל יום)")
+        else:
+            days_he = ", ".join(_WEEKDAY_HEBREW.get(d, d) for d in _recurring_days_list(t["recurring_day"]))
+            lines.append(f"- {t['text']} ({days_he})")
+    return "\n".join(lines)
+
+
 def get_task_stats(user_id: str) -> dict:
     """Completion statistics for the HUD's stats card: how many tasks were
     finished today and this week, plus a 7-day daily breakdown for a bar
