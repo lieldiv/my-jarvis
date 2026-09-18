@@ -869,12 +869,23 @@ def request_add_task(user_id: str, text: str, recurring_day: str | None = None) 
     # something like "drink water" would be noise; the HUD's own task
     # list is reminder enough for those.
     if recurring_day and recurring_day != RECURRING_DAILY:
+        # Without this check, adding the identical task+days twice (a
+        # double-click on a slow connection, a retried request) silently
+        # stacked a second permanent weekly reminder on top of the first
+        # — same text, same day, same time, both firing forever, with no
+        # way to tell from the UI they were duplicates. One lookup of the
+        # user's existing reminders up front instead of re-querying per
+        # day.
+        existing = {(r["text"], r["recurrence"]) for r in users.list_active_reminders(user_id)}
         for day_name in _recurring_days_list(recurring_day):
             try:
                 weekday = WEEKDAY_NAMES.index(day_name)
-                next_fire = next_weekday_occurrence(weekday, 9, 0)  # 9am default
                 recurrence = f"{weekday}:9:0"
-                users.add_reminder(user_id, f"Task: {text}", next_fire.timestamp(), recurrence,
+                reminder_text = f"Task: {text}"
+                if (reminder_text, recurrence) in existing:
+                    continue  # identical reminder already exists — don't stack a duplicate
+                next_fire = next_weekday_occurrence(weekday, 9, 0)  # 9am default
+                users.add_reminder(user_id, reminder_text, next_fire.timestamp(), recurrence,
                                  emoji="✓", flourish="זמן לביצוע המשימה!")
             except (ValueError, IndexError):
                 pass  # invalid day name, task added but no reminder for that day
