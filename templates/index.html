@@ -1050,7 +1050,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="conn-row"><span>✉️ Gmail</span><span class="ok">מחובר ✓</span></div>
 
             <div class="settings-sub">◂ קול</div>
-            <div class="voice-info-block">לחיצה לדיבור · מדבר בעברית · JARVIS עונה באנגלית<br/>אישור לפני פעולה: פעיל — כל שינוי ביומן או שליחת מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
+            <div class="voice-info-block">לחיצה לדיבור · עברית בקלט, אנגלית בפלט<br/>אישור לפני פעולה: כל שינוי ביומן או מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
 
             <div id="standalone-warning"></div>
 
@@ -5607,8 +5607,7 @@ function renderVoiceDiag(){
     if (!box) return;
     box.innerHTML = '';
     const intro = el('div', 'voice-info-block');
-    intro.innerHTML = 'אם הדיבור לא נקלט — הקש על הכדור, נסה לדבר, וחזור לכאן. ' +
-        'הרשימה מראה עד לאיזה שלב הגיע התהליך, וזה מה שמזהה איפה הוא נשבר.';
+    intro.innerHTML = 'אם הדיבור לא נקלט — בדוק את המיקרופון כאן.';
     box.appendChild(intro);
 
     /* Which engine is actually running, and a way back to the start.
@@ -5664,10 +5663,8 @@ function renderVoiceDiag(){
 
     monitorWrap.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
     monitorWrap.innerText = monitorRunning()
-        ? 'דבר עכשיו. אם המספר נשאר 0.0000 — המיקרופון הזה לא מגיע לדף; בחר אחר מהרשימה ' +
-          'ונסה שוב. הבחירה נשמרת ומשמשת גם בשיחה עם JARVIS. ' +
-          'המדידה נקייה כל עוד ההשמעה החוזרת כבויה; עם רמקול היא יוצרת משוב והמספר מגיע ל-1.0000 מעצמו.'
-        : 'מפעיל את המיקרופון ומשמיע אותך בחזרה, עם מד עוצמה. עדיף עם אוזניות, אחרת יכול לצפצף.';
+        ? 'דבר עכשיו. מספר שנשאר 0.0000 — בחר מיקרופון אחר מהרשימה.'
+        : 'מפעיל את המיקרופון ומשמיע אותך בחזרה. עדיף עם אוזניות.';
     box.appendChild(monitorWrap);
 
     /* The engine is no longer a question put to the user.
@@ -5702,33 +5699,11 @@ function renderVoiceDiag(){
     const autoNote = el('div', 'voice-info-block');
     autoNote.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
     autoNote.innerText = (engine === 'record'
-        ? 'כשהיא פעילה JARVIS מזהה שסיימת לדבר ועוצר לבד. '
-        : 'במנוע הזה הדפדפן מחליט בעצמו מתי סיימת, אז ההגדרה הזו לא משפיעה עליו — ' +
-          'היא חלה על מנוע ההקלטה. ') +
-        'ההקשה על הכדור עוצרת ושולחת את מה שאמרת, תמיד.';
+        ? 'כשהיא פעילה, JARVIS עוצר לבד כשסיימת לדבר. '
+        : 'לא משפיעה על מנוע הדפדפן. ') +
+        'הקשה על הכדור תמיד עוצרת ושולחת.';
     box.appendChild(autoNote);
 
-    const pre = el('pre');
-    pre.id = 'voice-diag-log';
-    pre.style.cssText = 'margin:8px 0 0;padding:11px;background:#020509;border:var(--border-default);' +
-        'border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:11.5px;' +
-        'color:var(--color-text-dim);direction:ltr;text-align:left;white-space:pre-wrap;' +
-        'max-height:220px;overflow:auto;';
-    pre.innerText = voiceLogText();
-    box.appendChild(pre);
-
-    const copy = el('button', 'setup-btn');
-    copy.innerText = '📋 העתק את היומן';
-    copy.onclick = async () => {
-        try { await navigator.clipboard.writeText(voiceLogText()); showToast('הועתק — הדבק לי את זה.'); }
-        catch (e) { showToast('לא הצלחתי להעתיק — צלם מסך במקום.', true); }
-    };
-    box.appendChild(copy);
-
-    const clear = el('button', 'setup-btn quiet');
-    clear.innerText = 'נקה יומן';
-    clear.onclick = () => { voiceLog.length = 0; renderVoiceLog(); };
-    box.appendChild(clear);
 }
 renderVoiceDiag();
 
