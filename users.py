@@ -20,6 +20,19 @@ logger = logging.getLogger("jarvis.users")
 
 DB_PATH = os.environ.get("JARVIS_DB_PATH", "users.db")
 
+# Render's free tier (see render.yaml's own note) has no persistent disk —
+# the sqlite3 file above gets wiped on every restart/spin-down, which is
+# what made tasks/reminders vanish unpredictably rather than any per-device
+# bug. TURSO_DATABASE_URL/TURSO_AUTH_TOKEN switch to Turso (hosted, free,
+# no card, SQLite-compatible) when set; local dev with no such env vars is
+# completely unaffected — same sqlite3 file as always.
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+TURSO_CONFIGURED = bool(TURSO_URL and TURSO_AUTH_TOKEN)
+
+if TURSO_CONFIGURED:
+    import libsql
+
 
 def _init_db():
     with _connect() as conn:
@@ -64,10 +77,15 @@ def _init_db():
         # existing table, so already-provisioned databases need this run
         # once to catch up. SQLite has no ADD COLUMN IF NOT EXISTS; catching
         # the duplicate-column error is the documented way to make this
-        # idempotent.
+        # idempotent. Catches plain Exception, not sqlite3.OperationalError
+        # specifically — confirmed directly that Turso's libsql raises a
+        # bare ValueError (wrapping a Hrana protocol error) for the exact
+        # same "duplicate column" condition, not sqlite3's own exception
+        # type, so a narrower catch here would crash _init_db() on first
+        # boot against a fresh Turso database.
         try:
             conn.execute("ALTER TABLE reminders ADD COLUMN recurrence TEXT")
-        except sqlite3.OperationalError:
+        except Exception:
             pass  # column already exists
 
         # Notification flavour, filled in by the LLM at the moment the user
@@ -80,8 +98,8 @@ def _init_db():
         for column in ("emoji", "flourish"):
             try:
                 conn.execute(f"ALTER TABLE reminders ADD COLUMN {column} TEXT")
-            except sqlite3.OperationalError:
-                pass  # column already exists
+            except Exception:
+                pass  # column already exists — same cross-backend note as above
 
         # Tasks/to-do items — one row per task a user creates
         # completed is 0/1 (one-time tasks only — see task_completions below
@@ -144,25 +162,34 @@ def _init_db():
 
 @contextmanager
 def _connect():
-    # timeout=10: how long a call waits for a lock held by another thread
-    # before raising "database is locked", instead of the 5s default —
-    # gunicorn's --threads 16 means up to 16 real OS threads can hit this
-    # file at once (see render.yaml's own docstring: threads went 2->16
-    # after a similar pool-exhaustion incident with /api/stream). A
-    # slightly longer wait here trades a bit of latency under contention
-    # for not surfacing a raw OperationalError to the user over a write
-    # that would have succeeded a moment later.
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    # WAL mode lets readers and a writer run concurrently instead of the
-    # default rollback-journal mode's "writer blocks every reader" — the
-    # actual fix for 16 threads sharing one file, timeout above is just a
-    # safety net for the writer-vs-writer case WAL doesn't eliminate.
-    # journal_mode is stored in the database file itself (not per
-    # connection), so this is a one-time no-op after the first call ever
-    # sets it — cheap enough to just always ask for it here rather than
-    # only in _init_db(), which guarantees it even if the file already
-    # existed from before this line was added.
-    conn.execute("PRAGMA journal_mode=WAL")
+    if TURSO_CONFIGURED:
+        # Remote HTTP connection — no local file, so no lock-contention
+        # timeout or journal-mode PRAGMA applies (those are local-file
+        # SQLite concepts; Turso's server handles concurrency itself).
+        # libsql.Connection implements the same .execute/.commit/.close
+        # DB-API surface as sqlite3.Connection, so every query elsewhere
+        # in this file works unchanged.
+        conn = libsql.connect(database=TURSO_URL, auth_token=TURSO_AUTH_TOKEN)
+    else:
+        # timeout=10: how long a call waits for a lock held by another thread
+        # before raising "database is locked", instead of the 5s default —
+        # gunicorn's --threads 16 means up to 16 real OS threads can hit this
+        # file at once (see render.yaml's own docstring: threads went 2->16
+        # after a similar pool-exhaustion incident with /api/stream). A
+        # slightly longer wait here trades a bit of latency under contention
+        # for not surfacing a raw OperationalError to the user over a write
+        # that would have succeeded a moment later.
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        # WAL mode lets readers and a writer run concurrently instead of the
+        # default rollback-journal mode's "writer blocks every reader" — the
+        # actual fix for 16 threads sharing one file, timeout above is just a
+        # safety net for the writer-vs-writer case WAL doesn't eliminate.
+        # journal_mode is stored in the database file itself (not per
+        # connection), so this is a one-time no-op after the first call ever
+        # sets it — cheap enough to just always ask for it here rather than
+        # only in _init_db(), which guarantees it even if the file already
+        # existed from before this line was added.
+        conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
         conn.commit()

@@ -49,6 +49,17 @@ pywebpush==2.1.2
 # Tavily's API is plain REST, called via the `requests` package already
 # pinned above.
 
+# --- Persistent database (users.py) --------------------------------------
+# Render's free tier has no persistent disk — a local sqlite3 file gets
+# wiped on every restart/spin-down (see render.yaml's own note), which is
+# exactly why tasks/reminders were "randomly" vanishing. Turso is a hosted,
+# free (no card), SQLite-compatible database; this package's Connection
+# object implements the same DB-API surface (.execute/.commit/.fetchone/
+# .fetchall) as stdlib sqlite3, so users.py's _connect() only needs to pick
+# which one to open, not rewrite any query. Falls back to local sqlite3
+# automatically when TURSO_DATABASE_URL isn't set (local dev unaffected).
+libsql==0.1.11
+
 # --- Timezone-aware "current time" for the LLM (app.py's LOCAL_TZ) --------
 # stdlib zoneinfo needs an IANA tz database; not every base Linux image
 # ships one. This pip package is zoneinfo's documented fallback source.
