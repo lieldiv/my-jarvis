@@ -1057,16 +1057,9 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="settings-sub">◂ אבחון דיבור</div>
             <div id="voice-diag"></div>
 
-            <div class="settings-sub">◂ הקיצורים שלי</div>
-            <div id="shortcut-registry"></div>
-
-            <div class="settings-sub">◂ שעון מעורר</div>
-            <div id="alarm-setup"></div>
-
             <div class="settings-sub">◂ מראה</div>
             <div class="theme-row" id="theme-row"></div>
             <div class="voice-info-block" id="appearance-note">בחר צבע ל-J.A.R.V.I.S. הבחירה נשמרת במכשיר הזה בלבד.</div>
-            <div id="ultron-slot"></div>
 
             <div class="settings-sub">◂ התראות</div>
             <div class="voice-info-block" id="push-status-text">תזכורות נשלחות כברירת מחדל במייל. ניתן גם לקבל אותן כהתראה אמיתית בדפדפן/בטלפון, גם כשהאתר סגור.</div>
@@ -5610,18 +5603,6 @@ function renderVoiceDiag(){
     intro.innerHTML = 'אם הדיבור לא נקלט — בדוק את המיקרופון כאן.';
     box.appendChild(intro);
 
-    /* Which engine is actually running, and a way back to the start.
-
-       The app moves itself off the recogniser when a phone proves it silent,
-       and remembers that. Without this row there is no way to see which path a
-       take used, and no way to re-test the other one after a switch — which
-       makes a test that cannot be repeated, and a repeated test is the whole
-       point of this panel. */
-    /* First, because it is the one thing here that answers a question rather
-       than reporting one. */
-    const monitorWrap = el('div', 'voice-info-block');
-    monitorWrap.style.cssText = 'margin-top:4px';
-
     const monitorBtn = el('button', 'setup-btn' + (monitorRunning() ? '' : ' quiet'));
     monitorBtn.innerText = monitorRunning() ? '⏹ עצור את בדיקת המיקרופון'
                                             : '🎧 בדיקת מיקרופון — שמע את עצמך';
@@ -5661,49 +5642,10 @@ function renderVoiceDiag(){
         box.appendChild(num);
     }
 
-    monitorWrap.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
-    monitorWrap.innerText = monitorRunning()
-        ? 'דבר עכשיו. מספר שנשאר 0.0000 — בחר מיקרופון אחר מהרשימה.'
-        : 'מפעיל את המיקרופון ומשמיע אותך בחזרה. עדיף עם אוזניות.';
-    box.appendChild(monitorWrap);
-
-    /* The engine is no longer a question put to the user.
-
-       It was offered as three buttons for exactly one day, and asking someone
-       to understand two speech engines in order to talk to an assistant was
-       the wrong thing to ship — picking the wrong one only produces a subtler
-       failure. The device decides now, on measurements: phones record and
-       Whisper reads it, the desktop uses its own recogniser, and either one
-       that proves itself wrong loses the device within a single take.
-
-       What stays here is the microphone, which IS worth choosing by hand,
-       because only the person in the room can hear which one sounds right.
-       The line below is information, not a control. */
-    const engine = sttEngine();
-    const engineNow = el('div', 'voice-info-block');
-    engineNow.id = 'stt-engine-note';
-    engineNow.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:10px';
-    engineNow.innerText = 'תמלול: ' +
-        (engine === 'record' ? 'בשרת שלנו (Whisper)' : 'זיהוי הדפדפן') +
-        ' — נבחר אוטומטית למכשיר הזה, ומתחלף לבד אם הוא לא מבין אותך.';
-    box.appendChild(engineNow);
-
-    /* Here rather than in the appearance settings: this is the one control
-       someone reaches for when the microphone is misbehaving, which is exactly
-       what brings them to this panel. */
     const auto = el('button', 'setup-btn' + (autoStopEnabled() ? '' : ' quiet'));
     auto.innerText = autoStopEnabled() ? '🎙️ עצירה אוטומטית — פעילה' : '🎙️ עצירה אוטומטית — כבויה';
     auto.onclick = () => setAutoStop(!autoStopEnabled());
     box.appendChild(auto);
-
-    const autoNote = el('div', 'voice-info-block');
-    autoNote.style.cssText = 'font-size:11.5px;opacity:.75;margin-top:4px';
-    autoNote.innerText = (engine === 'record'
-        ? 'כשהיא פעילה, JARVIS עוצר לבד כשסיימת לדבר. '
-        : 'לא משפיעה על מנוע הדפדפן. ') +
-        'הקשה על הכדור תמיד עוצרת ושולחת.';
-    box.appendChild(autoNote);
-
 }
 renderVoiceDiag();
 
@@ -5718,140 +5660,15 @@ function getShortcuts(){
 }
 function saveShortcuts(list){ lsSet(SHORTCUTS_KEY, JSON.stringify(list.slice(0, MAX_SHORTCUTS))); }
 
-function addShortcut(){
-    const name = $('sc-name').value.trim();
-    if (!name) { showToast('צריך את שם הקיצור, בדיוק כפי שהוא מופיע.', true); return; }
-    const list = getShortcuts();
-    if (list.some(s => s.name === name)) { showToast('הקיצור הזה כבר רשום.', true); return; }
-    if (list.length >= MAX_SHORTCUTS) { showToast(`מקסימום ${MAX_SHORTCUTS} קיצורים.`, true); return; }
-    list.push({ name, does: $('sc-does').value.trim() });
-    saveShortcuts(list);
-    $('sc-name').value = ''; $('sc-does').value = '';
-    renderShortcutRegistry();
-    beep(700, 0.09);
-    showToast(`"${name}" נרשם — JARVIS יידע להפעיל אותו.`);
-}
-
-function removeShortcut(name){
-    saveShortcuts(getShortcuts().filter(s => s.name !== name));
-    renderShortcutRegistry();
-}
-
-function renderShortcutRegistry(){
-    const box = $('shortcut-registry');
-    if (!box) return;
-    box.innerHTML = '';
-
-    const list = getShortcuts();
-    const intro = el('div', 'voice-info-block');
-    intro.innerHTML = list.length
-        ? 'JARVIS יפעיל את אלה גם בלי שתגיד את השם. השם חייב להיות <b>זהה בדיוק</b> לזה שבאפליקציית Shortcuts — אחרת Shortcuts רק נפתח ולא מריץ.'
-        : '<b>לא חובה למלא כאן כלום.</b> תמיד אפשר פשוט לומר ל-JARVIS את שם הקיצור ' +
-          '("תפעיל את הקיצור הפעלת מוזיקה"). הרשימה הזו רק חוסכת לך לומר את השם — ' +
-          'הוא יידע לבד מתי להפעיל אותו.';
-    box.appendChild(intro);
-
-    list.forEach(sc => {
-        const row = el('div', 'sc-row');
-        const info = el('div', 'sc-info');
-        const nm = el('div', 'sc-name'); nm.innerText = sc.name;
-        const meta = el('div', 'sc-meta');
-        meta.innerText = sc.does || 'קיצור';
-        info.append(nm, meta);
-        const del = el('button', 'sc-del');
-        del.innerText = '✕';
-        del.title = 'הסר';
-        del.onclick = () => removeShortcut(sc.name);
-        row.append(info, del);
-        box.appendChild(row);
-    });
-
-    const form = el('div', 'sc-form');
-    form.innerHTML =
-        '<input type="text" id="sc-name" placeholder="שם הקיצור — בדיוק כמו באפליקציה" dir="auto">' +
-        '<input type="text" id="sc-does" placeholder="מתי להשתמש בו (לא חובה)" dir="auto">';
-    box.appendChild(form);
-
-    const add = el('button', 'setup-btn');
-    add.innerText = '＋ הוסף קיצור';
-    add.onclick = addShortcut;
-    box.appendChild(add);
-
-    const open = el('button', 'setup-btn quiet');
-    open.innerText = '📱 פתח את Shortcuts כדי לבדוק שמות';
-    open.onclick = openShortcutsApp;
-    box.appendChild(open);
-}
-renderShortcutRegistry();
-
-const ALARM_SETUP_KEY = 'jarvis_alarm_setup_done';
-const ALARM_SHORTCUT_NAME = 'JARVIS Alarm';
-
-function alarmSetupDone(){ return lsGet(ALARM_SETUP_KEY, '0') === '1'; }
-
-function openShortcutsApp(){
-    // Same helper the confirmation cards use — this is a direct tap, so the
-    // gesture is live and the scheme opens. Verified on the user's iPhone:
-    // shortcuts:// works where clock-alarm:// does nothing.
-    openPhoneLink('shortcuts://');
-}
-
-function setAlarmSetupDone(done){
-    lsSet(ALARM_SETUP_KEY, done ? '1' : '0');
-    renderAlarmSetup();
-    if (done) { beep(700, 0.1); showToast('נשמר. לא אבקש שוב במכשיר הזה.'); }
-}
-
-function renderAlarmSetup(){
-    const box = $('alarm-setup');
-    if (!box) return;
-    box.innerHTML = '';
-
-    if (alarmSetupDone()) {
-        const done = el('div', 'setup-done');
-        done.innerHTML = '<span class="tick">✓</span><span>הקיצור מוכן. תגיד ' +
-            '<b>"תעיר אותי ב-7"</b> והקש על הכרטיס.</span>';
-        box.appendChild(done);
-
-        const open = el('button', 'setup-btn');
-        open.innerText = '📱 פתח את Shortcuts';
-        open.onclick = openShortcutsApp;
-        box.appendChild(open);
-
-        const again = el('button', 'setup-btn quiet');
-        again.innerText = 'הצג שוב את ההוראות';
-        again.onclick = () => setAlarmSetupDone(false);
-        box.appendChild(again);
-        return;
-    }
-
-    const intro = el('div', 'voice-info-block');
-    intro.innerHTML = 'כדי ש-JARVIS יכוון לך <b>מעורר אמיתי</b> שמצלצל ומעיר — צריך ' +
-        'קיצור אחד, פעם אחת. אפל חוסמת גישה ישירה לאפליקציית השעון, וזו הדרך שנשארה.';
-    box.appendChild(intro);
-
-    const steps = el('ol', 'setup-steps');
-    steps.innerHTML =
-        '<li>פתח את <b>Shortcuts</b> בכפתור למטה, ואז <b>➕</b></li>' +
-        '<li>הוסף פעולה <span class="lit">Get dates from</span> — ובשדה שלה בחר ' +
-            '<span class="lit">Shortcut Input</span></li>' +
-        '<li>הוסף פעולה <span class="lit">Create Alarm</span> — ובשדה השעה בחר את ' +
-            'הפלט של הפעולה הקודמת</li>' +
-        '<li>שנה את שם הקיצור בדיוק ל-<span class="lit">' + ALARM_SHORTCUT_NAME + '</span>. ' +
-            'שם שלא תואם לתו הוא כמעט תמיד הסיבה שכלום לא קורה.</li>';
-    box.appendChild(steps);
-
-    const open = el('button', 'setup-btn');
-    open.innerText = '📱 פתח את Shortcuts עכשיו';
-    open.onclick = openShortcutsApp;
-    box.appendChild(open);
-
-    const mark = el('button', 'setup-btn');
-    mark.innerText = '✓ סיימתי — אל תציג לי את זה שוב';
-    mark.onclick = () => setAlarmSetupDone(true);
-    box.appendChild(mark);
-}
-renderAlarmSetup();
+// Registering shortcuts by name (addShortcut/renderShortcutRegistry) and
+// the Alarm Shortcut setup tutorial (renderAlarmSetup) were removed along
+// with the run_shortcut/set_alarm tools themselves — both require a
+// specifically-named iPhone Shortcut only the original single-user
+// desktop app's owner would ever set up (see _DESKTOP_ONLY_TOOL_NAMES in
+// app.py); the Settings UI for them was dead instructions for a feature
+// that can't work on this cloud build. getShortcuts() stays: commandBody()
+// still sends whatever's stored, which is simply always empty now —
+// consistent with the tool being gone.
 
 /* ================================================================================
    Microphone monitor — hear yourself, and see the number.
