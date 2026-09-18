@@ -2318,8 +2318,19 @@ def resolve_shortcut_name(requested: str, allowed: list):
 # Only tools that genuinely need no follow-up thinking belong here. Anything
 # that returns DATA the model has to interpret — the weather, the calendar, a
 # search result — must not, or the user would get raw tool output read aloud.
-TERMINAL_TOOLS = {"navigate_to", "set_alarm", "play_music", "run_shortcut",
-                  "find_nearby_places"}
+TERMINAL_TOOLS = {
+    "navigate_to", "set_alarm", "play_music", "run_shortcut", "find_nearby_places",
+    # Every write/confirmation tool below already returns a complete,
+    # ready-to-speak sentence (either result["message"] from
+    # productivity_service, or "I've drawn up ... for your approval, sir")
+    # — confirmed by reading each implementation, not assumed. A second
+    # Groq round to paraphrase these was pure waste: on the free tier's
+    # 8,000-token-per-minute ceiling, that extra round was often the
+    # difference between a command succeeding and hitting the rate limit.
+    "create_calendar_event", "update_calendar_event", "send_email",
+    "set_reminder", "set_recurring_reminder", "update_reminder",
+    "add_task", "mark_task_complete", "delete_task",
+}
 
 
 def say(persona: str, jarvis: str, ultron: str) -> str:
