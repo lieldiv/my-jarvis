@@ -781,70 +781,110 @@ def request_update_reminder(
 RECURRING_DAILY = "daily"
 
 
-def _period_start_for_task(recurring_day: str, now: datetime) -> float:
-    """Epoch start of a recurring task's CURRENT period — midnight today for
-    a daily task, midnight of the most recent occurrence of recurring_day
-    for a weekly one. A completion at/after this moment means "already done
-    this period"; anything before it is stale (last week's/yesterday's)."""
-    midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+def _recurring_days_list(recurring_day: str) -> list:
+    """A task's recurring_day is either 'daily', a single weekday name
+    ('Wednesday'), or a comma-separated set of them ('Sunday,Monday') for
+    a task that only recurs on those specific days — e.g. "walk the dog"
+    on Sunday and Monday only. Comma-separated needs no schema change:
+    the column is already a plain TEXT field."""
+    return [d.strip() for d in recurring_day.split(",") if d.strip()]
+
+
+def _is_recurring_day_active_today(recurring_day: str, now: datetime) -> bool:
+    """Whether a recurring task should be shown today. 'daily' always is;
+    a specific day (or set of days) only on a matching day — the task is
+    simply absent from the list on other days, rather than lingering all
+    week as an unfinished reminder for a day that already passed. This is
+    what makes a "Sunday and Monday only" task actually only show up on
+    Sunday and Monday, instead of every day with just its reset timing
+    tied to those days."""
     if recurring_day == RECURRING_DAILY:
-        return midnight_today.timestamp()
-    try:
-        target_weekday = WEEKDAY_NAMES.index(recurring_day)
-    except ValueError:
-        return midnight_today.timestamp()  # unrecognized value — treat like daily rather than crash
-    days_since = (now.weekday() - target_weekday) % 7
-    return (midnight_today - timedelta(days=days_since)).timestamp()
+        return True
+    today_name = WEEKDAY_NAMES[now.weekday()]
+    return today_name in _recurring_days_list(recurring_day)
+
+
+def _period_start_for_task(now: datetime) -> float:
+    """Epoch start of a recurring task's CURRENT period. Callers only ever
+    call this for a task already confirmed active today (see
+    _is_recurring_day_active_today) — daily, or today is one of the
+    task's designated days — so the period always simply starts at
+    midnight today; a completion at/after this moment means "already
+    done this period", anything before it is stale (last week's)."""
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
 
 
 def get_user_tasks_structured(user_id: str) -> list[dict]:
     """Structured task list for the HUD. One-time tasks: the usual
-    not-yet-completed list. Recurring tasks always appear — their
-    tasks.completed never flips to 1 — with an added 'done_this_period' flag
-    so the UI can show a checked box for "walked the dog today" without the
-    task disappearing tomorrow."""
+    not-yet-completed list. Recurring tasks appear only on their
+    designated day(s) — their tasks.completed never flips to 1 — with an
+    added 'done_this_period' flag so the UI can show a checked box for
+    "walked the dog today" without the task disappearing tomorrow."""
     now = datetime.now(LOCAL_TZ)
     tasks = users.get_user_tasks(user_id, include_completed=False)
+    visible = []
     for t in tasks:
         if t["recurring_day"]:
-            period_start = _period_start_for_task(t["recurring_day"], now)
+            if not _is_recurring_day_active_today(t["recurring_day"], now):
+                continue  # not one of this task's days — not shown today
+            period_start = _period_start_for_task(now)
             last_done = users.get_last_completion(t["id"])
             t["done_this_period"] = last_done is not None and last_done >= period_start
         else:
             t["done_this_period"] = False
-    return tasks
+        visible.append(t)
+    return visible
+
+
+_WEEKDAY_HEBREW = {
+    "Sunday": "ראשון", "Monday": "שני", "Tuesday": "שלישי", "Wednesday": "רביעי",
+    "Thursday": "חמישי", "Friday": "שישי", "Saturday": "שבת",
+}
 
 
 def request_add_task(user_id: str, text: str, recurring_day: str | None = None) -> str:
-    """Add a new task. recurring_day: a weekday name for a weekly task,
-    "daily" for an every-day task, or None for one-time."""
+    """Add a new task. recurring_day: "daily" for an every-day task, a
+    single weekday name for a weekly task, a comma-separated set of
+    weekday names for a task that only recurs on those specific days
+    (e.g. "Sunday,Monday" — walk the dog only on those two), or None for
+    one-time."""
     normalized = recurring_day.strip().lower() if recurring_day else None
     if normalized == RECURRING_DAILY:
         recurring_day = RECURRING_DAILY
     elif recurring_day:
-        # Accept any case ("wednesday", "Wednesday") — WEEKDAY_NAMES/reminder
-        # lookups below are case-sensitive, so normalize once here rather
-        # than at every call site.
-        matched = next((d for d in WEEKDAY_NAMES if d.lower() == normalized), None)
-        recurring_day = matched or recurring_day
+        # Accept any case/spacing ("wednesday, monday") — normalize every
+        # day in the set once here rather than at every call site.
+        matched_days = []
+        for raw in recurring_day.split(","):
+            raw = raw.strip().lower()
+            matched = next((d for d in WEEKDAY_NAMES if d.lower() == raw), None)
+            if matched and matched not in matched_days:
+                matched_days.append(matched)
+        recurring_day = ",".join(matched_days) if matched_days else recurring_day
 
     users.add_task(user_id, text, recurring_day=recurring_day)
 
-    # Weekly (not daily) tasks also get a proactive email reminder on their
-    # day — daily tasks don't, since a daily 9am email for something like
-    # "drink water" would be noise; the HUD's own task list is reminder
-    # enough for those.
+    # Weekly (not daily) tasks also get a proactive email reminder on
+    # each of their days — daily tasks don't, since a daily 9am email for
+    # something like "drink water" would be noise; the HUD's own task
+    # list is reminder enough for those.
     if recurring_day and recurring_day != RECURRING_DAILY:
-        try:
-            weekday = WEEKDAY_NAMES.index(recurring_day)
-            next_fire = next_weekday_occurrence(weekday, 9, 0)  # 9am default
-            recurrence = f"{weekday}:9:0"
-            users.add_reminder(user_id, f"Task: {text}", next_fire.timestamp(), recurrence,
-                             emoji="✓", flourish="זמן לביצוע המשימה!")
-        except (ValueError, IndexError):
-            pass  # invalid day name, task added but no reminder
+        for day_name in _recurring_days_list(recurring_day):
+            try:
+                weekday = WEEKDAY_NAMES.index(day_name)
+                next_fire = next_weekday_occurrence(weekday, 9, 0)  # 9am default
+                recurrence = f"{weekday}:9:0"
+                users.add_reminder(user_id, f"Task: {text}", next_fire.timestamp(), recurrence,
+                                 emoji="✓", flourish="זמן לביצוע המשימה!")
+            except (ValueError, IndexError):
+                pass  # invalid day name, task added but no reminder for that day
 
-    day_label = "כל יום" if recurring_day == RECURRING_DAILY else (f"כל {recurring_day}" if recurring_day else "")
+    if recurring_day == RECURRING_DAILY:
+        day_label = "כל יום"
+    elif recurring_day:
+        day_label = "כל " + ", ".join(_WEEKDAY_HEBREW.get(d, d) for d in _recurring_days_list(recurring_day))
+    else:
+        day_label = ""
     return f"✅ הוספתי לך משימה: {text}" + (f" {day_label}" if day_label else "")
 
 
@@ -871,8 +911,13 @@ def request_delete_task(user_id: str, task_id: int) -> str:
 
 
 def get_tasks_for_daily_briefing(user_id: str) -> str:
-    """Format tasks for the daily briefing — spoken list of incomplete tasks."""
-    tasks = users.get_user_tasks(user_id, include_completed=False)
+    """Format tasks for the daily briefing — spoken list of incomplete
+    tasks. Uses the same day-filtering as get_user_tasks_structured (not
+    a raw users.get_user_tasks call) so a "Sunday and Monday only" task
+    isn't read out on a Tuesday — this line literally says "your tasks
+    for today"."""
+    tasks = get_user_tasks_structured(user_id)
+    tasks = [t for t in tasks if not t["done_this_period"]]
     if not tasks:
         return ""
 
@@ -898,24 +943,28 @@ def get_task_stats(user_id: str) -> dict:
     per-window query here — bucket in Python instead."""
     now = datetime.now(LOCAL_TZ)
     midnight_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start = midnight_today - timedelta(days=now.weekday())  # Monday
-    chart_start = midnight_today - timedelta(days=6)  # 7-day chart window, oldest day
-    query_start = min(week_start, chart_start)
+    # The Hebrew/Israeli calendar week starts Sunday, not Monday — Python's
+    # now.weekday() is Monday=0..Sunday=6, so days-since-Sunday is
+    # (weekday+1) % 7. The chart below is this fixed Sun-Sat week (not a
+    # trailing 7-day window ending today), so "today" sits in a stable
+    # spot and the rest of the week reads as a real calendar row.
+    days_since_sunday = (now.weekday() + 1) % 7
+    week_start = midnight_today - timedelta(days=days_since_sunday)
 
-    timestamps = users.get_completion_timestamps_since(user_id, query_start.timestamp())
+    timestamps = users.get_completion_timestamps_since(user_id, week_start.timestamp())
 
     today_start_ts = midnight_today.timestamp()
     week_start_ts = week_start.timestamp()
     today_count = sum(1 for t in timestamps if t >= today_start_ts)
     week_count = sum(1 for t in timestamps if t >= week_start_ts)
 
-    hebrew_day_labels = ["ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳", "א׳"]  # Mon..Sun, matches now.weekday()
+    hebrew_day_labels = ["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"]  # Sunday..Saturday
     daily = []
-    for i in range(6, -1, -1):  # oldest to newest, last 7 days including today
-        day_start = (midnight_today - timedelta(days=i)).timestamp()
+    for i in range(7):  # Sunday through Saturday, left to right
+        day_start_dt = week_start + timedelta(days=i)
+        day_start = day_start_dt.timestamp()
         day_end = day_start + 86400
         count = sum(1 for t in timestamps if day_start <= t < day_end)
-        label = hebrew_day_labels[(midnight_today - timedelta(days=i)).weekday()]
-        daily.append({"label": label, "count": count, "is_today": i == 0})
+        daily.append({"label": hebrew_day_labels[i], "count": count, "is_today": day_start_dt.date() == midnight_today.date()})
 
     return {"today": today_count, "week": week_count, "daily": daily}

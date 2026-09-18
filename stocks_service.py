@@ -16,6 +16,8 @@ so a failure degrades to a clear error dict instead of a stack trace.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 import cert_bootstrap  # noqa: F401 — must run before any HTTPS-making import below
 import requests
@@ -46,7 +48,8 @@ def _resolve_symbol(query: str):
 def get_quote(query: str) -> dict:
     """Returns a data dict on success:
       {symbol, name, exchange, currency, price, change_today, change_today_pct,
-       change_week, change_week_pct, day_high, day_low, week_52_high, week_52_low}
+       change_week, change_week_pct, day_high, day_low, week_52_high, week_52_low,
+       closes, dates, volumes}
     or {"error": "..."} on failure — never raises, since this is called
     directly from a Flask route with no LLM in between to smooth over an
     unexpected shape."""
@@ -59,21 +62,51 @@ def get_quote(query: str) -> dict:
             return {"error": f"Couldn't find a ticker matching '{query}', sir."}
         symbol = match["symbol"]
 
+        # 1mo/1d (~22 trading days) instead of the previous 5d — the HUD's
+        # chart was legible but visibly sparse at 5 points; a month gives
+        # it an actual shape to trace without needing a paid/richer data
+        # source. Still one HTTP call, same free unofficial endpoint.
         res = requests.get(
             _CHART_URL.format(symbol=symbol),
-            params={"range": "5d", "interval": "1d"},
+            params={"range": "1mo", "interval": "1d"},
             headers=_HEADERS, timeout=6,
         )
         res.raise_for_status()
         result = res.json()["chart"]["result"][0]
         meta = result["meta"]
-        closes = [c for c in result["indicators"]["quote"][0]["close"] if c is not None]
-        if not closes:
+        raw_closes = result["indicators"]["quote"][0]["close"]
+        raw_volumes = result["indicators"]["quote"][0].get("volume") or [0] * len(raw_closes)
+        raw_timestamps = result.get("timestamp") or []
+        # Some days in range (holidays, or today before/during market
+        # hours) come back with a timestamp but a null close — keep only
+        # the pairs where both are real so dates and closes stay aligned
+        # (zipping first, then filtering, rather than filtering closes
+        # alone as before — that would silently desync the two arrays).
+        paired = [
+            (t, c, v) for t, c, v in zip(raw_timestamps, raw_closes, raw_volumes)
+            if c is not None
+        ]
+        if not paired:
             return {"error": f"No price data available for {symbol} right now, sir."}
+        closes = [c for _, c, _ in paired]
+        volumes = [v or 0 for _, _, v in paired]
+        dates = [
+            datetime.fromtimestamp(t, tz=timezone.utc).strftime("%d %b")
+            for t, _, _ in paired
+        ]
 
         price = meta.get("regularMarketPrice", closes[-1])
-        prev_close = meta.get("previousClose") or meta.get("chartPreviousClose") or closes[-1]
-        week_open = closes[0]
+        # meta's chartPreviousClose is NOT "yesterday's close" — it's the
+        # close right before whatever range was requested, so its value
+        # (and meaning) silently shifts with the range param: confirmed by
+        # querying the same symbol with range=5d vs range=1mo back to back
+        # and getting two different numbers back for it. previousClose
+        # (the field that would actually mean "yesterday") comes back
+        # None from this unofficial endpoint far more often than not. The
+        # one number guaranteed to mean "the trading day before today" is
+        # our own fetched daily series' second-to-last close.
+        prev_close = closes[-2] if len(closes) >= 2 else (meta.get("previousClose") or price)
+        week_open = closes[max(0, len(closes) - 5)]  # ~5 trading days back, not the full month's start
 
         change_today = price - prev_close
         change_week = price - week_open
@@ -92,9 +125,16 @@ def get_quote(query: str) -> dict:
             "day_low": round(meta.get("regularMarketDayLow", price), 2),
             "week_52_high": round(meta.get("fiftyTwoWeekHigh", 0) or 0, 2),
             "week_52_low": round(meta.get("fiftyTwoWeekLow", 0) or 0, 2),
-            # last up-to-5 daily closes, oldest first — lets the HUD draw a
-            # trend sparkline instead of just showing bare numbers.
+            # ~1 month of daily closes, oldest first — enough for the HUD
+            # to draw an actual trend chart instead of a 5-point sparkline.
             "closes": [round(c, 2) for c in closes],
+            # Parallel to closes — short "DD Mon" labels for the chart's
+            # own axis, computed here (not guessed client-side) since only
+            # the backend has the real trading-day timestamps.
+            "dates": dates,
+            # Parallel to closes — daily trading volume for the volume-bar
+            # subplot under the price chart.
+            "volumes": volumes,
         }
     except requests.RequestException as e:
         logger.warning(f"Stock quote fetch failed for '{query}': {e}")
@@ -113,31 +153,74 @@ def get_quote(query: str) -> dict:
 _MARKET_INDICES = [("^GSPC", "S&P 500"), ("^DJI", "Dow Jones"), ("^IXIC", "Nasdaq")]
 
 
+def _fetch_index_change(symbol: str):
+    """Returns (today_pct, week_pct) for one index, or None on failure.
+    Shared by get_market_summary() (spoken sentence) and
+    get_market_snapshot() (structured, for the stock panel's "vs the
+    market" card) so the previousClose fix below only has to be right
+    once."""
+    try:
+        res = requests.get(
+            _CHART_URL.format(symbol=requests.utils.quote(symbol, safe="")),
+            params={"range": "5d", "interval": "1d"},
+            headers=_HEADERS, timeout=6,
+        )
+        res.raise_for_status()
+        result = res.json()["chart"]["result"][0]
+        meta = result["meta"]
+        closes = [c for c in result["indicators"]["quote"][0]["close"] if c is not None]
+        if not closes:
+            return None
+        price = meta.get("regularMarketPrice", closes[-1])
+        # meta's chartPreviousClose means "close before this request's
+        # range", not "yesterday" — confirmed wrong here too (was showing
+        # S&P 500 -1.14% today against Yahoo's own -0.45%). closes[-2] is
+        # the actual prior trading day from our own fetched series.
+        prev_close = closes[-2] if len(closes) >= 2 else (meta.get("previousClose") or price)
+        week_open = closes[0]
+        today_pct = (price - prev_close) / prev_close * 100 if prev_close else 0
+        week_pct = (price - week_open) / week_open * 100 if week_open else 0
+        return today_pct, week_pct
+    except Exception as e:
+        logger.warning(f"Index fetch failed for {symbol}: {e}")
+        return None
+
+
+def _fetch_all_indices() -> list:
+    """Runs _fetch_index_change for all three indices concurrently — these
+    are three independent HTTPS calls to the same slow unofficial API, and
+    running them one after another (the original shape of this function)
+    meant every caller paid the sum of all three latencies (measured at
+    6.6s sequential vs ~2s in parallel) for what should cost only the
+    slowest single one. Returns [(label, (today_pct, week_pct) | None)]
+    in the same order as _MARKET_INDICES."""
+    with ThreadPoolExecutor(max_workers=len(_MARKET_INDICES)) as pool:
+        changes = list(pool.map(lambda pair: _fetch_index_change(pair[0]), _MARKET_INDICES))
+    return [(label, change) for (_, label), change in zip(_MARKET_INDICES, changes)]
+
+
 def get_market_summary() -> str:
     lines = []
-    for symbol, label in _MARKET_INDICES:
-        try:
-            res = requests.get(
-                _CHART_URL.format(symbol=requests.utils.quote(symbol, safe="")),
-                params={"range": "5d", "interval": "1d"},
-                headers=_HEADERS, timeout=6,
-            )
-            res.raise_for_status()
-            result = res.json()["chart"]["result"][0]
-            meta = result["meta"]
-            closes = [c for c in result["indicators"]["quote"][0]["close"] if c is not None]
-            if not closes:
-                continue
-            price = meta.get("regularMarketPrice", closes[-1])
-            prev_close = meta.get("previousClose") or meta.get("chartPreviousClose") or closes[-1]
-            week_open = closes[0]
-            today_pct = (price - prev_close) / prev_close * 100 if prev_close else 0
-            week_pct = (price - week_open) / week_open * 100 if week_open else 0
-            today_dir = "up" if today_pct >= 0 else "down"
-            week_dir = "up" if week_pct >= 0 else "down"
-            lines.append(f"{label} is {today_dir} {abs(today_pct):.1f}% today and {week_dir} {abs(week_pct):.1f}% this week")
-        except Exception as e:
-            logger.warning(f"Market summary fetch failed for {symbol}: {e}")
+    for label, change in _fetch_all_indices():
+        if change is None:
+            continue
+        today_pct, week_pct = change
+        today_dir = "up" if today_pct >= 0 else "down"
+        week_dir = "up" if week_pct >= 0 else "down"
+        lines.append(f"{label} is {today_dir} {abs(today_pct):.1f}% today and {week_dir} {abs(week_pct):.1f}% this week")
     if not lines:
         return "I couldn't reach the market data service right now, sir."
     return "Here's the market, sir: " + "; ".join(lines) + "."
+
+
+def get_market_snapshot() -> list:
+    """Structured version of get_market_summary() for the stock panel's
+    "today vs the market" card — same three indices, same numbers, shaped
+    for the UI to render as rows instead of a spoken sentence."""
+    out = []
+    for label, change in _fetch_all_indices():
+        if change is None:
+            continue
+        today_pct, week_pct = change
+        out.append({"label": label, "today_pct": round(today_pct, 2), "week_pct": round(week_pct, 2)})
+    return out

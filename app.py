@@ -1696,15 +1696,17 @@ TOOLS = [
             "description": (
                 "Add a new task to the to-do list. Can be a one-time task, "
                 "recurring every day (e.g., 'remind me to walk the dog every day'), "
-                "or recurring on a specific day of the week (e.g., 'throw trash every Wednesday'). "
-                "Set recurring_day to 'daily' for every day, or 'Monday', 'Tuesday', "
-                "'Wednesday', 'Thursday', 'Friday', 'Saturday', or 'Sunday' for weekly."
+                "or recurring on one or more specific days of the week (e.g., "
+                "'throw trash every Wednesday', or 'walk the dog on Sundays and Mondays' — "
+                "a task only recurs on the day(s) given, it won't show up on other days). "
+                "Set recurring_day to 'daily' for every day, a single day like 'Wednesday', "
+                "or a comma-separated list like 'Sunday,Monday' for specific days."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "What the task is"},
-                    "recurring_day": {"type": "string", "description": "'daily', or a day of week for weekly tasks, e.g. 'Wednesday' (optional)"},
+                    "recurring_day": {"type": "string", "description": "'daily', a single weekday ('Wednesday'), or a comma-separated set of weekdays ('Sunday,Monday') for tasks that only recur on those specific days (optional)"},
                 },
                 "required": ["text"],
             },
@@ -2917,6 +2919,16 @@ def stocks_quote():
     if not session.get("user_id"):
         return jsonify({"error": "Please sign in first, sir."})
     return jsonify(stocks_service.get_quote(request.args.get("q", "")))
+
+
+@app.route("/api/stocks/market")
+def stocks_market():
+    """Backs the stock panel's "vs the market" mini bar chart — structured
+    sibling of get_market_summary()'s spoken sentence, same three indices
+    and same numbers, fetched fresh per request like stocks_quote above."""
+    if not session.get("user_id"):
+        return jsonify({"error": "Please sign in first, sir."})
+    return jsonify(stocks_service.get_market_snapshot())
 
 
 @app.route("/api/agenda/week")

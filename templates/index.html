@@ -524,19 +524,33 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .task-stat-num{ font-family:var(--font-display); font-size:26px; font-weight:700; color:rgb(var(--accent-rgb)); text-shadow:0 0 10px rgba(var(--accent-rgb),.4); line-height:1.2; font-variant-numeric:tabular-nums; }
 .task-stat-label{ font-size:11px; color:var(--color-text-dim); margin-top:2px; }
 .task-stat-divider{ width:1px; height:34px; background:rgba(var(--accent-rgb),0.2); }
-.task-chart{ display:flex; align-items:flex-end; justify-content:space-between; gap:6px; height:64px; padding-top:4px; }
-.task-bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px; }
+.task-chart{ display:flex; align-items:flex-end; justify-content:space-between; gap:6px; height:64px; padding-top:4px; direction:ltr; }
+.task-bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px; padding-top:6px; border-radius:var(--radius-sm); position:relative; }
 .task-bar{ width:100%; max-width:22px; min-height:3px; border-radius:3px 3px 0 0; background:rgba(var(--accent-rgb),0.25); transition:height .3s ease; }
 .task-bar.has-count{ background:rgb(var(--accent-rgb)); box-shadow:0 0 6px rgba(var(--accent-rgb),.5); }
+/* "Today" needs to be unmistakable at a glance, not just a slightly
+   different label color — a filled pill behind the whole column plus a
+   small dot above it reads clearly even at this chart's small size. */
+.task-bar-col.is-today{ background:rgba(var(--accent-rgb),0.12); box-shadow:inset 0 0 0 1px rgba(var(--accent-rgb),0.35); }
+.task-bar-col.is-today::before{ content:''; position:absolute; top:-2px; width:4px; height:4px; border-radius:50%; background:rgb(var(--accent-rgb)); box-shadow:0 0 5px rgba(var(--accent-rgb),.8); }
 .task-bar-col.is-today .task-bar-label{ color:rgb(var(--accent-rgb)); font-weight:700; }
 .task-bar-label{ font-size:10px; color:var(--color-text-dim); }
 .task-input-row{ display:flex; gap:8px; padding:0 0 8px; }
-.task-input-row2{ display:flex; gap:8px; padding:0 0 16px; }
+.task-input-row2{ display:flex; gap:8px; padding:0 0 12px; }
 .task-input{ flex:1; min-width:0; background:rgba(0,0,0,0.5); border:var(--border-default); border-radius:var(--radius-pill); padding:10px 16px; color:var(--color-white); font-size:13px; }
 .task-input:focus{ outline:none; border-color:var(--color-cyan); box-shadow:0 0 10px rgba(var(--accent-rgb),.25); }
-.task-recurring-select{ flex-shrink:0; width:110px; background:rgba(0,0,0,0.5); border:var(--border-default); border-radius:var(--radius-pill); padding:10px 10px; color:var(--color-white); font-size:12.5px; }
-.task-recurring-select:focus{ outline:none; border-color:var(--color-cyan); }
 .task-add-btn-wide{ flex:1; border-radius:var(--radius-pill); background:var(--color-cyan); color:var(--color-bg); border:none; font-size:13px; font-weight:700; cursor:pointer; }
+/* Recurrence picker — replaces a single-choice <select> (couldn't express
+   "only Sunday and Monday") with independently toggleable day chips, so
+   any combination of weekdays is selectable, plus two mutually-exclusive
+   quick modes for the common cases. */
+.task-recur-picker{ margin-bottom:12px; }
+.task-recur-mode-row{ display:flex; gap:8px; margin-bottom:8px; }
+.task-recur-mode-chip{ flex:1; padding:8px 10px; border-radius:var(--radius-pill); background:rgba(0,0,0,0.5); border:var(--border-default); color:var(--color-text-dim); font-size:12px; font-weight:600; cursor:pointer; transition:all var(--ease-standard); }
+.task-recur-mode-chip.active{ background:var(--color-cyan-soft); border-color:var(--color-cyan); color:var(--color-white); }
+.task-recur-days-row{ display:flex; gap:5px; direction:ltr; }
+.task-recur-day-chip{ flex:1; padding:8px 0; border-radius:var(--radius-sm); background:rgba(0,0,0,0.5); border:var(--border-default); color:var(--color-text-dim); font-size:12px; font-weight:700; cursor:pointer; transition:all var(--ease-standard); }
+.task-recur-day-chip.active{ background:rgb(var(--accent-rgb)); border-color:rgb(var(--accent-rgb)); color:var(--color-bg); box-shadow:0 0 8px rgba(var(--accent-rgb),.5); }
 .task-add-btn-wide:hover{ opacity:0.8; }
 .task-card{ padding:14px 12px; border-radius:var(--radius-sm); background:rgba(0,255,136,0.04); border-bottom:1px solid rgba(0,255,136,0.15); display:flex; align-items:center; gap:12px; }
 .task-checkbox{ width:20px; height:20px; min-width:20px; cursor:pointer; }
@@ -613,21 +627,51 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .tool-search-row > div{ flex:1; position:relative; }
 .tool-search-row input{ width:100%; box-sizing:border-box; direction:ltr; text-align:right; background:var(--color-cyan-soft); border:1px solid rgba(var(--accent-rgb),0.25); border-radius:var(--radius-sm); padding:12px 34px 12px 12px; color:var(--color-white); font-size:14px; }
 .tool-search-btn{ padding:12px 20px; border-radius:var(--radius-sm); background:var(--color-cyan); color:var(--color-bg); font-weight:700; font-size:13.5px; cursor:pointer; font-family:var(--font-display); box-shadow:0 0 18px rgba(var(--accent-rgb),0.4); border:none; }
-.stock-card{ position:relative; padding:18px; background:var(--color-panel); border:1px solid rgba(var(--accent-rgb),0.3); border-radius:var(--radius-md); box-shadow:0 0 30px rgba(var(--accent-rgb),0.1); overflow:hidden; }
-.stock-live{ display:flex; align-items:center; gap:6px; margin-bottom:4px; }
+.stock-card{ position:relative; padding:20px 18px; background:var(--color-panel); border:1px solid rgba(var(--accent-rgb),0.3); border-radius:var(--radius-md); box-shadow:0 0 30px rgba(var(--accent-rgb),0.1); overflow:hidden; }
+.stock-live{ display:flex; align-items:center; gap:6px; margin-bottom:10px; }
 .stock-live .d{ width:6px; height:6px; border-radius:50%; background:var(--color-green); box-shadow:0 0 6px var(--color-green); animation:jm-blink 1.6s ease-in-out infinite; }
-.stock-live span:last-child{ font-family:var(--font-mono); font-size:10px; letter-spacing:.1em; color:var(--color-text-dim); }
-.stock-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; direction:ltr; }
-.stock-head .sym{ font-family:var(--font-display); font-size:19px; font-weight:700; color:var(--color-white); letter-spacing:.04em; }
-.stock-head .px{ font-size:26px; font-weight:800; color:var(--color-white); text-shadow:0 0 16px rgba(var(--accent-rgb),.5); }
-.stock-chips{ display:flex; gap:8px; margin-bottom:16px; }
+.stock-live span:last-child{ font-family:var(--font-mono); font-size:10px; letter-spacing:.15em; color:var(--color-text-dim); }
+.stock-head{ display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:4px; direction:ltr; }
+.stock-head .sym-block{ display:flex; flex-direction:column; gap:2px; }
+.stock-head .sym{ font-family:var(--font-display); font-size:20px; font-weight:700; color:var(--color-white); letter-spacing:.05em; }
+.stock-head .exch{ font-size:10.5px; color:var(--color-text-dim); letter-spacing:.03em; }
+.stock-head .px{ font-size:34px; font-weight:800; color:var(--color-white); text-shadow:0 0 20px rgba(var(--accent-rgb),.55); line-height:1; }
+/* The day's change is the headline number in the reference this was
+   modelled on (a solid-filled hero card, not just a small pill) — same
+   idea here, scaled to this card's size and kept in the app's existing
+   green/red semantic colors rather than introducing a new palette. */
+.stock-hero-change{ display:flex; align-items:center; justify-content:space-between; padding:11px 14px; border-radius:var(--radius-sm); margin:14px 0; direction:ltr; }
+.stock-hero-change.up{ background:linear-gradient(135deg, rgba(0,255,136,.16), rgba(0,255,136,.04)); border:1px solid rgba(0,255,136,.35); }
+.stock-hero-change.down{ background:linear-gradient(135deg, rgba(255,59,59,.16), rgba(255,59,59,.04)); border:1px solid rgba(255,59,59,.35); }
+.stock-hero-change .lbl{ font-size:10px; color:var(--color-text-dim); letter-spacing:.08em; text-transform:uppercase; }
+.stock-hero-change .amt{ font-size:17px; font-weight:800; }
+.stock-hero-change.up .amt{ color:#00ff88; }
+.stock-hero-change.down .amt{ color:#ff3b3b; }
+.stock-chips{ display:flex; gap:8px; margin-bottom:14px; }
 .stock-chip{ display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:var(--radius-pill); font-size:12px; font-weight:700; }
 .stock-chip.up{ background:rgba(0,255,136,0.14); color:#00ff88; border:1px solid rgba(0,255,136,0.4); }
 .stock-chip.down{ background:rgba(255,59,59,0.14); color:#ff3b3b; border:1px solid rgba(255,59,59,0.4); }
-.stock-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-.stock-stat{ padding:9px 11px; border-radius:var(--radius-sm); background:var(--color-cyan-soft); border:1px solid rgba(var(--accent-rgb),0.15); }
-.stock-stat .k{ font-size:10px; color:var(--color-text-dim); margin-bottom:2px; }
-.stock-stat .v{ font-size:13px; font-weight:700; color:var(--color-white); }
+.stock-chart-dates{ display:flex; justify-content:space-between; margin-top:-8px; margin-bottom:14px; font-size:10px; color:var(--color-text-dim); direction:ltr; }
+/* Where today's price sits between the day's (or 52-week's) low and high
+   — a real, commonly-used financial-UI pattern, and one entirely backed
+   by data the API already returns (day_low/day_high, week_52_low/high),
+   unlike a radar chart, which needs several comparable *dimensions* and
+   doesn't fit a single instrument's own price range. */
+.stock-range{ margin-bottom:14px; }
+.stock-range-lbl{ font-size:10px; color:var(--color-text-dim); margin-bottom:6px; letter-spacing:.04em; }
+.stock-range-track{ position:relative; height:5px; border-radius:3px; background:rgba(var(--accent-rgb),0.14); }
+.stock-range-fill{ position:absolute; top:0; bottom:0; left:0; border-radius:3px; background:linear-gradient(90deg, rgba(var(--accent-rgb),.25), rgba(var(--accent-rgb),.6)); }
+.stock-range-marker{ position:absolute; top:50%; width:11px; height:11px; border-radius:50%; background:var(--color-white); box-shadow:0 0 8px 2px rgba(var(--accent-rgb),.8), 0 0 0 2px rgba(2,8,19,0.9); transform:translate(-50%,-50%); }
+.stock-range-vals{ display:flex; justify-content:space-between; margin-top:6px; font-size:10.5px; font-weight:600; color:var(--color-text-dim); direction:ltr; }
+.stock-range:last-of-type{ margin-bottom:0; }
+.market-compare-card{ margin-top:10px; padding:16px 16px 14px; background:var(--color-panel); border:1px solid rgba(var(--accent-rgb),0.22); border-radius:var(--radius-md); }
+.market-compare-title{ font-size:11px; color:var(--color-text-dim); letter-spacing:.05em; margin-bottom:6px; }
+.market-bar-cols{ display:flex; justify-content:space-between; margin-top:8px; direction:ltr; }
+.market-bar-col{ display:flex; flex-direction:column; align-items:center; gap:3px; flex:1; }
+.market-bar-col .lbl{ font-size:10px; color:var(--color-text-dim); }
+.market-bar-col .val{ font-size:12.5px; font-weight:700; direction:ltr; }
+.market-bar-col .val.up{ color:#00ff88; }
+.market-bar-col .val.down{ color:#ff3b3b; }
 .qa-answer-box{ margin-top:14px; padding:14px; background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-sm); font-size:13.5px; color:var(--color-white); line-height:1.7; display:none; }
 .qa-answer-box.show{ display:block; }
 .qa-submit-btn{ text-align:center; padding:14px; border-radius:var(--radius-sm); background:var(--color-cyan-soft); border:1px solid rgba(var(--accent-rgb),0.4); font-size:13.5px; font-weight:700; color:var(--color-white); cursor:pointer; font-family:var(--font-display); }
@@ -915,7 +959,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
                 <input class="input-field" id="reminder-time-input" value="09:00">
               </div>
               <div style="font-size:11.5px; color:var(--color-text-dim); margin:6px 0 10px;">לתזכורת קבועה (כל שבוע) — תגיד/תכתוב לג'רוויס למשל "כל יום רביעי ב-15:00 תזכיר לי לצאת עם הכלבה".</div>
-              <div class="submit-block" onclick="submitReminder()">קבע תזכורת · תישלח במייל</div>
+              <div class="submit-block" id="reminder-submit-btn" onclick="submitReminder()">קבע תזכורת · תישלח במייל</div>
             </div>
 
             <div class="hud-panel">
@@ -955,18 +999,22 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="task-input-row">
               <input type="text" id="task-input" placeholder="הוסף משימה..." class="task-input" />
             </div>
+            <div class="task-recur-picker" id="task-recur-picker">
+              <div class="task-recur-mode-row">
+                <button type="button" class="task-recur-mode-chip active" data-mode="none" onclick="setTaskRecurMode('none')">חד פעמי</button>
+                <button type="button" class="task-recur-mode-chip" data-mode="daily" onclick="setTaskRecurMode('daily')">כל יום</button>
+              </div>
+              <div class="task-recur-days-row">
+                <button type="button" class="task-recur-day-chip" data-day="Sunday" onclick="toggleTaskRecurDay('Sunday')">א'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Monday" onclick="toggleTaskRecurDay('Monday')">ב'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Tuesday" onclick="toggleTaskRecurDay('Tuesday')">ג'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Wednesday" onclick="toggleTaskRecurDay('Wednesday')">ד'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Thursday" onclick="toggleTaskRecurDay('Thursday')">ה'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Friday" onclick="toggleTaskRecurDay('Friday')">ו'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Saturday" onclick="toggleTaskRecurDay('Saturday')">ש'</button>
+              </div>
+            </div>
             <div class="task-input-row2">
-              <select id="task-recurring-select" class="task-recurring-select">
-                <option value="">חד פעמי</option>
-                <option value="daily">כל יום</option>
-                <option value="Sunday">כל ראשון</option>
-                <option value="Monday">כל שני</option>
-                <option value="Tuesday">כל שלישי</option>
-                <option value="Wednesday">כל רביעי</option>
-                <option value="Thursday">כל חמישי</option>
-                <option value="Friday">כל שישי</option>
-                <option value="Saturday">כל שבת</option>
-              </select>
               <button onclick="addTaskFromInput()" class="task-add-btn-wide">הוסף משימה</button>
             </div>
             <div id="tasks-list"><div class="events-empty">אין לך משימות, sir.</div></div>
@@ -4478,52 +4526,167 @@ async function searchStock(){
     stockSearchBusy = true;
     const box = $('stock-result');
     box.innerHTML = '<div class="events-empty">מחפש…</div>';
-    let data;
-    try {
-        const res = await fetch(`/api/stocks/quote?q=${encodeURIComponent(q)}`);
-        data = await res.json();
-    } catch (e) { box.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>'; stockSearchBusy = false; return; }
+    // Quote and market-snapshot are fetched together but handled
+    // independently — the market comparison card is a nice-to-have; if
+    // that request fails the individual quote should still render fine
+    // without it, so allSettled rather than Promise.all/one try-block.
+    const [quoteResult, marketResult] = await Promise.allSettled([
+        fetch(`/api/stocks/quote?q=${encodeURIComponent(q)}`).then(r => r.json()),
+        fetch('/api/stocks/market').then(r => r.json()),
+    ]);
     stockSearchBusy = false;
+    if (quoteResult.status !== 'fulfilled') { box.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>'; return; }
+    const data = quoteResult.value;
     if (data.error) { box.innerHTML = `<div class="events-empty" dir="auto">${escapeHtml(data.error)}</div>`; return; }
+    const marketSnapshot = (marketResult.status === 'fulfilled' && Array.isArray(marketResult.value)) ? marketResult.value : [];
+
     const upToday = data.change_today >= 0, upWeek = data.change_week >= 0;
-    const chartColor = upWeek ? '#00ff88' : '#ff3b3b';
-    const svg = buildStockSparkline(data.closes, chartColor);
+    const chartColor = upToday ? '#00ff88' : '#ff3b3b';
+    const svg = buildStockSparkline(data.closes, data.volumes, chartColor);
+    const dates = data.dates || [];
     box.innerHTML = `
         <div class="stock-card">
             <div class="stock-live"><div class="d"></div><span>LIVE QUOTE</span></div>
-            <div class="stock-head"><div class="sym">${escapeHtml(data.symbol)}</div><div class="px">$${data.price}</div></div>
-            <div class="stock-chips">
-                <span class="stock-chip ${upToday ? 'up' : 'down'}">${upToday ? '▲' : '▼'} היום ${Math.abs(data.change_today)} (${Math.abs(data.change_today_pct)}%)</span>
-                <span class="stock-chip ${upWeek ? 'up' : 'down'}">${upWeek ? '▲' : '▼'} השבוע ${Math.abs(data.change_week)} (${Math.abs(data.change_week_pct)}%)</span>
+            <div class="stock-head">
+                <div class="sym-block"><div class="sym">${escapeHtml(data.symbol)}</div><div class="exch">${escapeHtml(data.name)}</div></div>
+                <div class="px">$${data.price}</div>
+            </div>
+            <div class="stock-hero-change ${upToday ? 'up' : 'down'}">
+                <span class="lbl">שינוי היום</span>
+                <span class="amt">${upToday ? '▲' : '▼'} $${Math.abs(data.change_today)} · ${Math.abs(data.change_today_pct)}%</span>
             </div>
             ${svg}
-            <div class="stock-grid">
-                <div class="stock-stat"><div class="k">שפל היום</div><div class="v">$${data.day_low}</div></div>
-                <div class="stock-stat"><div class="k">גבוה היום</div><div class="v">$${data.day_high}</div></div>
-                <div class="stock-stat"><div class="k">שפל 52ש</div><div class="v">$${data.week_52_low}</div></div>
-                <div class="stock-stat"><div class="k">גבוה 52ש</div><div class="v">$${data.week_52_high}</div></div>
+            ${dates.length > 1 ? `<div class="stock-chart-dates"><span>${escapeHtml(dates[0])}</span><span>${escapeHtml(dates[dates.length - 1])}</span></div>` : ''}
+            <div class="stock-chips">
+                <span class="stock-chip ${upWeek ? 'up' : 'down'}">${upWeek ? '▲' : '▼'} השבוע $${Math.abs(data.change_week)} (${Math.abs(data.change_week_pct)}%)</span>
             </div>
+            ${buildRangeBar('טווח היום', data.day_low, data.day_high, data.price, chartColor)}
+            ${buildRangeBar('טווח 52 שבועות', data.week_52_low, data.week_52_high, data.price, chartColor)}
         </div>
+        ${buildMarketCompareCard(marketSnapshot)}
         <div style="margin-top:8px;font-size:11.5px;color:var(--color-text-dim);">${escapeHtml(data.name)} · ${escapeHtml(data.exchange)} · ${escapeHtml(data.currency)}</div>`;
 }
-function buildStockSparkline(closes, color){
+/* A small diverging bar chart comparing today's % move across the three
+   major indices — a distinct chart style from the price line and volume
+   bars above it (categorical comparison across indices, not a time
+   series), the same way the reference dashboard gave each metric its own
+   chart type rather than reusing one style everywhere. */
+function buildMarketCompareCard(snapshot){
+    if (!snapshot || snapshot.length === 0) return '';
+    const cols = snapshot.map(s => {
+        const up = s.today_pct >= 0;
+        return `<div class="market-bar-col"><span class="lbl">${escapeHtml(s.label)}</span><span class="val ${up ? 'up' : 'down'}">${up ? '▲' : '▼'} ${Math.abs(s.today_pct)}%</span></div>`;
+    }).join('');
+    return `<div class="market-compare-card">
+        <div class="market-compare-title">מול השוק היום</div>
+        ${buildMarketBarChart(snapshot)}
+        <div class="market-bar-cols">${cols}</div>
+    </div>`;
+}
+function buildMarketBarChart(snapshot){
+    const w = 242, h = 66, pad = 6;
+    const plotH = h - pad * 2;
+    const zeroY = pad + plotH / 2;
+    const maxAbs = Math.max(...snapshot.map(s => Math.abs(s.today_pct)), 0.5);
+    const n = snapshot.length;
+    const slotW = w / n;
+    const barW = Math.min(34, slotW * 0.4);
+    const bars = snapshot.map((s, i) => {
+        const cx = slotW * i + slotW / 2;
+        const barH = Math.max((Math.abs(s.today_pct) / maxAbs) * (plotH / 2), 1);
+        const up = s.today_pct >= 0;
+        const y = up ? zeroY - barH : zeroY;
+        const color = up ? '#00ff88' : '#ff3b3b';
+        return `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" fill="${color}" opacity="0.85" style="filter:drop-shadow(0 0 4px ${color});"/>`;
+    }).join('');
+    return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block;overflow:visible;">
+        <line x1="0" y1="${zeroY.toFixed(1)}" x2="${w}" y2="${zeroY.toFixed(1)}" style="stroke:rgba(var(--accent-rgb),0.18)" stroke-width="1"/>
+        ${bars}
+    </svg>`;
+}
+function buildStockSparkline(closes, volumes, color){
     if (!closes || closes.length < 2) return '';
-    const w = 242, h = 60, pad = 4;
+    const w = 242, pad = 4;
+    // Two stacked plots sharing one x-axis (same convention as any real
+    // trading chart): price on top, daily volume bars underneath.
+    const PRICE_H = 54, GAP = 9, VOL_H = 22;
+    const h = pad + PRICE_H + GAP + VOL_H + pad;
+    const priceTop = pad, priceBottom = pad + PRICE_H;
+    const volTop = priceBottom + GAP, volBottom = volTop + VOL_H;
+    const xAt = i => pad + (i / (closes.length - 1)) * (w - pad * 2);
+
     const min = Math.min(...closes), max = Math.max(...closes), range = (max - min) || 1;
-    const pts = closes.map((c, i) => [pad + (i / (closes.length - 1)) * (w - pad * 2), h - pad - ((c - min) / range) * (h - pad * 2)]);
-    const chartPoints = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-    const areaPoints = `${pad},${h - pad} ${chartPoints} ${w - pad},${h - pad}`;
+    const pts = closes.map((c, i) => [xAt(i), priceBottom - ((c - min) / range) * PRICE_H]);
+    // Smoothed through a Catmull-Rom-to-Bezier conversion instead of
+    // straight polyline segments — with ~21 points (a month of trading
+    // days, up from the previous 5) sharp linear joints between them
+    // started looking like a jagged EKG rather than a trend; a curve
+    // reads as "price trend" the way a real financial chart does.
+    function smoothPath(points){
+        if (points.length < 3) return `M${points.map(p => p.join(',')).join('L')}`;
+        let d = `M${points[0][0].toFixed(1)},${points[0][1].toFixed(1)}`;
+        for (let i = 0; i < points.length - 1; i++){
+            const p0 = points[i - 1] || points[i];
+            const p1 = points[i];
+            const p2 = points[i + 1];
+            const p3 = points[i + 2] || p2;
+            const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+            const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+            d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+        }
+        return d;
+    }
+    const linePath = smoothPath(pts);
+    const areaPath = `${linePath} L${(w - pad).toFixed(1)},${priceBottom.toFixed(1)} L${pad.toFixed(1)},${priceBottom.toFixed(1)} Z`;
     const last = pts[pts.length - 1];
     const gradId = 'sg' + Date.now();
-    return `<svg width="100%" height="72" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block;margin-bottom:14px;overflow:visible;">
+
+    // Volume bars, colored per day's direction vs. the previous close —
+    // the same green/red convention every real trading chart uses —
+    // muted so they read as context under the price line, not compete
+    // with it. Falls back to a flat gray strip if volume data is missing
+    // rather than skipping the subplot and shifting everything above it.
+    let volBars = '';
+    if (volumes && volumes.length === closes.length) {
+        const maxVol = Math.max(...volumes, 1);
+        const barW = Math.max(1.5, ((w - pad * 2) / closes.length) * 0.55);
+        volBars = volumes.map((v, i) => {
+            const barH = Math.max((v / maxVol) * VOL_H, 1);
+            const barColor = i === 0 ? 'rgba(255,255,255,0.3)' : (closes[i] >= closes[i - 1] ? '#00ff88' : '#ff3b3b');
+            return `<rect x="${(xAt(i) - barW / 2).toFixed(1)}" y="${(volBottom - barH).toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${barColor}" opacity="0.55" rx="0.5"/>`;
+        }).join('');
+    }
+
+    return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block;margin-bottom:10px;overflow:visible;">
         <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.35"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
-        <line x1="0" y1="15" x2="${w}" y2="15" style="stroke:rgba(var(--accent-rgb),0.1)" stroke-width="1"/>
-        <line x1="0" y1="30" x2="${w}" y2="30" style="stroke:rgba(var(--accent-rgb),0.1)" stroke-width="1"/>
-        <line x1="0" y1="45" x2="${w}" y2="45" style="stroke:rgba(var(--accent-rgb),0.1)" stroke-width="1"/>
-        <polygon points="${areaPoints}" fill="url(#${gradId})"/>
-        <polyline points="${chartPoints}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" style="filter:drop-shadow(0 0 5px ${color});"/>
+        <line x1="0" y1="${(priceTop + PRICE_H * 0.25).toFixed(1)}" x2="${w}" y2="${(priceTop + PRICE_H * 0.25).toFixed(1)}" style="stroke:rgba(var(--accent-rgb),0.1)" stroke-width="1"/>
+        <line x1="0" y1="${(priceTop + PRICE_H * 0.5).toFixed(1)}" x2="${w}" y2="${(priceTop + PRICE_H * 0.5).toFixed(1)}" style="stroke:rgba(var(--accent-rgb),0.1)" stroke-width="1"/>
+        <line x1="0" y1="${(priceTop + PRICE_H * 0.75).toFixed(1)}" x2="${w}" y2="${(priceTop + PRICE_H * 0.75).toFixed(1)}" style="stroke:rgba(var(--accent-rgb),0.1)" stroke-width="1"/>
+        <path d="${areaPath}" fill="url(#${gradId})"/>
+        <path d="${linePath}" fill="none" stroke="${color}" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round" style="filter:drop-shadow(0 0 5px ${color});"/>
         <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="4" fill="${color}" style="filter:drop-shadow(0 0 6px ${color});"/>
+        <line x1="0" y1="${volTop.toFixed(1)}" x2="${w}" y2="${volTop.toFixed(1)}" style="stroke:rgba(var(--accent-rgb),0.08)" stroke-width="1"/>
+        ${volBars}
     </svg>`;
+}
+/* A position-in-range indicator — a common, genuinely useful financial-UI
+   element (where does today's price sit between its low and high) built
+   entirely from data the API already returns. Deliberately NOT a radar/
+   polygon chart: those compare several distinct dimensions of one thing,
+   and a single instrument's own price only has one dimension (value over
+   time) — a radar here would just be decoration with nothing real to
+   plot on its other axes. */
+function buildRangeBar(label, low, high, current, color){
+    if (low == null || high == null || high <= low) return '';
+    const pct = Math.max(0, Math.min(100, ((current - low) / (high - low)) * 100));
+    return `<div class="stock-range">
+        <div class="stock-range-lbl">${escapeHtml(label)}</div>
+        <div class="stock-range-track">
+            <div class="stock-range-fill" style="width:${pct.toFixed(1)}%"></div>
+            <div class="stock-range-marker" style="left:${pct.toFixed(1)}%;background:${color};"></div>
+        </div>
+        <div class="stock-range-vals"><span>$${low}</span><span>$${high}</span></div>
+    </div>`;
 }
 
 let qaBusy = false;
@@ -5104,6 +5267,12 @@ function markPushEnabledUi(){
     const status = $('push-status-text'), btn = $('push-enable-btn');
     if (status) status.innerText = 'התראות פעילות בדפדפן/מכשיר הזה. ✓';
     if (btn) btn.style.display = 'none';
+    // daily_briefing.py delivers by push instead of email once a
+    // subscription exists (see its has_push check) — the reminder modal's
+    // own label should say so, not keep promising email once that's no
+    // longer the actual delivery channel.
+    const reminderBtn = $('reminder-submit-btn');
+    if (reminderBtn) reminderBtn.textContent = 'קבע תזכורת · תישלח בהתראה';
 }
 
 /* Silent re-registration, run on every load once signed in. This is what
@@ -6058,6 +6227,18 @@ const RECURRING_DAY_LABELS = {
     daily: 'כל יום', Sunday: 'כל ראשון', Monday: 'כל שני', Tuesday: 'כל שלישי',
     Wednesday: 'כל רביעי', Thursday: 'כל חמישי', Friday: 'כל שישי', Saturday: 'כל שבת',
 };
+// Single-letter form, for a compact badge when a task recurs on more
+// than one specific day ("Sunday,Monday" -> "א׳, ב׳") — the full
+// RECURRING_DAY_LABELS phrasing only reads naturally for exactly one day.
+const RECURRING_DAY_SHORT = {
+    Sunday: 'א׳', Monday: 'ב׳', Tuesday: 'ג׳', Wednesday: 'ד׳', Thursday: 'ה׳', Friday: 'ו׳', Saturday: 'ש׳',
+};
+function recurringDayBadgeText(recurring_day){
+    if (recurring_day === 'daily') return RECURRING_DAY_LABELS.daily;
+    const days = recurring_day.split(',').map(d => d.trim()).filter(Boolean);
+    if (days.length <= 1) return RECURRING_DAY_LABELS[recurring_day] || recurring_day;
+    return 'כל ' + days.map(d => RECURRING_DAY_SHORT[d] || d).join(', ');
+}
 async function loadTasksTab(){
     const list = $('tasks-list');
     list.innerHTML = '<div class="events-empty">טוען…</div>';
@@ -6102,7 +6283,7 @@ function renderTasksList(){
         body.appendChild(text);
         if (t.recurring_day) {
             const badge = el('span','task-recurring-badge');
-            badge.textContent = RECURRING_DAY_LABELS[t.recurring_day] || t.recurring_day;
+            badge.textContent = recurringDayBadgeText(t.recurring_day);
             body.appendChild(badge);
         }
 
@@ -6114,13 +6295,43 @@ function renderTasksList(){
         list.appendChild(card);
     });
 }
+// Recurrence picker state — 'none'/'daily' are mutually exclusive with a
+// set of specific days (toggling any day chip switches mode to 'days');
+// picking a day doesn't require picking exactly one, unlike the <select>
+// this replaced, which is the whole point — "Sunday and Monday only".
+let taskRecurMode = 'none';
+let taskRecurDays = new Set();
+function setTaskRecurMode(mode){
+    taskRecurMode = mode;
+    taskRecurDays.clear();
+    updateTaskRecurUI();
+}
+function toggleTaskRecurDay(day){
+    if (taskRecurDays.has(day)) taskRecurDays.delete(day); else taskRecurDays.add(day);
+    taskRecurMode = taskRecurDays.size > 0 ? 'days' : 'none';
+    updateTaskRecurUI();
+}
+function updateTaskRecurUI(){
+    document.querySelectorAll('.task-recur-mode-chip').forEach(elm => elm.classList.toggle('active', elm.dataset.mode === taskRecurMode));
+    document.querySelectorAll('.task-recur-day-chip').forEach(elm => elm.classList.toggle('active', taskRecurDays.has(elm.dataset.day)));
+}
+function getTaskRecurringValue(){
+    if (taskRecurMode === 'daily') return 'daily';
+    if (taskRecurDays.size > 0) return [...taskRecurDays].join(',');
+    return null;
+}
+function resetTaskRecurPicker(){
+    taskRecurMode = 'none';
+    taskRecurDays.clear();
+    updateTaskRecurUI();
+}
 async function addTaskFromInput(){
     const input = $('task-input');
     const text = input.value.trim();
     if (!text) return;
-    const recurring_day = $('task-recurring-select').value || null;
+    const recurring_day = getTaskRecurringValue();
     input.value = '';
-    $('task-recurring-select').value = '';
+    resetTaskRecurPicker();
     try {
         const res = await fetch('/api/tasks', {
             method: 'POST',
