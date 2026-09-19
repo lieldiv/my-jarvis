@@ -11,9 +11,12 @@ all support a small persistent-disk SQLite file for a project at this scale
 from __future__ import annotations  # PEP 604 `X | None` hints, running on Python 3.9
 
 import logging
+import multiprocessing
 import os
 import sqlite3
+import threading
 import time
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 
 logger = logging.getLogger("jarvis.users")
@@ -32,6 +35,87 @@ TURSO_CONFIGURED = bool(TURSO_URL and TURSO_AUTH_TOKEN)
 
 if TURSO_CONFIGURED:
     import libsql
+
+# libsql.connect() is LAZY — confirmed directly by connecting to a
+# deliberately unreachable address and timing it: connect() returns in
+# ~0.02s every time, network or not, because it doesn't open a socket at
+# all until the first real query. The actual network hang happens on the
+# first .execute() call, and its own `timeout=` kwarg (mirroring
+# sqlite3's) is a LOCK-WAIT timeout, not a network one, so it does nothing
+# for this. A wrapper around connect() (the previous version of this file)
+# therefore protected nothing — connect() was never the slow part.
+#
+# Worse: that first .execute() hang can't be bounded from another THREAD
+# either. Proven directly: a ticker thread printing once a second froze
+# for the entire ~21s (Windows) stall alongside a ThreadPoolExecutor's own
+# `future.result(timeout=5)`, which should have returned at 5s but instead
+# blocked for the full ~21s too. libsql's native (Rust) code holds the GIL
+# for the whole blocking network call, so nothing else in the same
+# process — including the mechanism meant to time it out — can run until
+# it finishes. On Render's Linux, that OS-level stall can run past two
+# minutes, longer than gunicorn's own --timeout 120: exactly what
+# happened in production (WORKER TIMEOUT -> SIGKILL in the service logs),
+# because one stuck thread holding the GIL freezes every other thread on
+# that worker too, not just its own request.
+#
+# A SEPARATE PROCESS is the only thing that actually works, because the
+# parent-child boundary is OS-level (a pipe), not GIL-bound — proven
+# directly: a ProcessPoolExecutor future's `.result(timeout=N)` returned
+# in exactly N seconds even while its child process was still stuck deep
+# in the same ~21s network stall, and the parent was immediately free to
+# do other work. This is used here as a circuit breaker, not to run every
+# query (that would mean a fresh process + fresh connection per query,
+# which is both slow and a much larger rewrite of every call site below):
+# a cheap SELECT 1 probe, run in a throwaway process with a hard timeout,
+# decides whether Turso gets used at all for the next
+# _TURSO_HEALTHY_TTL_SECONDS. When it's down, every request for the next
+# _TURSO_COOLDOWN_SECONDS skips Turso entirely and falls back to local
+# sqlite (the same degrade path already used when Turso isn't configured)
+# instead of ever touching the risky unprotected .execute() path. This
+# doesn't reach zero risk — a request that lands in the few seconds
+# between a fresh "healthy" verdict and an outage starting still goes
+# through the unprotected direct connection below and can still hang —
+# but it turns "every single request hangs and repeatedly SIGKILLs the
+# worker for as long as the outage lasts" into "at most one bad request
+# at the moment an outage begins."
+_TURSO_PROBE_TIMEOUT_SECONDS = 5
+_TURSO_HEALTHY_TTL_SECONDS = 30
+_TURSO_COOLDOWN_SECONDS = 30
+_turso_probe_pool = ProcessPoolExecutor(max_workers=2) if TURSO_CONFIGURED else None
+_turso_status_lock = threading.Lock()
+_turso_healthy_until = 0.0
+_turso_down_until = 0.0
+
+
+def _turso_probe(url, token):
+    """Runs in a throwaway child process — must stay a plain top-level
+    function (picklable) and return only plain data, never a Connection."""
+    import libsql as _libsql
+    conn = _libsql.connect(database=url, auth_token=token)
+    conn.execute("SELECT 1").fetchone()
+    return True
+
+
+def _turso_reachable() -> bool:
+    global _turso_healthy_until, _turso_down_until
+    now = time.monotonic()
+    with _turso_status_lock:
+        if now < _turso_healthy_until:
+            return True
+        if now < _turso_down_until:
+            return False
+    try:
+        future = _turso_probe_pool.submit(_turso_probe, TURSO_URL, TURSO_AUTH_TOKEN)
+        future.result(timeout=_TURSO_PROBE_TIMEOUT_SECONDS)
+        healthy = True
+    except Exception:
+        healthy = False
+    with _turso_status_lock:
+        if healthy:
+            _turso_healthy_until = time.monotonic() + _TURSO_HEALTHY_TTL_SECONDS
+        else:
+            _turso_down_until = time.monotonic() + _TURSO_COOLDOWN_SECONDS
+    return healthy
 
 
 def _init_db():
@@ -162,13 +246,16 @@ def _init_db():
 
 @contextmanager
 def _connect():
-    if TURSO_CONFIGURED:
+    if TURSO_CONFIGURED and _turso_reachable():
         # Remote HTTP connection — no local file, so no lock-contention
         # timeout or journal-mode PRAGMA applies (those are local-file
         # SQLite concepts; Turso's server handles concurrency itself).
         # libsql.Connection implements the same .execute/.commit/.close
         # DB-API surface as sqlite3.Connection, so every query elsewhere
-        # in this file works unchanged.
+        # in this file works unchanged. connect() itself is safe to call
+        # directly (proven lazy/instant even when Turso is unreachable —
+        # see _turso_reachable()'s comment above); _turso_reachable()
+        # already did the actual risk-bounded check.
         conn = libsql.connect(database=TURSO_URL, auth_token=TURSO_AUTH_TOKEN)
     else:
         # timeout=10: how long a call waits for a lock held by another thread
@@ -515,4 +602,17 @@ def get_completion_timestamps_since(user_id: str, since: float) -> list[float]:
     return [r[0] for r in onetime] + [r[0] for r in recurring]
 
 
-_init_db()
+# Guarded: a ProcessPoolExecutor worker (see _turso_probe_pool above) that
+# starts via 'spawn' or 'forkserver' has to re-import this module from
+# scratch to unpickle _turso_probe, which would otherwise re-run every
+# top-level statement here including this call -- which would submit
+# another probe from inside the fresh child, spawning a grandchild, and
+# so on forever. Proven directly: an early version without this guard
+# forked itself into 15+ runaway python.exe processes within seconds on
+# this machine. multiprocessing.current_process().name is only
+# "MainProcess" in the real application process, never inside a pool
+# worker (regardless of fork/spawn/forkserver), so this is safe on every
+# platform/start-method combination, not just the one this happened to be
+# tested under.
+if multiprocessing.current_process().name == "MainProcess":
+    _init_db()
