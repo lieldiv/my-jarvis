@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 import google_service
 import microsoft_service
+import push_service
 import users
 from guardrails import request_confirmation, get_pending_meta, update_pending, update_pending_meta
 
@@ -602,6 +603,18 @@ def edit_pending_email(token: str, to: str, subject: str, body: str, attachments
     }
 
 
+def _reminder_delivery_label(user_id: str) -> str:
+    """Matches daily_briefing.py's own has_push check exactly, so the
+    confirmation a user hears right away says the same thing that will
+    actually happen at delivery time. Previously hardcoded to always claim
+    email, even for a user with push enabled and working (confirmed
+    directly: their push test succeeded, but every new reminder still said
+    "יישלח לך דוא"ל" — a real user saw this and reasonably read it as the
+    feature being broken, when only the wording was wrong)."""
+    has_push = push_service.CONFIGURED and bool(users.get_push_subscriptions(user_id))
+    return "תישלח לך בהתראה." if has_push else "תישלח לך דוא״ל."
+
+
 def request_set_reminder(user_id: str, text: str, remind_at_iso: str,
                          emoji: str = "", flourish: str = "") -> dict:
     """Reminders don't go through the confirm-to-act gate that calendar
@@ -628,7 +641,7 @@ def request_set_reminder(user_id: str, text: str, remind_at_iso: str,
     # Hebrew formatted date
     hebrew_weekday = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"][dt_local.weekday()]
     when_label = f"{hebrew_weekday}, {dt_local.day}.{dt_local.month} בשעה {dt_local.hour:02d}:{dt_local.minute:02d}"
-    return {"status": "ok", "message": f"✅ הוספתי לך תזכורת: {text} ב-{when_label}. תישלח לך דוא״ל."}
+    return {"status": "ok", "message": f"✅ הוספתי לך תזכורת: {text} ב-{when_label}. {_reminder_delivery_label(user_id)}"}
 
 
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -667,9 +680,10 @@ def request_set_recurring_reminder(user_id: str, text: str, weekday: int, hour: 
                        emoji=emoji, flourish=flourish)
     # Weekday name in Hebrew for the response
     hebrew_weekday = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"][weekday]
+    delivery = _reminder_delivery_label(user_id).rstrip(".")
     return {
         "status": "ok",
-        "message": f"✅ הוספתי לך תזכורת קבועה: {text} כל {hebrew_weekday} בשעה {hour:02d}:{minute:02d}. תישלח לך דוא״ל בכל פעם.",
+        "message": f"✅ הוספתי לך תזכורת קבועה: {text} כל {hebrew_weekday} בשעה {hour:02d}:{minute:02d}. {delivery} בכל פעם.",
     }
 
 
