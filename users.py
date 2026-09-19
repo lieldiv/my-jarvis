@@ -81,7 +81,30 @@ if TURSO_CONFIGURED:
 _TURSO_PROBE_TIMEOUT_SECONDS = 5
 _TURSO_HEALTHY_TTL_SECONDS = 30
 _TURSO_COOLDOWN_SECONDS = 30
-_turso_probe_pool = ProcessPoolExecutor(max_workers=2) if TURSO_CONFIGURED else None
+# mp_context is forced to 'spawn', not left at the platform default. On
+# Linux that default is 'fork', which duplicates the CURRENT process --
+# and by the time this probe pool's first task actually runs, the
+# gunicorn worker has almost certainly already opened a real Turso
+# connection of its own (any ordinary request handling one), which means
+# libsql's underlying async runtime (tokio) is already initialized with
+# its own worker threads. Forking a multi-threaded process only clones
+# the calling thread; tokio's worker threads simply don't exist in the
+# child, so any native call that needs them hangs forever waiting on a
+# runtime that's missing its workers -- a well-documented fork+async-
+# runtime hazard, not specific to this codebase. That hang would then
+# make the probe time out and report Turso as "down" even when it's
+# perfectly reachable, which would silently flip every request for the
+# next _TURSO_COOLDOWN_SECONDS onto local sqlite instead -- exactly the
+# kind of split-brain (a write landing in Turso, a later read landing in
+# local sqlite, or vice versa) that looked like "reminders silently stop
+# firing" in practice. 'spawn' starts a genuinely fresh interpreter with
+# no inherited native state, sidestepping this entirely; it's also what
+# Windows always uses (no fork() there at all), which is exactly why this
+# never showed up in local testing on this machine. The _init_db()
+# MainProcess guard near the bottom of this file already covers the
+# reentrancy hazard 'spawn' introduces (a worker re-importing this module
+# to unpickle _turso_probe), so switching to it needs no other change.
+_turso_probe_pool = ProcessPoolExecutor(max_workers=2, mp_context=multiprocessing.get_context("spawn")) if TURSO_CONFIGURED else None
 _turso_status_lock = threading.Lock()
 _turso_healthy_until = 0.0
 _turso_down_until = 0.0
