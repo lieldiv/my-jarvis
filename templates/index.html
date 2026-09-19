@@ -269,21 +269,28 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .gate-error.show{ display:block; }
 .gate-notconfigured{ margin-top:16px; font-size:12px; color:var(--color-gold); text-align:center; max-width:280px; }
 
-/* ===== Mic-check / wake-word modal (reskinned to design tokens) ============= */
-.mic-gate{ position:absolute; inset:0; z-index:210; display:none; align-items:center; justify-content:center; padding:24px; background:rgba(1,6,14,.86); backdrop-filter:var(--blur-modal); transition:opacity .4s ease; }
-.mic-gate.show{ display:flex; }
-.mic-gate.closing{ opacity:0; }
-.mic-card{ width:100%; max-width:320px; background:var(--surface-modal); border:1px solid var(--color-cyan); border-radius:var(--radius-xl); box-shadow:var(--glow-lg); padding:30px 26px; text-align:center; }
-.mic-title{ font-family:var(--font-display); font-weight:700; font-size:15px; letter-spacing:var(--tracking-wide); color:var(--color-white); text-shadow:0 0 12px var(--color-cyan-glow); margin-bottom:10px; }
-.mic-subtitle{ font-size:13px; color:var(--color-text-dim); margin-bottom:20px; min-height:16px; }
-.mic-level-wrap{ height:9px; border-radius:5px; background:var(--color-cyan-soft); border:var(--border-default); overflow:hidden; }
-.mic-level-bar{ height:100%; width:0%; background:linear-gradient(90deg,#0077ff,var(--color-cyan)); box-shadow:0 0 10px var(--color-cyan); transition:width .08s linear; }
-.mic-listen-dot{ width:14px; height:14px; border-radius:50%; margin:0 auto; background:var(--color-green); box-shadow:0 0 16px var(--color-green); animation:jm-blink 1s ease-in-out infinite; }
-.mic-error{ color:var(--color-red); font-size:12.5px; margin-top:14px; display:none; line-height:1.5; }
-.mic-error.show{ display:block; }
-.mic-btn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:14px; border-radius:var(--radius-md); font-family:var(--font-display); font-weight:700; font-size:13px; letter-spacing:.5px; cursor:pointer; border:1px solid var(--color-green); background:rgba(0,255,136,0.15); color:var(--color-green); margin-top:14px; display:none; }
-.mic-btn.show{ display:inline-flex; }
-.mic-btn.fallback{ border-color:var(--color-gold); background:rgba(255,200,0,0.12); color:var(--color-gold); }
+/* ===== Wake gate — cinematic entrance, replaces the old mic-check modal =====
+   Screen goes solid black; a tap (or, if mic permission is already granted
+   from an earlier visit, just saying "WAKE UP"/"בוקר טוב") reveals the app
+   via leaveWakeGate()'s stagger — see that function's own comment for why
+   the orb lighting up first vs. the surrounding chrome needs no punched-hole
+   masking, just timed opacity/transition layering. */
+.wake-gate{ position:absolute; inset:0; z-index:210; display:none; align-items:center; justify-content:center; padding:24px; background:#000; transition:opacity .65s ease; }
+.wake-gate.show{ display:flex; }
+.wake-gate.leaving{ opacity:0; pointer-events:none; }
+.wake-gate-inner{ display:flex; flex-direction:column; align-items:center; gap:22px; }
+.wake-gate-word{ font-family:var(--font-display); font-weight:400; font-size:20px; letter-spacing:.42em; text-indent:.42em; color:rgba(255,255,255,.55); text-shadow:0 0 16px rgba(var(--accent-rgb),.35); }
+.wake-gate-btn{ width:150px; height:150px; border-radius:50%; border:1.5px solid rgba(var(--accent-rgb),.65); background:radial-gradient(circle, rgba(var(--accent-rgb),.12) 0%, rgba(2,8,19,.9) 72%); box-shadow:0 0 30px rgba(var(--accent-rgb),.25), inset 0 0 24px rgba(var(--accent-rgb),.1); color:var(--color-white); font-family:var(--font-display); font-weight:700; font-size:14px; letter-spacing:var(--tracking-wide); cursor:pointer; transition:transform .15s ease, box-shadow .25s ease; animation:jm-pulse 3.6s ease-in-out infinite; }
+.wake-gate-btn:hover{ box-shadow:0 0 42px rgba(var(--accent-rgb),.4), inset 0 0 28px rgba(var(--accent-rgb),.16); }
+.wake-gate-btn:active{ transform:scale(.95); }
+.wake-gate-hint{ font-size:12.5px; color:var(--color-text-dim); text-align:center; min-height:16px; max-width:260px; line-height:1.5; }
+.wake-gate-textlink{ font-size:12px; color:var(--color-text-dim); text-decoration:underline; text-underline-offset:3px; cursor:pointer; opacity:.75; }
+.wake-gate-textlink:hover{ opacity:1; }
+.wake-chrome-enter{ animation:jm-fadeup .5s ease both; }
+@media (prefers-reduced-motion: reduce){
+    .wake-gate-btn{ animation:none; }
+    .wake-gate{ transition:opacity .2s linear; }
+}
 
 /* ===== App screen shell ====================================================== */
 .app-screen{ position:relative; height:100%; display:none; flex-direction:column; }
@@ -318,13 +325,13 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-home{ display:flex; flex-direction:column; align-items:center; padding-top:10px; }
 .orb-stage-row{ margin:0 -20px; display:flex; justify-content:center; }
 .orb-stage{ position:relative; width:300px; height:300px; display:flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent; }
-.orb-bloom-far{ position:absolute; width:454px; height:454px; border-radius:50%; background:radial-gradient(circle, transparent 40%, rgba(var(--accent-rgb),.1) 58%, transparent 76%); filter:blur(10px); pointer-events:none; }
-.orb-bloom-near{ position:absolute; width:234px; height:234px; border-radius:50%; background:radial-gradient(circle, transparent 52%, rgba(var(--accent-rgb),.34) 74%, transparent 92%); filter:blur(8px); animation:jm-pulse 4.4s ease-in-out infinite; pointer-events:none; }
+.orb-bloom-far{ position:absolute; width:454px; height:454px; border-radius:50%; background:radial-gradient(circle, transparent 40%, rgba(var(--accent-rgb),.1) 58%, transparent 76%); filter:blur(10px); pointer-events:none; transition:opacity .8s ease; }
+.orb-bloom-near{ position:absolute; width:234px; height:234px; border-radius:50%; background:radial-gradient(circle, transparent 52%, rgba(var(--accent-rgb),.34) 74%, transparent 92%); filter:blur(8px); animation:jm-pulse 4.4s ease-in-out infinite; pointer-events:none; transition:opacity .8s ease; }
 .orb-ring-svg{ position:absolute; width:300px; height:300px; overflow:visible; pointer-events:none; }
 .orb-ring-svg.spin-a{ animation:jm-spin 22s linear infinite; }
 .orb-ring-svg.spin-b{ animation:jm-spin 32s linear infinite reverse; }
-.orb-body{ position:relative; z-index:2; width:200px; height:200px; border-radius:50%; overflow:hidden; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 50%, #01060d 0%, #010a14 62%, rgba(var(--accent-rgb),.1) 100%); box-shadow:0 0 15px rgba(var(--accent-rgb),.65), inset 0 0 30px rgba(var(--accent-rgb),.14); transition:width .3s ease,height .3s ease,box-shadow .2s ease,transform .12s ease; }
-.orb-rim{ position:absolute; inset:0; border-radius:50%; pointer-events:none; border:1.5px solid rgba(var(--accent-rgb),.85); box-shadow:0 0 15px rgba(var(--accent-rgb),.8), inset 0 0 18px rgba(var(--accent-rgb),.28); }
+.orb-body{ position:relative; z-index:2; width:200px; height:200px; border-radius:50%; overflow:hidden; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 50%, #01060d 0%, #010a14 62%, rgba(var(--accent-rgb),.1) 100%); box-shadow:0 0 15px rgba(var(--accent-rgb),.65), inset 0 0 30px rgba(var(--accent-rgb),.14); transition:width .3s ease,height .3s ease,box-shadow .2s ease,transform .12s ease,filter .8s ease; }
+.orb-rim{ position:absolute; inset:0; border-radius:50%; pointer-events:none; border:1.5px solid rgba(var(--accent-rgb),.85); box-shadow:0 0 15px rgba(var(--accent-rgb),.8), inset 0 0 18px rgba(var(--accent-rgb),.28); transition:border-color .6s ease, box-shadow .6s ease; }
 .orb-wordmark{ position:relative; z-index:3; font-family:var(--font-display); font-size:20px; font-weight:400; letter-spacing:.42em; text-indent:.42em; color:rgba(255,255,255,.95); text-shadow:0 0 12px rgba(var(--accent-rgb),.7); }
 .orb-state-arc{ position:absolute; width:222px; height:222px; border-radius:50%; border:2px solid transparent; border-top-color:rgba(var(--accent-rgb),1); border-right-color:rgba(var(--accent-rgb),.3); animation:jm-spin 1s linear infinite; display:none; pointer-events:none; }
 .orb-crosshair-v{ position:absolute; top:4px; bottom:4px; width:1px; background:linear-gradient(to bottom, transparent, rgba(var(--accent-rgb),.28) 12%, transparent 30%, transparent 70%, rgba(var(--accent-rgb),.28) 88%, transparent); pointer-events:none; }
@@ -733,7 +740,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .confirming-label{ font-family:var(--font-display); font-size:12px; letter-spacing:var(--tracking-wide); color:rgb(var(--accent-rgb)); }
 
 @media (hover:none) and (pointer:coarse){
-    .device-screen, .sheet-overlay, .confirm-overlay, .mic-gate{ backdrop-filter:none !important; }
+    .device-screen, .sheet-overlay, .confirm-overlay{ backdrop-filter:none !important; }
     /* Real touch device (phone/tablet), not just a resized desktop window —
        the fake iPhone bezel/dynamic-island/home-indicator this design mock
        was built to be demoed inside makes no sense on an actual phone,
@@ -849,23 +856,19 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
         </div>
       </div>
 
-      <!-- ===== Mic-check / wake-word modal ===== -->
-      <div class="mic-gate" id="mic-gate">
-        <div class="mic-card">
-          <div class="mic-title" id="mic-title" dir="auto">סורק מיקרופון...</div>
-          <div class="mic-subtitle" id="mic-subtitle">מבקש גישה…</div>
-          <div id="mic-scan-visual"><div class="mic-level-wrap"><div class="mic-level-bar" id="mic-level-bar"></div></div></div>
-          <div id="mic-listen-visual" style="display:none;"><div class="mic-listen-dot"></div></div>
-          <div class="mic-error" id="mic-error" dir="auto"></div>
-          <button class="mic-btn" id="mic-tap-start-btn" onclick="triggerWake()">👆 או הקש כאן כדי להתחיל</button>
-          <button class="mic-btn" id="mic-retry-btn" onclick="runMicScan()">🔄 נסה שוב</button>
-          <button class="mic-btn fallback" id="mic-text-fallback-btn" onclick="continueWithTextOnly()">⌨️ המשך עם קלט טקסט</button>
+      <!-- ===== Wake gate — cinematic entrance ===== -->
+      <div class="wake-gate" id="wake-gate">
+        <div class="wake-gate-inner">
+          <div class="wake-gate-word">JARVIS</div>
+          <button class="wake-gate-btn" id="wake-gate-btn" onclick="enterWakeGate()">מוכן</button>
+          <div class="wake-gate-hint" id="wake-gate-hint" dir="auto"></div>
+          <a class="wake-gate-textlink" id="wake-gate-textlink" dir="auto" onclick="continueWithTextOnly()">אני מעדיף/ה קלט טקסט</a>
         </div>
       </div>
 
       <!-- ===== App screen ===== -->
       <div class="app-screen" id="app-screen">
-        <div class="app-header">
+        <div class="app-header" id="app-header">
           <div class="app-header-brand">
             <div class="app-header-dot"></div>
             <span class="app-header-word">JARVIS</span>
@@ -5280,7 +5283,7 @@ async function checkGoogleAuthGate(){
     if (!status.configured) {
         $('gate-notconfigured').style.display = 'block';
         leaveGate();
-        showMicCheckModal();
+        showWakeGate();
         return;
     }
 
@@ -5292,7 +5295,7 @@ async function checkGoogleAuthGate(){
         restorePushSubscription();
         if (authResult === 'ok') showToast('חשבון Google מחובר — גישה ליומן, Gmail ו-Drive אושרה.');
         leaveGate();
-        showMicCheckModal();
+        showWakeGate();
         return;
     }
 
@@ -5969,128 +5972,101 @@ function switchGoogleAccount(){ renderSwitchAccountList(); $('switch-account-she
 function closeSwitchAccountModal(){ $('switch-account-sheet').classList.remove('show'); }
 
 /* ================================================================================
-   Mic-check + wake-word modal — full getUserMedia level-meter test, then
-   SpeechRecognition wake-word listening, with graceful text-only fallback.
-   Verbatim behavior from the old production file, restyled.
+   Wake gate — cinematic entrance. Mic permission is requested silently as
+   part of the ready-button tap (browsers require a getUserMedia call, but
+   never require it to be visible), then the reveal plays regardless of
+   whether that permission was granted. If mic permission is already granted
+   from an earlier visit, wake-word listening is armed passively the moment
+   this screen appears, so saying "WAKE UP"/"בוקר טוב" works with no button
+   press at all — first-ever visitors necessarily still need the button,
+   since there is no live microphone to listen with before any permission
+   has ever been granted.
    ================================================================================ */
-let micTestStream = null;
-let micTestAudioCtx = null;
-
-function showMicCheckModal(){
-    $('mic-gate').classList.add('show');
-    runMicScan();
+function showWakeGate(){
+    $('wake-gate').classList.add('show');
+    armPassiveWakeListeningIfAllowed();
 }
-async function runMicScan(){
-    const title = $('mic-title'), subtitle = $('mic-subtitle'), errorEl = $('mic-error'), retryBtn = $('mic-retry-btn');
-    errorEl.classList.remove('show'); retryBtn.classList.remove('show');
-    $('mic-listen-visual').style.display = 'none';
-    $('mic-scan-visual').style.display = 'block';
-    $('mic-level-bar').style.width = '0%';
-    title.innerText = 'סורק מיקרופון...'; subtitle.innerText = 'מבקש גישה…';
-
-    if (!window.isSecureContext || !navigator.mediaDevices) {
-        title.innerText = 'הקול דורש חיבור מאובטח';
-        subtitle.innerText = '';
-        errorEl.innerText = 'הדף הזה נטען דרך חיבור לא מאובטח, אדוני — דפדפנים חוסמים גישה למיקרופון אלא אם זה HTTPS או localhost. קלט טקסט עדיין עובד במלואו.';
-        errorEl.classList.add('show');
-        $('mic-text-fallback-btn').classList.add('show');
-        return;
-    }
-    try { micTestStream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch (e) {
-        title.innerText = 'המיקרופון חסום'; subtitle.innerText = '';
-        errorEl.innerText = 'הגישה למיקרופון נדחתה, אדוני. אפשר אותה בהגדרות הדפדפן ונסה שוב — או המשך עם טקסט למטה.';
-        errorEl.classList.add('show'); retryBtn.classList.add('show'); $('mic-text-fallback-btn').classList.add('show');
-        return;
-    }
-    // Granting the mic permission prompt is real user interaction, and
-    // browsers generally still treat the moment right after it resolves as
-    // within that activation window — worth a free unlock attempt here,
-    // since saying the wake word itself (below) never counts as a user
-    // gesture no matter how many times it's repeated, and there is
-    // otherwise nothing tappable on this screen until startWakePhraseStep()
-    // shows the explicit tap-to-start fallback.
-    unlockAudioPlayback();
-    subtitle.innerText = 'אמור משהו, אדוני…';
-    micTestAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = micTestAudioCtx.createMediaStreamSource(micTestStream);
-    const analyser = micTestAudioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const levelBar = $('mic-level-bar');
-    let elapsed = 0; const step = 60;
-    const meterInterval = setInterval(() => {
-        analyser.getByteFrequencyData(data);
-        const avg = data.reduce((a, b) => a + b, 0) / data.length;
-        levelBar.style.width = `${Math.min(100, avg * 1.6)}%`;
-        elapsed += step;
-        if (elapsed >= 1200) { clearInterval(meterInterval); finishMicScan(); }
-    }, step);
+/* No navigator.permissions equivalent of Notification.permission exists for
+   the microphone in this codebase — and Safari's Permissions API does not
+   support querying 'microphone' at all, so query() there rejects rather
+   than resolving 'prompt'/'denied'. Both "unsupported" and "not yet
+   granted" fall through to the same safe default: don't touch the
+   microphone until the user taps, since starting recognition before any
+   permission exists would pop an unsolicited dialog the instant this black
+   screen appears. */
+async function micAlreadyGranted(){
+    if (!navigator.permissions || !navigator.permissions.query) return false;
+    try {
+        const status = await navigator.permissions.query({ name: 'microphone' });
+        return status.state === 'granted';
+    } catch (e) { return false; }
 }
-function finishMicScan(){
-    if (micTestStream) { micTestStream.getTracks().forEach(t => t.stop()); micTestStream = null; }
-    if (micTestAudioCtx) { micTestAudioCtx.close(); micTestAudioCtx = null; }
-    $('mic-title').innerText = 'המיקרופון פעיל ✓';
-    $('mic-subtitle').innerText = '';
-    $('mic-level-bar').style.width = '100%';
-    setTimeout(startWakePhraseStep, 500);
-}
-function startWakePhraseStep(){
-    $('mic-scan-visual').style.display = 'none';
-    if (!speechInputSupported()) {
-        $('mic-listen-visual').style.display = 'none';
-        $('mic-title').innerText = 'קלט קולי אינו נתמך';
-        $('mic-subtitle').innerText = 'הדפדפן הזה לא תומך בזיהוי דיבור (נפוץ ב-iOS Safari) — אפשר עדיין להקליד כל פקודה.';
-        $('mic-text-fallback-btn').classList.add('show');
-        return;
-    }
-    $('mic-listen-visual').style.display = 'block';
-    /* On the recording engine there is no wake word, because wake-word
-       listening needs a permanently open microphone and recording deliberately
-       is not one. Asking someone to say a phrase nothing is listening for is
-       the worst possible first screen, so the gate says what actually works
-       here: tap. */
-    const byTap = usingRecorder();
-    $('mic-title').innerText = byTap
-        ? 'הקש כדי להתחיל'
-        : 'אמור "WAKE UP" או "בוקר טוב" כדי להתחיל';
-    $('mic-subtitle').innerText = byTap ? 'לחיצה אחת, ואפשר לדבר.' : 'מאזין…';
-    // A spoken wake word is never a "user gesture" as far as the browser's
-    // autoplay policy is concerned, no matter how many times it's repeated
-    // — if the getUserMedia-grant unlock attempt above didn't stick (Safari
-    // in particular is stricter about this than Chrome), there was nothing
-    // left to tap on this screen at all. This button both starts the
-    // conversation and, being a real tap, reliably unlocks audio.
-    $('mic-tap-start-btn').classList.add('show');
-    /* And on the recording engine nothing is started here at all. A gate
-       recogniser left running is a second consumer of the microphone waiting
-       for the user's first take — the phone then records into a contended
-       microphone and gets an empty file, which is indistinguishable from
-       "it just doesn't hear me". */
-    if (byTap) return;
+async function armPassiveWakeListeningIfAllowed(){
+    if (usingRecorder() || !speechInputSupported() || textOnlyMode) return;
+    if (!(await micAlreadyGranted())) return;
+    if (!$('wake-gate').classList.contains('show')) return; // already left this screen
+    $('wake-gate-hint').innerText = 'אפשר גם לומר "WAKE UP" או "בוקר טוב"';
     if (!micInitialized) { initSpeechRecognition(); micInitialized = true; }
     startRecognitionSafely();
 }
-function enterApp(){
-    $('mic-gate').classList.add('closing');
-    setTimeout(() => { $('mic-gate').classList.remove('show', 'closing'); }, 400);
-    $('app-screen').classList.add('show');
+/* Silent permission probe — the one place a getUserMedia call is made with
+   no visible scanning UI at all. Fire-and-forget: the reveal proceeds
+   either way, exactly like continueWithTextOnly() always has for the
+   failure case. */
+function requestMicPermissionSilently(){
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => stream.getTracks().forEach(t => t.stop()))
+        .catch(() => {});
+}
+function enterWakeGate(){
+    requestMicPermissionSilently();
+    triggerWake();
+}
+function leaveWakeGate(){
+    const gate = $('wake-gate');
+    if (gate.classList.contains('leaving') || !gate.classList.contains('show')) return;
+    gate.classList.add('leaving');
+    setTimeout(() => { gate.classList.remove('show', 'leaving'); gate.style.display = 'none'; }, 700);
+    playTapBurst('start');
+    playWakeChromeStagger();
+}
+/* The orb itself lights up via the existing state-sleeping -> state-ready
+   class swap (renderOrb(), untouched) plus the new CSS transitions added to
+   orb-body, orb-bloom-far/near and orb-rim — no JS needed for that half.
+   This just staggers the surrounding chrome in slightly after it, reusing
+   the existing jm-fadeup keyframe rather than a bespoke one. */
+function playWakeChromeStagger(){
+    const items = [
+        { el: $('app-header'), delay: 200 },
+        { el: $('bottom-nav'), delay: 260 },
+        { el: $('quick-actions-row'), delay: 400 },
+        ...Array.from(document.querySelectorAll('#tab-home .hud-panel')).map((el, i) => ({ el, delay: 520 + i * 100 })),
+    ];
+    items.forEach(({ el, delay }) => {
+        if (!el) return;
+        el.style.animationDelay = delay + 'ms';
+        el.classList.add('wake-chrome-enter');
+        setTimeout(() => { el.classList.remove('wake-chrome-enter'); el.style.animationDelay = ''; }, delay + 700);
+    });
 }
 function continueWithTextOnly(){
     textOnlyMode = true;
-    enterApp();
+    leaveWakeGate();
     isAwake = true;
     micMuted = false;
     voiceState = 'idle';
     renderOrb();
-    showToast('קלט קולי אינו זמין בדפדפן זה — הקלד פקודות בתיבה למטה.');
+    showToast('ממשיך במצב קלט טקסט — הקלד פקודות בתיבה למטה.');
 }
 /* wakeJarvis (defined above) is the normal "voice heard the wake word" path
-   — extend it here to also reveal the app screen the first time. */
+   — extend it here, exactly as before, to also reveal the app the first
+   time it's ever invoked, whether that invocation came from the ready
+   button (via triggerWake, also untouched) or from hearing the wake phrase
+   on the wake-gate screen itself (via handleTranscript, also untouched). */
 const _wakeJarvisBase = wakeJarvis;
 wakeJarvis = function(initialCommand){
-    if (!$('app-screen').classList.contains('show')) enterApp();
+    if (!$('app-screen').classList.contains('show')) { $('app-screen').classList.add('show'); leaveWakeGate(); }
     _wakeJarvisBase(initialCommand);
 };
 
