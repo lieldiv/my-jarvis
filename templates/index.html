@@ -3380,7 +3380,7 @@ async function uploadForTranscription(blob, filename){
 
     let data = null;
     try {
-        const res = await fetch('/api/transcribe', { method: 'POST', body: form });
+        const res = await fetchWithTimeout('/api/transcribe', { method: 'POST', body: form }, 30000);
         data = await res.json();
     } catch (e) {
         vlog('stt-error', 'network');
@@ -3782,27 +3782,36 @@ function commandBody(command){
     // here takes effect on the very next thing said.
     return JSON.stringify({ command, persona: currentMode(), shortcuts: getShortcuts() });
 }
-/* Every call site that talks to /api/command shares this — plain fetch()
-   has no timeout of its own, so a slow/stuck backend call (the LLM taking
-   a very long time, a dropped connection that never errors) used to leave
-   whatever UI was waiting on it stuck forever, with no way out except
-   reloading. 65s comfortably covers a normal response (even a slow
-   multi-tool-call one) while still giving up before the user assumes the
-   app is broken. Throws (AbortError on timeout, or the underlying network
-   error) exactly like a bare failed fetch would — every caller already has
-   a try/catch around its own fetch for that. */
-async function postCommand(text){
+/* Every fetch() in this file goes through this — plain fetch() has no
+   timeout of its own, so a slow/stuck backend call (the LLM taking a very
+   long time, a dropped connection that never errors, a Turso/Render hiccup
+   on the backend) used to leave whatever UI was waiting on it stuck
+   forever, with no way out except reloading. Confirmed directly: every
+   fetch() in this file except the one in postCommand() had this defect —
+   the tasks/inbox/agenda tabs could all get stuck on "טוען…" permanently,
+   and the agenda tab would silently show "אין כלום בקרוב" (nothing
+   scheduled) instead of an error when the calendar call hung, which is
+   worse than a stuck spinner. 20s comfortably covers a normal response for
+   the small endpoints this wraps; callers with a good reason for a
+   different bound (a slow multi-tool-call LLM response, an audio upload)
+   pass their own timeoutMs. Throws (AbortError on timeout, or the
+   underlying network error) exactly like a bare failed fetch would —
+   every caller already has a try/catch around its own fetch for that. */
+async function fetchWithTimeout(url, options, timeoutMs = 20000){
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 65000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const res = await fetch('/api/command', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: commandBody(text), signal: controller.signal,
-        });
-        return await res.json();
+        return await window.fetch(url, { ...options, signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }
+}
+async function postCommand(text){
+    const res = await fetchWithTimeout('/api/command', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: commandBody(text),
+    }, 65000);
+    return await res.json();
 }
 async function sendCommand(commandText){
     if (!commandText || !commandText.trim()) return;
@@ -3965,7 +3974,7 @@ async function fetchAndSpeak(text){
     const stale = () => generation !== speechGeneration || userIsCapturing();
 
     const ask = async (index) => {
-        const res = await fetch('/api/speak', {
+        const res = await fetchWithTimeout('/api/speak', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, persona, index }),
         });
@@ -4019,9 +4028,9 @@ async function loadWeekAgenda(fromQuickAction){
     if (fromQuickAction) { voiceState = 'processing'; renderOrb(); logCommandStart('מה יש לי השבוע?', 'get_calendar_events'); }
     else { $('agenda-week-text').innerText = 'טוען…'; }
     try {
-        const res = await fetch('/api/agenda/week');
+        const res = await fetchWithTimeout('/api/agenda/week');
         const data = await res.json();
-        const speakRes = await fetch('/api/speak', {
+        const speakRes = await fetchWithTimeout('/api/speak', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: data.text }),
         });
         const speakData = await speakRes.json();
@@ -4062,7 +4071,7 @@ function loadAgendaTab(){ renderEventList($('agenda-events-list'), upcomingEvent
 async function loadReminders(){
     const container = $('reminders-list');
     try {
-        const res = await fetch('/api/reminders');
+        const res = await fetchWithTimeout('/api/reminders');
         const data = await res.json();
         renderReminders(data.reminders || []);
     } catch (e) {
@@ -4137,7 +4146,7 @@ async function saveReminderEdit(){
         body.remind_at_iso = dtVal;
     }
     try {
-        const res = await fetch(`/api/reminders/${reminderEditId}`, {
+        const res = await fetchWithTimeout(`/api/reminders/${reminderEditId}`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
         const data = await res.json();
@@ -4149,7 +4158,7 @@ async function saveReminderEdit(){
 }
 async function deleteReminderRow(id){
     try {
-        const res = await fetch(`/api/reminders/${id}`, { method: 'DELETE' });
+        const res = await fetchWithTimeout(`/api/reminders/${id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.ok) { showToast('התזכורת נמחקה.'); loadReminders(); }
         else { showToast('לא הצלחתי למחוק את התזכורת.', true); }
@@ -4161,6 +4170,12 @@ async function deleteReminderRow(id){
 /* ---- Upcoming events (real /api/upcoming-events), shared by Home widget and
    the Agenda tab's "today" view. Polled every 60s, same as the old file. ---- */
 let upcomingEventsCache = [];
+// Set only once a poll actually completes — without this, a hung/timed-out
+// first poll left upcomingEventsCache at its initial [], which rendered as
+// "אין כלום בקרוב" (nothing scheduled) exactly like a genuinely free day.
+// On the app's stated #1 pillar (schedule management), that's a false
+// answer, not just a stuck spinner — worse than showing nothing at all.
+let upcomingEventsLoaded = false;
 function buildEventRow(ev, showCancel){
     const row = el('div','event-row');
     const t = el('span','t'); t.textContent = ev.time_label;
@@ -4181,6 +4196,10 @@ function buildEventRow(ev, showCancel){
 }
 function renderEventList(container, events, showCancel){
     container.innerHTML = '';
+    if (!upcomingEventsLoaded) {
+        container.innerHTML = '<div class="events-empty">טוען…</div>';
+        return;
+    }
     if (!events || events.length === 0) {
         container.innerHTML = '<div class="events-empty">אין כלום בקרוב</div>';
         return;
@@ -4202,9 +4221,10 @@ function renderHomeUpcoming(){
 }
 async function pollUpcomingEvents(){
     try {
-        const res = await fetch('/api/upcoming-events');
+        const res = await fetchWithTimeout('/api/upcoming-events');
         const data = await res.json();
         upcomingEventsCache = (data.configured && data.events) ? data.events : [];
+        upcomingEventsLoaded = true;
         renderHomeUpcoming();
         if (currentTab === 'agenda') loadAgendaTab();
     } catch (e) { /* keep whatever was last shown */ }
@@ -4212,7 +4232,7 @@ async function pollUpcomingEvents(){
 async function cancelEvent(eventId, summary){
     let data;
     try {
-        const res = await fetch('/api/calendar/cancel-request', {
+        const res = await fetchWithTimeout('/api/calendar/cancel-request', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event_id: eventId, summary }),
         });
         data = await res.json();
@@ -4304,7 +4324,7 @@ async function sendWeeklySummaryNow(){
     showToast('שולח סיכום שבועי…');
     logCommandStart('שלח אימייל סיכום שבועי עכשיו', 'send_email');
     try {
-        const res = await fetch('/api/weekly-summary/send-now', { method: 'POST' });
+        const res = await fetchWithTimeout('/api/weekly-summary/send-now', { method: 'POST' });
         const data = await res.json();
         logCommandSettle(data.error ? 'cancelled' : 'executed');
         showToast(data.message || data.error || 'משהו השתבש.', !!data.error);
@@ -4327,7 +4347,7 @@ async function loadInboxTab(force){
     list.innerHTML = '<div class="events-empty">טוען…</div>';
     let data;
     try {
-        const res = await fetch('/api/inbox');
+        const res = await fetchWithTimeout('/api/inbox');
         data = await res.json();
     } catch (e) {
         list.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>';
@@ -4380,7 +4400,7 @@ async function draftInboxReply(i){
     draftArea.style.display = 'block';
     draftArea.value = 'מנסח…';
     try {
-        const res = await fetch('/api/inbox/draft-reply', {
+        const res = await fetchWithTimeout('/api/inbox/draft-reply', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sender_name: e.sender_name, subject: e.subject, snippet: e.snippet, instructions }),
         });
@@ -4396,7 +4416,7 @@ async function sendInboxReply(i){
     const body = $(`inbox-draft-${i}`).value.trim();
     if (!body) return;
     try {
-        const res = await fetch('/api/inbox/send-reply', {
+        const res = await fetchWithTimeout('/api/inbox/send-reply', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ to: e.sender_email, subject: e.subject, body }),
         });
@@ -4463,7 +4483,7 @@ async function draftComposeEmail(){
     if (!instructions) return;
     composeDraftBusy = true;
     try {
-        const res = await fetch('/api/compose/draft', {
+        const res = await fetchWithTimeout('/api/compose/draft', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, instructions }),
         });
         const data = await res.json();
@@ -4497,7 +4517,7 @@ async function sendComposeEmail(){
         attachments = await Promise.all(composeSelectedFiles.map(async f => ({ filename: f.name, content_b64: await _fileToBase64(f) })));
     } catch (err) { showToast('לא הצלחתי לקרוא אחד הקבצים המצורפים.', true); composeSendBusy = false; return; }
     try {
-        const res = await fetch('/api/compose/send', {
+        const res = await fetchWithTimeout('/api/compose/send', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, subject, body, attachments }),
         });
         const data = await res.json();
@@ -4969,7 +4989,7 @@ async function saveConfirmEdit(){
     } else { return; }
 
     try {
-        const res = await fetch(`/api/confirm/${pendingConfirmToken}/edit`, {
+        const res = await fetchWithTimeout(`/api/confirm/${pendingConfirmToken}/edit`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
         const data = await res.json();
@@ -5086,7 +5106,7 @@ async function resolveConfirmation(approve){
     $('confirming-overlay').classList.add('show');
     const token = pendingConfirmToken;
     try {
-        const res = await fetch(`/api/confirm/${token}`, {
+        const res = await fetchWithTimeout(`/api/confirm/${token}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approve }),
         });
         const data = await res.json();
@@ -5147,7 +5167,7 @@ initEventStream();
 setInterval(async () => {
     if (pendingConfirmToken || pendingConfirmEvt) return;
     try {
-        const res = await fetch('/api/nearby-search/pending');
+        const res = await fetchWithTimeout('/api/nearby-search/pending');
         const data = await res.json();
         if (data && data.ts && data.ts > lastNearbySearchTs) {
             lastNearbySearchTs = data.ts;
@@ -5156,7 +5176,7 @@ setInterval(async () => {
         }
     } catch (err) { /* silent — next tick retries */ }
     try {
-        const res3 = await fetch('/api/phone-link/pending');
+        const res3 = await fetchWithTimeout('/api/phone-link/pending');
         const data3 = await res3.json();
         if (data3 && data3.ts && data3.ts > lastPhoneLinkTs) {
             lastPhoneLinkTs = data3.ts;
@@ -5167,7 +5187,7 @@ setInterval(async () => {
         }
     } catch (err) { /* silent — next tick retries */ }
     try {
-        const res2 = await fetch('/api/confirm/pending');
+        const res2 = await fetchWithTimeout('/api/confirm/pending');
         const data2 = await res2.json();
         const item = (data2.pending || [])[0];
         if (item) showConfirmModal({ token: item.token, kind: item.kind, message: item.message, details: null });
@@ -5209,7 +5229,7 @@ async function checkGoogleAuthGate(){
     const gateError = $('gate-error');
 
     let status;
-    try { const res = await fetch('/api/auth/google/status'); status = await res.json(); } catch (e) { return; }
+    try { const res = await fetchWithTimeout('/api/auth/google/status'); status = await res.json(); } catch (e) { return; }
 
     if (!status.configured) {
         $('gate-notconfigured').style.display = 'block';
@@ -5245,12 +5265,12 @@ function populateAccountUi(email){
     $('settings-account-initial').innerText = (name[0] || '?').toUpperCase();
 }
 async function disconnectGoogle(){
-    try { await fetch('/api/auth/google/disconnect', { method: 'POST' }); } catch (e) {}
+    try { await fetchWithTimeout('/api/auth/google/disconnect', { method: 'POST' }); } catch (e) {}
     window.location.reload();
 }
 async function resetMemory(){
     try {
-        await fetch('/api/reset', { method: 'POST' });
+        await fetchWithTimeout('/api/reset', { method: 'POST' });
         showToast('הזיכרון אופס.');
     } catch (err) { showToast('לא הצלחתי לאפס את הזיכרון.', true); }
 }
@@ -5315,7 +5335,7 @@ async function restorePushSubscription(){
             // Permission stands but the subscription itself is gone — iOS
             // enforcing its 3-silent-push rule, or site data cleared.
             // Re-subscribing is still silent, since permission already holds.
-            const keyRes = await fetch('/api/push/vapid-public-key');
+            const keyRes = await fetchWithTimeout('/api/push/vapid-public-key');
             const keyData = await keyRes.json();
             if (!keyData.configured) return;
             subscription = await registration.pushManager.subscribe({
@@ -5323,7 +5343,7 @@ async function restorePushSubscription(){
                 applicationServerKey: _base64UrlToUint8Array(keyData.key),
             });
         }
-        const res = await fetch('/api/push/subscribe', {
+        const res = await fetchWithTimeout('/api/push/subscribe', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(subscription.toJSON()),
         });
@@ -5342,7 +5362,7 @@ async function enablePushNotifications(){
         return;
     }
     try {
-        const keyRes = await fetch('/api/push/vapid-public-key');
+        const keyRes = await fetchWithTimeout('/api/push/vapid-public-key');
         const keyData = await keyRes.json();
         if (!keyData.configured) {
             showToast('התראות עדיין לא הוגדרו בצד השרת.', true);
@@ -5378,7 +5398,7 @@ async function enablePushNotifications(){
             applicationServerKey: _base64UrlToUint8Array(keyData.key),
         });
 
-        const res = await fetch('/api/push/subscribe', {
+        const res = await fetchWithTimeout('/api/push/subscribe', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(subscription.toJSON()),
         });
@@ -5397,7 +5417,7 @@ async function sendTestPush(){
     const btn = $('push-test-btn');
     btn.disabled = true; btn.innerText = 'שולח…';
     try {
-        const res = await fetch('/api/push/test', { method: 'POST' });
+        const res = await fetchWithTimeout('/api/push/test', { method: 'POST' });
         const data = await res.json();
         showToast(data.message, !data.ok);
     } catch (err) {
@@ -6052,7 +6072,7 @@ async function loadTasksTab(){
     const list = $('tasks-list');
     list.innerHTML = '<div class="events-empty">טוען…</div>';
     try {
-        const res = await fetch('/api/tasks');
+        const res = await fetchWithTimeout('/api/tasks');
         const data = await res.json();
         tasksCache = data.tasks || [];
     } catch (e) {
@@ -6142,7 +6162,7 @@ async function addTaskFromInput(){
     input.value = '';
     resetTaskRecurPicker();
     try {
-        const res = await fetch('/api/tasks', {
+        const res = await fetchWithTimeout('/api/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text, recurring_day }),
@@ -6156,7 +6176,7 @@ async function addTaskFromInput(){
 }
 async function markTaskComplete(taskId){
     try {
-        const res = await fetch(`/api/tasks/${taskId}/complete`, { method: 'POST' });
+        const res = await fetchWithTimeout(`/api/tasks/${taskId}/complete`, { method: 'POST' });
         const data = await res.json();
         if (data.ok) loadTasksTab();
         else showToast(data.message || 'לא הצלחתי לסמן את המשימה.');
@@ -6166,7 +6186,7 @@ async function markTaskComplete(taskId){
 }
 async function deleteTask(taskId){
     try {
-        const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+        const res = await fetchWithTimeout(`/api/tasks/${taskId}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.ok) loadTasksTab();
         else showToast(data.message || 'לא הצלחתי למחוק את המשימה.');
@@ -6177,7 +6197,7 @@ async function deleteTask(taskId){
 async function loadTaskStats(){
     let stats;
     try {
-        const res = await fetch('/api/tasks/stats');
+        const res = await fetchWithTimeout('/api/tasks/stats');
         stats = await res.json();
     } catch (e) {
         return;  // stats card just keeps showing zeros — not worth a toast
