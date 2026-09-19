@@ -6055,9 +6055,78 @@ function playWakeChromeStagger(){
    on the wake-gate screen itself (via handleTranscript, also untouched). */
 const _wakeJarvisBase = wakeJarvis;
 wakeJarvis = function(initialCommand){
-    if (!$('app-screen').classList.contains('show')) { $('app-screen').classList.add('show'); leaveWakeGate(); }
+    if (!$('app-screen').classList.contains('show')) {
+        $('app-screen').classList.add('show');
+        leaveWakeGate();
+        // First-ever reveal gets a personalized greeting instead of the
+        // normal LLM round-trip (see speakWakeGreeting below) -- every
+        // later wake (falling back asleep with "stop" and waking again
+        // later in the same session) still goes through the real
+        // _wakeJarvisBase/sendCommand path exactly as before.
+        isAwake = true; micMuted = true; renderOrb();
+        speakWakeGreeting();
+        return;
+    }
     _wakeJarvisBase(initialCommand);
 };
+
+/* A few different openers so this doesn't feel like the same canned line
+   every single time the app is opened -- picked at random, not cycled, so
+   there's no pattern to notice across sessions either. English, matching
+   Jarvis's own voice everywhere else in this file ("sir" phrasing, e.g.
+   postCommand's error toasts, productivity_service.py's tool replies) --
+   the rest of the UI is Hebrew for the user's own language, but Jarvis
+   himself speaking in first person stays in character. */
+const WAKE_GREETINGS = [
+    "Good morning, sir. All systems are online and ready.",
+    "Morning, sir — everything's running smoothly.",
+    "Good to see you, sir. Systems check complete, all green.",
+    "Jarvis online, sir. Ready whenever you are.",
+    "Welcome back, sir. Everything's up and running.",
+];
+/* Deterministic, zero-LLM entrance greeting -- reuses the same
+   upcomingEventsCache/homeTasksCache pollUpcomingEvents() already
+   maintains for the Home "upcoming" widget, instead of asking the model
+   to look this up itself. Same reasoning as daily_briefing.py's own
+   "zero LLM calls" design: this is the very first thing a user hears on
+   opening the app, so it shouldn't be able to fail because Groq is rate-
+   limited or having a bad moment (a real, repeated problem tonight) --
+   and it's also just faster, with no round-trip to wait on. */
+async function speakWakeGreeting(){
+    voiceState = 'processing'; renderOrb();
+    try { await pollUpcomingEvents(); } catch (e) {} // freshest data before summarizing, best-effort
+    const opener = WAKE_GREETINGS[Math.floor(Math.random() * WAKE_GREETINGS.length)];
+    const greeting = `${opener} ${summarizeUpcomingForGreeting()}`;
+    try {
+        const res = await fetchWithTimeout('/api/speak', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: greeting }),
+        });
+        const data = await res.json();
+        finishCommand(greeting, data.audio);
+    } catch (e) {
+        voiceState = 'idle'; renderOrb();
+        setOrbResponse(greeting); // TTS failed -- still show the text rather than nothing at all
+    }
+}
+function summarizeUpcomingForGreeting(){
+    const eventCount = upcomingEventsCache.length;
+    const openTasks = homeTasksCache.length; // already excludes done-this-period tasks, see pollUpcomingEvents()
+    if (eventCount === 0 && openTasks === 0) return "Nothing on your schedule today, sir — a clear day.";
+    const parts = [];
+    if (eventCount > 0) {
+        const first = upcomingEventsCache[0];
+        parts.push(eventCount === 1
+            ? `You have one event today: ${first.summary} at ${first.time_label}`
+            : `You have ${eventCount} events today, the nearest being ${first.summary} at ${first.time_label}`);
+    }
+    if (openTasks > 0) {
+        const taskPhrase = openTasks === 1 ? `one open task: ${homeTasksCache[0].text}` : `${openTasks} open tasks`;
+        // "and ..." only reads correctly tacked onto the events sentence above --
+        // on its own (no events today) it needs to stand as its own sentence.
+        parts.push(parts.length > 0 ? `and ${taskPhrase}` : `You have ${taskPhrase}`);
+    }
+    return parts.join(', ') + '.';
+}
 
 /* ================================================================================
    Tasks / To-Do List
