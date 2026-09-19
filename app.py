@@ -545,7 +545,17 @@ MAX_HISTORY_MESSAGES = 12    # ~6 user/assistant turns of memory
 # 200 was too tight for multi-field tool calls (e.g. create_calendar_event
 # has 6 args) — the JSON got cut off mid-object, which Groq reports back as
 # a 400 "tool_use_failed" instead of just truncating gracefully.
-MAX_TOKENS = 1024
+#
+# 1024 wasn't enough either, confirmed directly: a compound request ("add
+# me two reminders — one for X, one for Y") burned 1022 of 1024 tokens
+# entirely on the reasoning channel — reasoning_tokens=1022,
+# completion_tokens=1024, finish_reason="length" — leaving nothing for
+# even a tool-call attempt. tool_calls came back None and content came
+# back "", which run_llm's fallback silently turned into "Done, sir." with
+# no error and no reminder ever created. A single-item request needs much
+# less reasoning than deciding two separate times/texts/tool calls, so
+# this scaled with request complexity rather than being a fixed cost.
+MAX_TOKENS = 2048
 
 # Compose-email attachments (see /api/compose/send) — kept modest since
 # they travel as base64 inside a JSON request body on a 512MB free-tier
@@ -2580,6 +2590,15 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
                 break
 
             messages.append(msg)
+            # A compound request ("add me two reminders") can produce two
+            # terminal-tool calls in the SAME round — both actually run
+            # (each iteration below executes its own tool), but a plain
+            # `final_text = result` overwrite meant only the LAST one's
+            # confirmation ever reached the user, silently discarding the
+            # first (both reminders were created; the response only ever
+            # mentioned one). Collected into a list and joined instead, so
+            # every terminal tool's own reply survives.
+            terminal_results = []
             for call in msg.tool_calls:
                 fn_name = call.function.name
                 try:
@@ -2607,9 +2626,10 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
                 # The tool has already written the reply, so stop here rather
                 # than spending another Groq round trip restating it.
                 if fn_name in TERMINAL_TOOLS:
-                    final_text = result
+                    terminal_results.append(result)
 
-            if final_text:
+            if terminal_results:
+                final_text = " ".join(terminal_results)
                 break
 
         if not final_text:
