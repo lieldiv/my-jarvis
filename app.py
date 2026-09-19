@@ -2550,6 +2550,21 @@ def _complete_with_retry(messages):
 _MARKDOWN_BOLD_ITALIC_RE = re.compile(r"(\*\*\*|\*\*|\*|___|__|_)(.+?)\1")
 _MARKDOWN_HEADER_RE = re.compile(r"^#{1,6}\s+", re.MULTILINE)
 _MARKDOWN_BULLET_RE = re.compile(r"^\s*[\*\-•]\s+", re.MULTILINE)
+_CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+
+
+def _looks_like_leaked_tool_call(text: str) -> bool:
+    """gpt-oss occasionally narrates a tool call as prose instead of
+    actually invoking it — a fenced ```json {...}``` block describing the
+    args it WOULD pass, with tool_calls coming back empty. Confirmed
+    directly: asked to set a reminder, it wrote out a code block with
+    remind_at_iso misspelled as "remindatiso" instead of making a real
+    call — nothing was created, and the raw JSON was shown to the user
+    verbatim since _strip_markdown doesn't touch code fences. Not a fixed
+    token-budget problem like the truncation issue above; this is the
+    model choosing the wrong output shape, so it's handled by giving it
+    one corrective nudge rather than assuming a token bump alone fixes it."""
+    return bool(text) and text.count("```") >= 2 and "{" in text
 
 
 def _strip_markdown(text: str) -> str:
@@ -2582,11 +2597,30 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
 
     final_text = None
     try:
-        for _ in range(MAX_TOOL_ROUNDS):
+        for round_idx in range(MAX_TOOL_ROUNDS):
             msg = _complete_with_retry(messages).choices[0].message
 
             if not msg.tool_calls:
-                final_text = msg.content
+                if _looks_like_leaked_tool_call(msg.content) and round_idx < MAX_TOOL_ROUNDS - 1:
+                    # One corrective nudge instead of showing raw JSON or
+                    # silently doing nothing — usually enough to get it to
+                    # actually call the tool on the next try.
+                    messages.append(msg)
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "That wasn't executed — you wrote the action out as text "
+                            "instead of actually calling the tool/function for it. "
+                            "Call the tool now, don't describe it."
+                        ),
+                    })
+                    continue
+                # Either a normal answer, or a second leaked attempt with no
+                # rounds left — strip any leftover JSON block rather than
+                # ever showing it verbatim.
+                final_text = _CODE_FENCE_RE.sub("", msg.content or "").strip()
+                if not final_text:
+                    final_text = "I couldn't quite complete that, sir — could you try asking again?"
                 break
 
             messages.append(msg)
