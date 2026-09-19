@@ -269,16 +269,42 @@ def _init_db():
 
 @contextmanager
 def _connect():
-    if TURSO_CONFIGURED and _turso_reachable():
-        # Remote HTTP connection — no local file, so no lock-contention
-        # timeout or journal-mode PRAGMA applies (those are local-file
-        # SQLite concepts; Turso's server handles concurrency itself).
-        # libsql.Connection implements the same .execute/.commit/.close
-        # DB-API surface as sqlite3.Connection, so every query elsewhere
-        # in this file works unchanged. connect() itself is safe to call
-        # directly (proven lazy/instant even when Turso is unreachable —
-        # see _turso_reachable()'s comment above); _turso_reachable()
-        # already did the actual risk-bounded check.
+    if TURSO_CONFIGURED:
+        # Always Turso when configured — never silently redirected to the
+        # local sqlite file below. An earlier version of this function used
+        # _turso_reachable() to fall back to local sqlite whenever Turso
+        # looked unhealthy, which turned out to be worse than the crash it
+        # was meant to prevent: local sqlite and Turso are TWO SEPARATE,
+        # non-syncing databases, so a write landing in one and a later read
+        # landing in the other (because the circuit's health verdict
+        # changed in between) is silent data loss, not a handled error.
+        # Confirmed directly against production: a reminder created and
+        # visible in the UI right after (read landed on whichever store was
+        # "current" at that instant) was never found by the background
+        # scheduler's later, independent read a minute on — no exception,
+        # no log line, it simply checked the other, empty database. That's
+        # a worse failure than the one being guarded against.
+        #
+        # _turso_reachable() is kept for exactly what it's actually good at:
+        # bounding a genuine network stall to a few seconds instead of the
+        # OS-level TCP timeout that can run past gunicorn's own --timeout
+        # and take down the whole worker (see that function's own comment
+        # for the full mechanism). When it reports Turso as down, this now
+        # raises a clean, per-request error instead of quietly reading from
+        # a different database -- a failed request the caller's existing
+        # try/except already turns into an ordinary "couldn't reach the
+        # server" message is a fully acceptable outcome for a real Turso
+        # outage; silently losing data because two different requests were
+        # answered from two different places is not.
+        if not _turso_reachable():
+            raise TimeoutError(
+                "Turso is not responding right now — refusing to silently "
+                "fall back to a different, out-of-sync local database."
+            )
+        # connect() itself is safe to call directly (proven lazy/instant
+        # even when Turso is unreachable — see _turso_reachable()'s
+        # comment); _turso_reachable() already did the actual risk-bounded
+        # check above.
         conn = libsql.connect(database=TURSO_URL, auth_token=TURSO_AUTH_TOKEN)
     else:
         # timeout=10: how long a call waits for a lock held by another thread
