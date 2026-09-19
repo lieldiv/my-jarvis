@@ -530,15 +530,21 @@ def transcribe_audio(audio_bytes: bytes, extension: str):
 # tool-calling/conversation use case doesn't really need the 120b for.
 MODEL_NAME = "openai/gpt-oss-20b"
 
-# Both lowered specifically to cut Groq free-tier usage — every round trip
-# resends the ENTIRE history (up to MAX_HISTORY_MESSAGES back) plus the
-# system prompt plus every tool schema, so a single user command chaining
-# tool calls under the old MAX_TOOL_ROUNDS=3 against 24 messages of history
-# could burn several thousand tokens on its own; a handful of commands in a
-# short demo session was enough to hit the free-tier limit. Most real
-# commands only need 1-2 rounds anyway (read a tool result, answer) — 3 was
-# headroom for edge cases, not a normal case.
-MAX_TOOL_ROUNDS = 2          # safety cap on chained tool calls per request
+# Was lowered to 2 specifically to cut Groq free-tier usage — every round
+# trip resends the ENTIRE history (up to MAX_HISTORY_MESSAGES back) plus
+# the system prompt plus every tool schema, so a single user command
+# chaining tool calls under MAX_TOOL_ROUNDS=3 against 24 messages of
+# history could burn several thousand tokens on its own. Restored to 3:
+# confirmed directly that 2 was too tight for a compound request ("add me
+# two reminders" / "add two tasks") — the model handled these one action
+# per round rather than batching both into one response's tool_calls, so
+# with only 2 rounds available and run_llm's own leaked-tool-call retry
+# (see below) sometimes needing one of them, the SECOND item in a
+# two-item request could run out of rounds entirely (confirmed: "add milk
+# and take out the trash" only ever added milk). Most single-item
+# commands still finish in round 1 as before — this only adds headroom
+# for the multi-item case, not extra cost for the common one.
+MAX_TOOL_ROUNDS = 3          # safety cap on chained tool calls per request
 MAX_HISTORY_MESSAGES = 12    # ~6 user/assistant turns of memory
 # gpt-oss models spend tokens on a hidden "analysis" channel before the
 # final answer/tool-call JSON, and Groq counts that against max_tokens too.
