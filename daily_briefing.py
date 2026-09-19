@@ -80,19 +80,22 @@ def _reminder_notification(reminder: dict) -> tuple:
 def _check_due_reminders():
     for reminder in users.get_due_reminders(time.time()):
         # Push if the user has it set up (an actual device notification,
-        # what they actually asked for), email only as the fallback for
-        # someone who never enabled push — not both every time. Checking
-        # "has a subscription" rather than a separate on/off setting means
-        # this needs no new preference to manage: enabling push in Settings
-        # is itself what turns email off for future reminders.
+        # what they actually asked for) — email only when push isn't set up
+        # at all, OR when it was but silently failed (provider outage, a
+        # subscription expired without yet 404ing). This used to be a
+        # plain if/else on "has a subscription", which meant a push that
+        # was ATTEMPTED but failed left the user with nothing at all —
+        # contradicting send_push()'s own stated contract that a push
+        # failure should never be the reason a reminder doesn't arrive.
         has_push = push_service.CONFIGURED and bool(users.get_push_subscriptions(reminder["user_id"]))
         title, body = _reminder_notification(reminder)
+        push_delivered = False
         if has_push:
-            push_service.send_push(
+            push_delivered = push_service.send_push(
                 reminder["user_id"], title, body,
                 tag=f"jarvis-reminder-{reminder['id']}",
             )
-        else:
+        if not push_delivered:
             try:
                 _send_user_email(
                     reminder["user_id"],

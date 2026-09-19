@@ -166,21 +166,25 @@ def _deliver(subscription_info: dict, payload: str) -> tuple:
         return False, f"שגיאת רשת: {e}", None
 
 
-def send_push(user_id: str, title: str, body: str, tag: str = "jarvis-reminder") -> None:
-    """Best-effort — never raises. Called from daily_briefing.py alongside
-    (not instead of) the existing email delivery, so a push failure here
-    should never be the reason a reminder doesn't reach the user at all.
+def send_push(user_id: str, title: str, body: str, tag: str = "jarvis-reminder") -> bool:
+    """Best-effort — never raises. Returns whether at least one subscription
+    actually accepted the push, so a caller relying on this as the primary
+    delivery channel (daily_briefing.py) knows to fall back to email rather
+    than assume "called send_push" means "the user was notified" — a push
+    provider outage or an expired-but-not-yet-404ing subscription used to
+    fail silently here with no fallback at all.
     tag should be unique per reminder (e.g. f"jarvis-reminder-{id}") — the
     service worker uses it as the OS notification's grouping key, and a
     shared tag across different reminders let one replace/coalesce with
     another in the notification center, which looked like "the wrong text
     showed up" even though the payload sent each time was correct."""
     if not CONFIGURED:
-        return
+        return False
 
     import json
     payload = json.dumps({"title": title, "body": body, "tag": tag})
 
+    delivered = False
     for sub in users.get_push_subscriptions(user_id):
         subscription_info = {
             "endpoint": sub["endpoint"],
@@ -189,6 +193,7 @@ def send_push(user_id: str, title: str, body: str, tag: str = "jarvis-reminder")
         ok, message, status = _deliver(subscription_info, payload)
         if ok:
             logger.info(f"Push sent for user {user_id} (accepted by provider).")
+            delivered = True
         elif status in (404, 410):
             # Provider is telling us this subscription is dead (browser
             # profile removed, site data cleared, etc.) — not a transient
@@ -196,6 +201,7 @@ def send_push(user_id: str, title: str, body: str, tag: str = "jarvis-reminder")
             users.delete_push_subscription(sub["endpoint"])
         else:
             logger.error(f"Push failed for user {user_id} ({status}): {message}")
+    return delivered
 
 
 def send_test_push(user_id: str, title: str, body: str) -> tuple:
