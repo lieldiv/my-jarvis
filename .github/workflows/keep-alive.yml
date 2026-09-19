@@ -1,0 +1,18 @@
+name: Keep Render service awake
+
+# Render's free plan spins the service down after ~15 min idle; the next
+# request then pays a cold start (container boot + every import in app.py)
+# that can easily run past what a phone's browser waits before giving up
+# and showing a blank screen. A ping every 10 minutes keeps it warm so a
+# real user never hits a cold start during normal use.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: curl -fsS --max-time 60 https://jarvis-cloud-oifj.onrender.com/health

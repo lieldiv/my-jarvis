@@ -2655,6 +2655,19 @@ def index():
     return resp
 
 
+# Render's free plan spins the whole service down after ~15min with no
+# requests, and the next request pays a cold start (container boot + every
+# import in this file) that can run well past what a phone's browser will
+# wait before showing a blank screen — the exact symptom reported, and it
+# would happen on essentially every first open of the day, not just during
+# a Turso outage. No auth/DB/LLM work here on purpose: a scheduled pinger
+# (see .github/workflows/keep-alive.yml) hits this every few minutes so the
+# service never fully sleeps, and it has to stay fast even while asleep.
+@app.route("/health")
+def health():
+    return "ok"
+
+
 # --- Google sign-in gate ----------------------------------------------------
 # First-visit HUD gate: the browser tab itself drives the OAuth redirect
 # (rather than google_login.py's separate popup window) so a brand-new user
