@@ -641,7 +641,15 @@ def request_set_reminder(user_id: str, text: str, remind_at_iso: str,
     # Hebrew formatted date
     hebrew_weekday = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"][dt_local.weekday()]
     when_label = f"{hebrew_weekday}, {dt_local.day}.{dt_local.month} בשעה {dt_local.hour:02d}:{dt_local.minute:02d}"
-    return {"status": "ok", "message": f"✅ הוספתי לך תזכורת: {text} ב-{when_label}. {_reminder_delivery_label(user_id)}"}
+    # Inviting a follow-up rather than trying to fit "remind me of X and Y"
+    # into one turn — see request_add_task's identical note for why: this
+    # model handles a multi-item request one action per round, not a
+    # batch, so a second item asked for in the same sentence reliably
+    # never got created no matter how many rounds were available.
+    return {
+        "status": "ok",
+        "message": f"✅ הוספתי לך תזכורת: {text} ב-{when_label}. {_reminder_delivery_label(user_id)} יש עוד משהו להזכיר?",
+    }
 
 
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -683,7 +691,7 @@ def request_set_recurring_reminder(user_id: str, text: str, weekday: int, hour: 
     delivery = _reminder_delivery_label(user_id).rstrip(".")
     return {
         "status": "ok",
-        "message": f"✅ הוספתי לך תזכורת קבועה: {text} כל {hebrew_weekday} בשעה {hour:02d}:{minute:02d}. {delivery} בכל פעם.",
+        "message": f"✅ הוספתי לך תזכורת קבועה: {text} כל {hebrew_weekday} בשעה {hour:02d}:{minute:02d}. {delivery} בכל פעם. יש עוד משהו להזכיר?",
     }
 
 
@@ -910,7 +918,17 @@ def request_add_task(user_id: str, text: str, recurring_day: str | None = None) 
         day_label = "כל " + ", ".join(_WEEKDAY_HEBREW.get(d, d) for d in _recurring_days_list(recurring_day))
     else:
         day_label = ""
-    return f"✅ הוספתי לך משימה: {text}" + (f" {day_label}" if day_label else "")
+    # Inviting a follow-up instead of trying to fit "add X and Y" into one
+    # turn — confirmed directly that this model handles a multi-item
+    # request as one action per round, not a batch, so a compound request
+    # reliably lost its second item no matter how many rounds were
+    # available (TERMINAL_TOOLS stops as soon as ONE terminal tool
+    # succeeds, by design, to save the extra Groq round-trip every single-
+    # item command would otherwise cost). This keeps that cheap, reliable
+    # single-item path exactly as is and asks for a second item as its own
+    # separate, equally reliable turn instead of gambling on the model
+    # batching two tool calls together.
+    return f"✅ הוספתי לך משימה: {text}" + (f" {day_label}" if day_label else "") + " יש עוד משהו להוסיף?"
 
 
 def request_mark_task_complete(user_id: str, task_id: int) -> str:
