@@ -2,13 +2,14 @@
 # Deploy: push this repo to GitHub, then "New +" -> "Blueprint" on Render
 # and point it at the repo. Render reads this file and creates the service.
 #
-# FREE TIER (chosen deliberately for now — no card required): no persistent
-# disk, so users.db (everyone's accounts/tokens) resets on every restart —
-# and Render's free web services also spin down after ~15 min idle, which
-# resets it too. Fine for "does this actually deploy and work at all"
-# testing; not fine for real users yet. Switch `plan: free` to a paid plan
-# + add back a `disk:` block (see git history / ask for it again) once
-# ready for that.
+# FREE TIER (chosen deliberately — no card required): no persistent disk,
+# so the free tier's own ephemeral filesystem would lose users.db (everyone's
+# accounts/tokens/tasks/reminders) on every restart/deploy/idle spin-down.
+# DATABASE_URL (a free Neon Postgres project) is the actual persistence
+# fix — see users.py's own module docstring for why Postgres/psycopg2 was
+# chosen over Turso/libsql (a real server-enforced statement_timeout that
+# libsql had no equivalent of). Local dev with no DATABASE_URL set is
+# unaffected — falls back to a local sqlite3 file as always.
 #
 # Before the first deploy:
 #   1. Comment out pyautogui/pygetwindow/Pillow/pywhatkit in requirements.txt
@@ -36,7 +37,10 @@ services:
       - key: JARVIS_WEEKLY_SUMMARY
         value: "true"        # emails each connected user their week ahead — see daily_briefing.py
       - key: JARVIS_DB_PATH
-        value: users.db       # ephemeral on free tier — resets on restart/spin-down, see note above
+        value: users.db       # only used as a fallback if DATABASE_URL isn't set — see note above
+      - key: DATABASE_URL
+        sync: false           # a free Neon Postgres connection string — set manually in the
+                               # Render dashboard, e.g. postgresql://user:pass@host/db?sslmode=require
       - key: GROQ_API_KEY
         sync: false           # set manually in the Render dashboard
       - key: GOOGLE_CLIENT_ID

@@ -52,13 +52,18 @@ pywebpush==2.1.2
 # --- Persistent database (users.py) --------------------------------------
 # Render's free tier has no persistent disk — a local sqlite3 file gets
 # wiped on every restart/spin-down (see render.yaml's own note), which is
-# exactly why tasks/reminders were "randomly" vanishing. Turso is a hosted,
-# free (no card), SQLite-compatible database; this package's Connection
-# object implements the same DB-API surface (.execute/.commit/.fetchone/
-# .fetchall) as stdlib sqlite3, so users.py's _connect() only needs to pick
-# which one to open, not rewrite any query. Falls back to local sqlite3
-# automatically when TURSO_DATABASE_URL isn't set (local dev unaffected).
-libsql==0.1.11
+# exactly why tasks/reminders were "randomly" vanishing. Tried Turso
+# (hosted, free, SQLite-compatible) first, but its Python driver (libsql)
+# doesn't respect any timeout on network calls -- confirmed directly that
+# it can hang long enough to trip gunicorn's own --timeout and take the
+# whole worker down, and every attempt to add a safety net around that in
+# app code introduced a worse bug of its own. Postgres via psycopg2 (a
+# mature, 20+ year old C driver) supports a real server-side
+# statement_timeout that Postgres itself enforces and cancels a stuck
+# query for -- the client can't hang waiting on it the way libsql did.
+# -binary ships a precompiled wheel so Render's build doesn't need
+# PostgreSQL's dev headers/compiler just to install this.
+psycopg2-binary==2.9.10
 
 # --- Timezone-aware "current time" for the LLM (app.py's LOCAL_TZ) --------
 # stdlib zoneinfo needs an IANA tz database; not every base Linux image

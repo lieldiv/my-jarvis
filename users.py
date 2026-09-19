@@ -3,9 +3,30 @@ users.py — per-user account storage for the multi-tenant cloud build.
 
 Replaces google_service.py's single .google_cache/token.json (one shared
 account) with one row per signed-in user, keyed by their Google account's
-own id. SQLite via the stdlib — no new dependency, and Render/Railway/Fly
-all support a small persistent-disk SQLite file for a project at this scale
-(a real Postgres is a reasonable later upgrade, not a phase-1 requirement).
+own id.
+
+Persistence backend: Postgres (via DATABASE_URL, e.g. a free Neon project)
+when configured, else local sqlite3 for local dev. Turso was tried first
+(hosted, free, SQLite-compatible) but its Python driver doesn't respect
+any timeout on network calls -- confirmed directly that a stalled query
+could hang long enough to trip gunicorn's own --timeout and SIGKILL the
+whole worker, and every attempt at an application-level safety net around
+that (a thread wrapper, a subprocess circuit breaker, a hard-fail variant)
+introduced a new, worse, immediately-reproducible bug of its own: a
+runaway multiprocessing fork bomb, a split-brain where a write landed in
+Turso and a later read silently landed in local sqlite instead
+(indistinguishable from data loss), and a health-probe false negative
+that crashed the app at boot. Postgres via psycopg2 (a mature, 20+ year
+old C driver) supports a real server-side statement_timeout that Postgres
+itself enforces and cancels a stuck query for -- the client physically
+cannot hang waiting on it the way libsql did, so this doesn't need any of
+that apparatus.
+
+Query functions below use sqlite's `?` placeholder style throughout
+(matching every existing call site in this file and callers of
+_connect()'s cursor); _PgCursor.execute() translates that to psycopg2's
+`%s` at the boundary so none of those ~30 functions needed to be rewritten
+by hand -- only the connection layer differs per backend.
 """
 
 from __future__ import annotations  # PEP 604 `X | None` hints, running on Python 3.9
@@ -20,41 +41,146 @@ logger = logging.getLogger("jarvis.users")
 
 DB_PATH = os.environ.get("JARVIS_DB_PATH", "users.db")
 
-# Render's free tier (see render.yaml's own note) has no persistent disk —
-# the sqlite3 file above gets wiped on every restart/spin-down, which is
-# what made tasks/reminders vanish unpredictably rather than any per-device
-# bug. TURSO_DATABASE_URL/TURSO_AUTH_TOKEN switch to Turso (hosted, free,
-# no card, SQLite-compatible) when set; local dev with no such env vars is
-# completely unaffected — same sqlite3 file as always.
-TURSO_URL = os.environ.get("TURSO_DATABASE_URL")
-TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
-TURSO_CONFIGURED = bool(TURSO_URL and TURSO_AUTH_TOKEN)
+# Standard env var name Neon (and most Postgres-as-a-service providers)
+# auto-generate on their dashboard, so the connection string can be pasted
+# in as-is with no reformatting. Local dev with no such env var set is
+# completely unaffected -- same sqlite3 file as always.
+PG_DATABASE_URL = os.environ.get("DATABASE_URL")
+PG_CONFIGURED = bool(PG_DATABASE_URL)
 
-if TURSO_CONFIGURED:
-    import libsql
+if PG_CONFIGURED:
+    import psycopg2
 
-# A network-level timeout guard was tried here (three separate attempts:
-# a thread-based wrapper, a subprocess-based circuit breaker, then a
-# hard-fail variant of that breaker) and every one of them introduced a
-# new, worse, immediately-reproducible bug of its own -- a runaway
-# multiprocessing fork bomb, a split-brain where a write landed in Turso
-# and a later read silently landed in local sqlite instead (indistinguishable
-# from data loss), and finally a health-probe false negative that crashed
-# the entire app at boot. Reverted to the simplest possible version: a
-# direct connection, no probe, no circuit breaker, no fallback. This
-# accepts the original, small, well-understood risk (a genuine multi-
-# minute Turso network stall can still hang a request long enough to trip
-# gunicorn's own --timeout and take the worker down) in exchange for
-# removing three compounding, actively-worse bugs the "fix" for that risk
-# kept introducing. The keep-alive ping (see app.py's /health route +
-# .github/workflows/keep-alive.yml) already addresses the specific trigger
-# that caused the one real incident of this (the service going idle, then
-# cold-starting under a real request) — the residual risk here is now a
-# genuine, rare Turso-side outage, not a routine occurrence.
+
+class _PgCursor:
+    """Wraps a psycopg2 cursor so callers written against sqlite3's API
+    (this file's own query functions, unchanged) work against Postgres
+    without modification: translates `?` -> `%s` placeholders, and
+    emulates sqlite3's `.lastrowid` via Postgres's lastval() (the value
+    most recently produced by any SERIAL column's sequence in this
+    session -- exactly what an INSERT into one just did), since psycopg2
+    has no such attribute at all."""
+
+    def __init__(self, cur):
+        self._cur = cur
+        self._is_insert = False
+
+    def execute(self, sql, params=()):
+        self._is_insert = sql.lstrip().upper().startswith("INSERT")
+        self._cur.execute(sql.replace("?", "%s"), tuple(params))
+        return self
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    @property
+    def lastrowid(self):
+        if not self._is_insert:
+            return None
+        self._cur.execute("SELECT lastval()")
+        return self._cur.fetchone()[0]
+
+
+class _PgConnection:
+    """Wraps a psycopg2 connection so `conn.execute(...)` works the same
+    way sqlite3.Connection's own convenience method does (this file's
+    query functions call .execute() directly on the connection, never on
+    an explicit cursor) -- psycopg2 has no such method, only
+    conn.cursor().execute()."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        return _PgCursor(self._conn.cursor()).execute(sql, params)
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
 
 
 def _init_db():
     with _connect() as conn:
+        if PG_CONFIGURED:
+            # A brand-new Postgres database has no pre-recurrence-era
+            # history to migrate, unlike the sqlite/Turso branch below --
+            # every column just goes straight into CREATE TABLE, no
+            # ALTER TABLE ADD COLUMN dance needed at all. SERIAL is
+            # Postgres's auto-incrementing integer primary key.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL,
+                    name TEXT,
+                    google_token_json TEXT,
+                    created_at REAL NOT NULL,
+                    last_login_at REAL NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS reminders (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    remind_at REAL NOT NULL,
+                    created_at REAL NOT NULL,
+                    delivered INTEGER NOT NULL DEFAULT 0,
+                    recurrence TEXT,
+                    emoji TEXT,
+                    flourish TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    category TEXT,
+                    recurring_day TEXT,
+                    created_at REAL NOT NULL,
+                    completed_at REAL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_completions (
+                    id SERIAL PRIMARY KEY,
+                    task_id INTEGER NOT NULL,
+                    user_id TEXT NOT NULL,
+                    completed_at REAL NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS push_subscriptions (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    endpoint TEXT NOT NULL UNIQUE,
+                    p256dh TEXT NOT NULL,
+                    auth TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )
+                """
+            )
+            return
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -70,11 +196,10 @@ def _init_db():
         # Reminders: delivered by emailing the user (see daily_briefing.py's
         # scheduler), not by pushing to an open tab — proactive delivery has
         # to work whether or not anyone happens to have the HUD open at
-        # remind_at. NOTE same caveat as the users table: on Render's free
-        # tier this file is wiped on every restart/spin-down, so a reminder
-        # set for later can silently vanish if the server recycles before
-        # it fires. Real persistence needs a durable store (e.g. Render's
-        # free Postgres), not this ephemeral SQLite file.
+        # remind_at. NOTE: local sqlite is ephemeral on Render's free tier
+        # (wiped on restart/spin-down, see render.yaml's own note) -- that's
+        # exactly why DATABASE_URL/Postgres is preferred when configured;
+        # this whole branch only runs for local dev without it.
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS reminders (
@@ -96,12 +221,7 @@ def _init_db():
         # existing table, so already-provisioned databases need this run
         # once to catch up. SQLite has no ADD COLUMN IF NOT EXISTS; catching
         # the duplicate-column error is the documented way to make this
-        # idempotent. Catches plain Exception, not sqlite3.OperationalError
-        # specifically — confirmed directly that Turso's libsql raises a
-        # bare ValueError (wrapping a Hrana protocol error) for the exact
-        # same "duplicate column" condition, not sqlite3's own exception
-        # type, so a narrower catch here would crash _init_db() on first
-        # boot against a fresh Turso database.
+        # idempotent.
         try:
             conn.execute("ALTER TABLE reminders ADD COLUMN recurrence TEXT")
         except Exception:
@@ -118,7 +238,7 @@ def _init_db():
             try:
                 conn.execute(f"ALTER TABLE reminders ADD COLUMN {column} TEXT")
             except Exception:
-                pass  # column already exists — same cross-backend note as above
+                pass  # column already exists
 
         # Tasks/to-do items — one row per task a user creates
         # completed is 0/1 (one-time tasks only — see task_completions below
@@ -181,17 +301,25 @@ def _init_db():
 
 @contextmanager
 def _connect():
-    if TURSO_CONFIGURED:
-        # Remote HTTP connection — no local file, so no lock-contention
-        # timeout or journal-mode PRAGMA applies (those are local-file
-        # SQLite concepts; Turso's server handles concurrency itself).
-        # libsql.Connection implements the same .execute/.commit/.close
-        # DB-API surface as sqlite3.Connection, so every query elsewhere
-        # in this file works unchanged. See the module docstring above for
-        # why this is a plain, unprotected connect — every attempt to add
-        # a safety net around it caused a worse problem than the one it
-        # was meant to prevent.
-        conn = libsql.connect(database=TURSO_URL, auth_token=TURSO_AUTH_TOKEN)
+    if PG_CONFIGURED:
+        # connect_timeout bounds the initial TCP/auth handshake; statement_timeout
+        # (Postgres-server-enforced, not client-side) bounds actual QUERY
+        # execution -- if a query runs past 8s, Postgres itself cancels it and
+        # returns an error to the client, which is what libsql could never do
+        # (see module docstring). This is the actual fix the whole Turso saga
+        # was trying, and failing, to bolt on after the fact.
+        #
+        # Set via a SET command after connecting, not the `options=` startup
+        # parameter -- confirmed directly that Neon's pooled connection
+        # (PgBouncer, the default/recommended connection string) rejects
+        # statement_timeout as a startup parameter outright ("unsupported
+        # startup parameter"), since a pooler doesn't forward arbitrary
+        # startup options to the underlying server the way a direct
+        # connection does. A plain SQL SET works with pooled or direct
+        # connections either way.
+        raw_conn = psycopg2.connect(PG_DATABASE_URL, connect_timeout=10)
+        raw_conn.cursor().execute("SET statement_timeout = 8000")
+        conn = _PgConnection(raw_conn)
     else:
         # timeout=10: how long a call waits for a lock held by another thread
         # before raising "database is locked", instead of the 5s default —
