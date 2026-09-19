@@ -4208,11 +4208,49 @@ function renderEventList(container, events, showCancel){
 }
 let homeUpcomingExpanded = false;
 function toggleHomeUpcoming(){ homeUpcomingExpanded = !homeUpcomingExpanded; renderHomeUpcoming(); }
+
+// Reminders/tasks for the Home "upcoming" widget — separate caches from
+// upcomingEventsCache (calendar only, also used by the Agenda tab) so this
+// stays a Home-only addition with no risk to Agenda's existing rendering.
+// Grouped as event-rows -> reminder-rows -> task-rows rather than
+// interleaved by time: calendar events only carry a pre-formatted
+// time_label (no raw timestamp — see get_upcoming_events_structured), so
+// there's nothing to sort tasks/reminders against for a true chronological
+// merge without a backend change. Read-only here (no cancel/reschedule) --
+// editing already lives on the Agenda/Tasks tabs, and wiring reminder/task
+// delete into a row shaped for calendar-event actions risked calling the
+// wrong endpoint for the wrong item type.
+let homeRemindersCache = [];
+let homeTasksCache = [];
+function buildQuickItemRow(icon, label, text){
+    const row = el('div','event-row');
+    const t = el('span','t'); t.textContent = label;
+    const s = el('span','s'); s.textContent = `${icon} ${text}`;
+    row.append(t, s);
+    return row;
+}
 function renderHomeUpcoming(){
-    const shown = homeUpcomingExpanded ? upcomingEventsCache : upcomingEventsCache.slice(0, 3);
-    renderEventList($('home-upcoming-list'), shown, true);
+    const combined = [
+        ...upcomingEventsCache.map(ev => ({ kind: 'event', data: ev })),
+        ...homeRemindersCache.map(r => ({ kind: 'reminder', data: r })),
+        ...homeTasksCache.map(t => ({ kind: 'task', data: t })),
+    ];
+    const shown = homeUpcomingExpanded ? combined : combined.slice(0, 3);
+    const container = $('home-upcoming-list');
+    container.innerHTML = '';
+    if (!upcomingEventsLoaded) {
+        container.innerHTML = '<div class="events-empty">טוען…</div>';
+    } else if (combined.length === 0) {
+        container.innerHTML = '<div class="events-empty">אין כלום בקרוב</div>';
+    } else {
+        shown.forEach(item => {
+            if (item.kind === 'event') container.appendChild(buildEventRow(item.data, true));
+            else if (item.kind === 'reminder') container.appendChild(buildQuickItemRow('⏰', item.data.label, item.data.text));
+            else container.appendChild(buildQuickItemRow('📝', 'משימה', item.data.text));
+        });
+    }
     const toggle = $('home-upcoming-toggle');
-    if (upcomingEventsCache.length > 3) {
+    if (combined.length > 3) {
         toggle.style.display = '';
         toggle.innerText = homeUpcomingExpanded ? 'הצג פחות' : 'הצג הכל';
     } else {
@@ -4221,10 +4259,18 @@ function renderHomeUpcoming(){
 }
 async function pollUpcomingEvents(){
     try {
-        const res = await fetchWithTimeout('/api/upcoming-events');
-        const data = await res.json();
+        const [evRes, remRes, taskRes] = await Promise.all([
+            fetchWithTimeout('/api/upcoming-events'),
+            fetchWithTimeout('/api/reminders'),
+            fetchWithTimeout('/api/tasks'),
+        ]);
+        const data = await evRes.json();
         upcomingEventsCache = (data.configured && data.events) ? data.events : [];
         upcomingEventsLoaded = true;
+        const remData = await remRes.json();
+        homeRemindersCache = remData.reminders || [];
+        const taskData = await taskRes.json();
+        homeTasksCache = (taskData.tasks || []).filter(t => !t.done_this_period);
         renderHomeUpcoming();
         if (currentTab === 'agenda') loadAgendaTab();
     } catch (e) { /* keep whatever was last shown */ }
