@@ -3048,6 +3048,14 @@ def remove_task(task_id):
     return jsonify({"ok": True, "message": message})
 
 
+# Index 0=Monday..6=Sunday, matching both WEEKDAY_NAMES's ordering and
+# datetime.weekday()'s own convention -- same list productivity_service.py's
+# reminder confirmation messages already use, kept in sync with that style
+# ("שבת, 19.9 בשעה 15:00" / "כל שבת בשעה 15:00") rather than inventing a
+# different format just for this list.
+_HEBREW_WEEKDAYS = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
+
+
 @app.route("/api/reminders")
 def list_reminders():
     """Backs the HUD's own reminders list — set_reminder/set_recurring_reminder
@@ -3066,10 +3074,10 @@ def list_reminders():
         weekday = hour = minute = None
         if r["recurrence"]:
             weekday, hour, minute = (int(p) for p in r["recurrence"].split(":"))
-            label = f"Every {productivity_service.WEEKDAY_NAMES[weekday]} at {hour:02d}:{minute:02d}"
+            label = f"כל {_HEBREW_WEEKDAYS[weekday]} בשעה {hour:02d}:{minute:02d}"
         else:
             dt = datetime.fromtimestamp(r["remind_at"], tz=productivity_service.LOCAL_TZ)
-            label = dt.strftime("%a %b %d, %H:%M")
+            label = f"{_HEBREW_WEEKDAYS[dt.weekday()]}, {dt.day}.{dt.month} בשעה {dt.hour:02d}:{dt.minute:02d}"
         out.append({
             "id": r["id"], "text": r["text"], "label": label, "recurring": bool(r["recurrence"]),
             "remind_at": r["remind_at"], "weekday": weekday, "hour": hour, "minute": minute,
