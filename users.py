@@ -11,12 +11,9 @@ all support a small persistent-disk SQLite file for a project at this scale
 from __future__ import annotations  # PEP 604 `X | None` hints, running on Python 3.9
 
 import logging
-import multiprocessing
 import os
 import sqlite3
-import threading
 import time
-from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 
 logger = logging.getLogger("jarvis.users")
@@ -36,109 +33,24 @@ TURSO_CONFIGURED = bool(TURSO_URL and TURSO_AUTH_TOKEN)
 if TURSO_CONFIGURED:
     import libsql
 
-# libsql.connect() is LAZY — confirmed directly by connecting to a
-# deliberately unreachable address and timing it: connect() returns in
-# ~0.02s every time, network or not, because it doesn't open a socket at
-# all until the first real query. The actual network hang happens on the
-# first .execute() call, and its own `timeout=` kwarg (mirroring
-# sqlite3's) is a LOCK-WAIT timeout, not a network one, so it does nothing
-# for this. A wrapper around connect() (the previous version of this file)
-# therefore protected nothing — connect() was never the slow part.
-#
-# Worse: that first .execute() hang can't be bounded from another THREAD
-# either. Proven directly: a ticker thread printing once a second froze
-# for the entire ~21s (Windows) stall alongside a ThreadPoolExecutor's own
-# `future.result(timeout=5)`, which should have returned at 5s but instead
-# blocked for the full ~21s too. libsql's native (Rust) code holds the GIL
-# for the whole blocking network call, so nothing else in the same
-# process — including the mechanism meant to time it out — can run until
-# it finishes. On Render's Linux, that OS-level stall can run past two
-# minutes, longer than gunicorn's own --timeout 120: exactly what
-# happened in production (WORKER TIMEOUT -> SIGKILL in the service logs),
-# because one stuck thread holding the GIL freezes every other thread on
-# that worker too, not just its own request.
-#
-# A SEPARATE PROCESS is the only thing that actually works, because the
-# parent-child boundary is OS-level (a pipe), not GIL-bound — proven
-# directly: a ProcessPoolExecutor future's `.result(timeout=N)` returned
-# in exactly N seconds even while its child process was still stuck deep
-# in the same ~21s network stall, and the parent was immediately free to
-# do other work. This is used here as a circuit breaker, not to run every
-# query (that would mean a fresh process + fresh connection per query,
-# which is both slow and a much larger rewrite of every call site below):
-# a cheap SELECT 1 probe, run in a throwaway process with a hard timeout,
-# decides whether Turso gets used at all for the next
-# _TURSO_HEALTHY_TTL_SECONDS. When it's down, every request for the next
-# _TURSO_COOLDOWN_SECONDS skips Turso entirely and falls back to local
-# sqlite (the same degrade path already used when Turso isn't configured)
-# instead of ever touching the risky unprotected .execute() path. This
-# doesn't reach zero risk — a request that lands in the few seconds
-# between a fresh "healthy" verdict and an outage starting still goes
-# through the unprotected direct connection below and can still hang —
-# but it turns "every single request hangs and repeatedly SIGKILLs the
-# worker for as long as the outage lasts" into "at most one bad request
-# at the moment an outage begins."
-_TURSO_PROBE_TIMEOUT_SECONDS = 5
-_TURSO_HEALTHY_TTL_SECONDS = 30
-_TURSO_COOLDOWN_SECONDS = 30
-# mp_context is forced to 'spawn', not left at the platform default. On
-# Linux that default is 'fork', which duplicates the CURRENT process --
-# and by the time this probe pool's first task actually runs, the
-# gunicorn worker has almost certainly already opened a real Turso
-# connection of its own (any ordinary request handling one), which means
-# libsql's underlying async runtime (tokio) is already initialized with
-# its own worker threads. Forking a multi-threaded process only clones
-# the calling thread; tokio's worker threads simply don't exist in the
-# child, so any native call that needs them hangs forever waiting on a
-# runtime that's missing its workers -- a well-documented fork+async-
-# runtime hazard, not specific to this codebase. That hang would then
-# make the probe time out and report Turso as "down" even when it's
-# perfectly reachable, which would silently flip every request for the
-# next _TURSO_COOLDOWN_SECONDS onto local sqlite instead -- exactly the
-# kind of split-brain (a write landing in Turso, a later read landing in
-# local sqlite, or vice versa) that looked like "reminders silently stop
-# firing" in practice. 'spawn' starts a genuinely fresh interpreter with
-# no inherited native state, sidestepping this entirely; it's also what
-# Windows always uses (no fork() there at all), which is exactly why this
-# never showed up in local testing on this machine. The _init_db()
-# MainProcess guard near the bottom of this file already covers the
-# reentrancy hazard 'spawn' introduces (a worker re-importing this module
-# to unpickle _turso_probe), so switching to it needs no other change.
-_turso_probe_pool = ProcessPoolExecutor(max_workers=2, mp_context=multiprocessing.get_context("spawn")) if TURSO_CONFIGURED else None
-_turso_status_lock = threading.Lock()
-_turso_healthy_until = 0.0
-_turso_down_until = 0.0
-
-
-def _turso_probe(url, token):
-    """Runs in a throwaway child process — must stay a plain top-level
-    function (picklable) and return only plain data, never a Connection."""
-    import libsql as _libsql
-    conn = _libsql.connect(database=url, auth_token=token)
-    conn.execute("SELECT 1").fetchone()
-    return True
-
-
-def _turso_reachable() -> bool:
-    global _turso_healthy_until, _turso_down_until
-    now = time.monotonic()
-    with _turso_status_lock:
-        if now < _turso_healthy_until:
-            return True
-        if now < _turso_down_until:
-            return False
-    try:
-        future = _turso_probe_pool.submit(_turso_probe, TURSO_URL, TURSO_AUTH_TOKEN)
-        future.result(timeout=_TURSO_PROBE_TIMEOUT_SECONDS)
-        healthy = True
-    except Exception:
-        healthy = False
-    with _turso_status_lock:
-        if healthy:
-            _turso_healthy_until = time.monotonic() + _TURSO_HEALTHY_TTL_SECONDS
-        else:
-            _turso_down_until = time.monotonic() + _TURSO_COOLDOWN_SECONDS
-    return healthy
+# A network-level timeout guard was tried here (three separate attempts:
+# a thread-based wrapper, a subprocess-based circuit breaker, then a
+# hard-fail variant of that breaker) and every one of them introduced a
+# new, worse, immediately-reproducible bug of its own -- a runaway
+# multiprocessing fork bomb, a split-brain where a write landed in Turso
+# and a later read silently landed in local sqlite instead (indistinguishable
+# from data loss), and finally a health-probe false negative that crashed
+# the entire app at boot. Reverted to the simplest possible version: a
+# direct connection, no probe, no circuit breaker, no fallback. This
+# accepts the original, small, well-understood risk (a genuine multi-
+# minute Turso network stall can still hang a request long enough to trip
+# gunicorn's own --timeout and take the worker down) in exchange for
+# removing three compounding, actively-worse bugs the "fix" for that risk
+# kept introducing. The keep-alive ping (see app.py's /health route +
+# .github/workflows/keep-alive.yml) already addresses the specific trigger
+# that caused the one real incident of this (the service going idle, then
+# cold-starting under a real request) — the residual risk here is now a
+# genuine, rare Turso-side outage, not a routine occurrence.
 
 
 def _init_db():
@@ -270,41 +182,15 @@ def _init_db():
 @contextmanager
 def _connect():
     if TURSO_CONFIGURED:
-        # Always Turso when configured — never silently redirected to the
-        # local sqlite file below. An earlier version of this function used
-        # _turso_reachable() to fall back to local sqlite whenever Turso
-        # looked unhealthy, which turned out to be worse than the crash it
-        # was meant to prevent: local sqlite and Turso are TWO SEPARATE,
-        # non-syncing databases, so a write landing in one and a later read
-        # landing in the other (because the circuit's health verdict
-        # changed in between) is silent data loss, not a handled error.
-        # Confirmed directly against production: a reminder created and
-        # visible in the UI right after (read landed on whichever store was
-        # "current" at that instant) was never found by the background
-        # scheduler's later, independent read a minute on — no exception,
-        # no log line, it simply checked the other, empty database. That's
-        # a worse failure than the one being guarded against.
-        #
-        # _turso_reachable() is kept for exactly what it's actually good at:
-        # bounding a genuine network stall to a few seconds instead of the
-        # OS-level TCP timeout that can run past gunicorn's own --timeout
-        # and take down the whole worker (see that function's own comment
-        # for the full mechanism). When it reports Turso as down, this now
-        # raises a clean, per-request error instead of quietly reading from
-        # a different database -- a failed request the caller's existing
-        # try/except already turns into an ordinary "couldn't reach the
-        # server" message is a fully acceptable outcome for a real Turso
-        # outage; silently losing data because two different requests were
-        # answered from two different places is not.
-        if not _turso_reachable():
-            raise TimeoutError(
-                "Turso is not responding right now — refusing to silently "
-                "fall back to a different, out-of-sync local database."
-            )
-        # connect() itself is safe to call directly (proven lazy/instant
-        # even when Turso is unreachable — see _turso_reachable()'s
-        # comment); _turso_reachable() already did the actual risk-bounded
-        # check above.
+        # Remote HTTP connection — no local file, so no lock-contention
+        # timeout or journal-mode PRAGMA applies (those are local-file
+        # SQLite concepts; Turso's server handles concurrency itself).
+        # libsql.Connection implements the same .execute/.commit/.close
+        # DB-API surface as sqlite3.Connection, so every query elsewhere
+        # in this file works unchanged. See the module docstring above for
+        # why this is a plain, unprotected connect — every attempt to add
+        # a safety net around it caused a worse problem than the one it
+        # was meant to prevent.
         conn = libsql.connect(database=TURSO_URL, auth_token=TURSO_AUTH_TOKEN)
     else:
         # timeout=10: how long a call waits for a lock held by another thread
@@ -651,17 +537,4 @@ def get_completion_timestamps_since(user_id: str, since: float) -> list[float]:
     return [r[0] for r in onetime] + [r[0] for r in recurring]
 
 
-# Guarded: a ProcessPoolExecutor worker (see _turso_probe_pool above) that
-# starts via 'spawn' or 'forkserver' has to re-import this module from
-# scratch to unpickle _turso_probe, which would otherwise re-run every
-# top-level statement here including this call -- which would submit
-# another probe from inside the fresh child, spawning a grandchild, and
-# so on forever. Proven directly: an early version without this guard
-# forked itself into 15+ runaway python.exe processes within seconds on
-# this machine. multiprocessing.current_process().name is only
-# "MainProcess" in the real application process, never inside a pool
-# worker (regardless of fork/spawn/forkserver), so this is safe on every
-# platform/start-method combination, not just the one this happened to be
-# tested under.
-if multiprocessing.current_process().name == "MainProcess":
-    _init_db()
+_init_db()
