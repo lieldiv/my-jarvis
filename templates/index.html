@@ -283,7 +283,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .wake-gate-btn{ width:150px; height:150px; border-radius:50%; border:1.5px solid rgba(var(--accent-rgb),.65); background:radial-gradient(circle, rgba(var(--accent-rgb),.12) 0%, rgba(2,8,19,.9) 72%); box-shadow:0 0 30px rgba(var(--accent-rgb),.25), inset 0 0 24px rgba(var(--accent-rgb),.1); color:var(--color-white); font-family:var(--font-display); font-weight:700; font-size:14px; letter-spacing:var(--tracking-wide); cursor:pointer; transition:transform .15s ease, box-shadow .25s ease; animation:jm-pulse 3.6s ease-in-out infinite; }
 .wake-gate-btn:hover{ box-shadow:0 0 42px rgba(var(--accent-rgb),.4), inset 0 0 28px rgba(var(--accent-rgb),.16); }
 .wake-gate-btn:active{ transform:scale(.95); }
-.wake-gate-hint{ font-size:12.5px; color:var(--color-text-dim); text-align:center; min-height:16px; max-width:260px; line-height:1.5; }
 .wake-chrome-enter{ animation:jm-fadeup .5s ease both; }
 @media (prefers-reduced-motion: reduce){
     .wake-gate-btn{ animation:none; }
@@ -859,7 +858,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
         <div class="wake-gate-inner">
           <div class="wake-gate-word">JARVIS</div>
           <button class="wake-gate-btn" id="wake-gate-btn" onclick="enterWakeGate()">מוכן</button>
-          <div class="wake-gate-hint" id="wake-gate-hint" dir="auto"></div>
         </div>
       </div>
 
@@ -6002,7 +6000,9 @@ async function armPassiveWakeListeningIfAllowed(){
     if (usingRecorder() || !speechInputSupported() || textOnlyMode) return;
     if (!(await micAlreadyGranted())) return;
     if (!$('wake-gate').classList.contains('show')) return; // already left this screen
-    $('wake-gate-hint').innerText = 'אפשר גם לומר "WAKE UP" או "בוקר טוב"';
+    // No visible hint here by request -- the screen stays just the orb and
+    // the button -- but if permission is already granted, listening starts
+    // silently anyway, so saying the wake phrase still works.
     if (!micInitialized) { initSpeechRecognition(); micInitialized = true; }
     startRecognitionSafely();
 }
