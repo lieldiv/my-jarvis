@@ -1065,13 +1065,16 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="settings-sub">◂ קול</div>
             <div class="voice-info-block">לחיצה לדיבור · עברית בקלט, אנגלית בפלט<br/>אישור לפני פעולה: כל שינוי ביומן או מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
 
-            <div class="settings-sub">◂ קיצורי דרך (Shortcuts)</div>
-            <div class="voice-info-block">JARVIS יודע להריץ בקול קיצורי iPhone Shortcuts אישיים (רק באייפון — לא קיים לאנדרואיד). פיצ'ר מתקדם עם הגדרה חד-פעמית, כבוי כרגע בגרסה הזו — מי שרוצה אותו מוזמן לשאול.</div>
-
             <div id="standalone-warning"></div>
 
             <div class="settings-sub">◂ אבחון דיבור</div>
             <div id="voice-diag"></div>
+
+            <div class="settings-sub">◂ הקיצורים שלי (iPhone בלבד)</div>
+            <div id="shortcut-registry"></div>
+
+            <div class="settings-sub">◂ שעון מעורר (iPhone בלבד)</div>
+            <div id="alarm-setup"></div>
 
             <div class="settings-sub">◂ מראה</div>
             <div class="theme-row" id="theme-row"></div>
@@ -5744,15 +5747,141 @@ function getShortcuts(){
 }
 function saveShortcuts(list){ lsSet(SHORTCUTS_KEY, JSON.stringify(list.slice(0, MAX_SHORTCUTS))); }
 
-// Registering shortcuts by name (addShortcut/renderShortcutRegistry) and
-// the Alarm Shortcut setup tutorial (renderAlarmSetup) were removed along
-// with the run_shortcut/set_alarm tools themselves — both require a
-// specifically-named iPhone Shortcut only the original single-user
-// desktop app's owner would ever set up (see _DESKTOP_ONLY_TOOL_NAMES in
-// app.py); the Settings UI for them was dead instructions for a feature
-// that can't work on this cloud build. getShortcuts() stays: commandBody()
-// still sends whatever's stored, which is simply always empty now —
-// consistent with the tool being gone.
+function addShortcut(){
+    const name = $('sc-name').value.trim();
+    if (!name) { showToast('צריך את שם הקיצור, בדיוק כפי שהוא מופיע.', true); return; }
+    const list = getShortcuts();
+    if (list.some(s => s.name === name)) { showToast('הקיצור הזה כבר רשום.', true); return; }
+    if (list.length >= MAX_SHORTCUTS) { showToast(`מקסימום ${MAX_SHORTCUTS} קיצורים.`, true); return; }
+    list.push({ name, does: $('sc-does').value.trim() });
+    saveShortcuts(list);
+    $('sc-name').value = ''; $('sc-does').value = '';
+    renderShortcutRegistry();
+    beep(700, 0.09);
+    showToast(`"${name}" נרשם — JARVIS יידע להפעיל אותו.`);
+}
+
+function removeShortcut(name){
+    saveShortcuts(getShortcuts().filter(s => s.name !== name));
+    renderShortcutRegistry();
+}
+
+function renderShortcutRegistry(){
+    const box = $('shortcut-registry');
+    if (!box) return;
+    box.innerHTML = '';
+
+    const list = getShortcuts();
+    const intro = el('div', 'voice-info-block');
+    intro.innerHTML = list.length
+        ? 'JARVIS יפעיל את אלה גם בלי שתגיד את השם. השם חייב להיות <b>זהה בדיוק</b> לזה שבאפליקציית Shortcuts — אחרת Shortcuts רק נפתח ולא מריץ. <b>עובד רק באייפון.</b>'
+        : '<b>לא חובה למלא כאן כלום.</b> תמיד אפשר פשוט לומר ל-JARVIS את שם הקיצור ' +
+          '("תפעיל את הקיצור הפעלת מוזיקה"). הרשימה הזו רק חוסכת לך לומר את השם — ' +
+          'הוא יידע לבד מתי להפעיל אותו. <b>דורש אפליקציית Shortcuts, קיימת רק באייפון.</b>';
+    box.appendChild(intro);
+
+    list.forEach(sc => {
+        const row = el('div', 'sc-row');
+        const info = el('div', 'sc-info');
+        const nm = el('div', 'sc-name'); nm.innerText = sc.name;
+        const meta = el('div', 'sc-meta');
+        meta.innerText = sc.does || 'קיצור';
+        info.append(nm, meta);
+        const del = el('button', 'sc-del');
+        del.innerText = '✕';
+        del.title = 'הסר';
+        del.onclick = () => removeShortcut(sc.name);
+        row.append(info, del);
+        box.appendChild(row);
+    });
+
+    const form = el('div', 'sc-form');
+    form.innerHTML =
+        '<input type="text" id="sc-name" placeholder="שם הקיצור — בדיוק כמו באפליקציה" dir="auto">' +
+        '<input type="text" id="sc-does" placeholder="מתי להשתמש בו (לא חובה)" dir="auto">';
+    box.appendChild(form);
+
+    const add = el('button', 'setup-btn');
+    add.innerText = '＋ הוסף קיצור';
+    add.onclick = addShortcut;
+    box.appendChild(add);
+
+    const open = el('button', 'setup-btn quiet');
+    open.innerText = '📱 פתח את Shortcuts כדי לבדוק שמות';
+    open.onclick = openShortcutsApp;
+    box.appendChild(open);
+}
+renderShortcutRegistry();
+
+const ALARM_SETUP_KEY = 'jarvis_alarm_setup_done';
+const ALARM_SHORTCUT_NAME = 'JARVIS Alarm';
+
+function alarmSetupDone(){ return lsGet(ALARM_SETUP_KEY, '0') === '1'; }
+
+function openShortcutsApp(){
+    // Same helper the confirmation cards use — this is a direct tap, so the
+    // gesture is live and the scheme opens. Verified on the user's iPhone:
+    // shortcuts:// works where clock-alarm:// does nothing.
+    openPhoneLink('shortcuts://');
+}
+
+function setAlarmSetupDone(done){
+    lsSet(ALARM_SETUP_KEY, done ? '1' : '0');
+    renderAlarmSetup();
+    if (done) { beep(700, 0.1); showToast('נשמר. לא אבקש שוב במכשיר הזה.'); }
+}
+
+function renderAlarmSetup(){
+    const box = $('alarm-setup');
+    if (!box) return;
+    box.innerHTML = '';
+
+    if (alarmSetupDone()) {
+        const done = el('div', 'setup-done');
+        done.innerHTML = '<span class="tick">✓</span><span>הקיצור מוכן. תגיד ' +
+            '<b>"תעיר אותי ב-7"</b> והקש על הכרטיס.</span>';
+        box.appendChild(done);
+
+        const open = el('button', 'setup-btn');
+        open.innerText = '📱 פתח את Shortcuts';
+        open.onclick = openShortcutsApp;
+        box.appendChild(open);
+
+        const again = el('button', 'setup-btn quiet');
+        again.innerText = 'הצג שוב את ההוראות';
+        again.onclick = () => setAlarmSetupDone(false);
+        box.appendChild(again);
+        return;
+    }
+
+    const intro = el('div', 'voice-info-block');
+    intro.innerHTML = 'כדי ש-JARVIS יכוון לך <b>מעורר אמיתי</b> שמצלצל ומעיר — צריך ' +
+        'קיצור אחד, פעם אחת. אפל חוסמת גישה ישירה לאפליקציית השעון, וזו הדרך שנשארה. ' +
+        '<b>קיים רק באייפון.</b>';
+    box.appendChild(intro);
+
+    const steps = el('ol', 'setup-steps');
+    steps.innerHTML =
+        '<li>פתח את <b>Shortcuts</b> בכפתור למטה, ואז <b>➕</b></li>' +
+        '<li>הוסף פעולה <span class="lit">Get dates from</span> — ובשדה שלה בחר ' +
+            '<span class="lit">Shortcut Input</span></li>' +
+        '<li>הוסף פעולה <span class="lit">Create Alarm</span> — ובשדה השעה בחר את ' +
+            'הפלט של הפעולה הקודמת</li>' +
+        '<li>שנה את שם הקיצור בדיוק ל-<span class="lit">' + ALARM_SHORTCUT_NAME + '</span>. ' +
+            'שם שלא תואם לתו הוא כמעט תמיד הסיבה שכלום לא קורה.</li>';
+    box.appendChild(steps);
+
+    const open = el('button', 'setup-btn');
+    open.innerText = '📱 פתח את Shortcuts עכשיו';
+    open.onclick = openShortcutsApp;
+    box.appendChild(open);
+
+    const mark = el('button', 'setup-btn');
+    mark.innerText = '✓ סיימתי — אל תציג לי את זה שוב';
+    mark.onclick = () => setAlarmSetupDone(true);
+    box.appendChild(mark);
+}
+renderAlarmSetup();
 
 /* ================================================================================
    Microphone monitor — hear yourself, and see the number.

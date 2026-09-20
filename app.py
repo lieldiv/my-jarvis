@@ -1698,14 +1698,14 @@ TOOLS = [
 # refusal. Computed once at import time (DESKTOP_TOOLS_ENABLED doesn't
 # change at runtime), not filtered per-request.
 #
-# run_shortcut/set_alarm belong here for the same reason even though
-# they're not strictly "desktop": both only work for a user who has
-# already registered a specifically-named iPhone Shortcut pointing back
-# at this exact server (_shortcut_url/ALARM_SHORTCUT_NAME) — a one-time
-# setup step from the original single-user desktop app that essentially
-# no cloud sign-up has done, so these two ~1,100 chars of schema were
-# being paid on every request for tools that almost never fire.
-_DESKTOP_ONLY_TOOL_NAMES = {"open_application", "close_application", "computer_use", "run_shortcut", "set_alarm"}
+# run_shortcut/set_alarm are NOT in this set despite living next to these in
+# TOOLS: unlike the three above, they don't touch this server's machine at
+# all — _run_shortcut/_set_alarm just push a confirmation event over SSE and
+# the USER'S OWN PHONE opens the shortcuts:// URL when they tap it. Any
+# cloud user who registers a same-named iPhone Shortcut (Settings ->
+# הקיצורים שלי) gets a fully working feature; excluding them here would
+# silently break that for every cloud user, not just save tokens.
+_DESKTOP_ONLY_TOOL_NAMES = {"open_application", "close_application", "computer_use"}
 ACTIVE_TOOLS = TOOLS if DESKTOP_TOOLS_ENABLED else [
     t for t in TOOLS if t["function"]["name"] not in _DESKTOP_ONLY_TOOL_NAMES
 ]
