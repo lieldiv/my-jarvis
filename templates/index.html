@@ -5816,6 +5816,9 @@ renderShortcutRegistry();
 const ALARM_SETUP_KEY = 'jarvis_alarm_setup_done';
 const ALARM_SHORTCUT_NAME = 'JARVIS Alarm';
 
+// Read by resolveConfirmation() when an alarm is actually triggered, to warn
+// up front if it was never marked configured -- iOS never reports back
+// whether the shortcut it just opened actually exists.
 function alarmSetupDone(){ return lsGet(ALARM_SETUP_KEY, '0') === '1'; }
 
 function openShortcutsApp(){
@@ -5825,34 +5828,10 @@ function openShortcutsApp(){
     openPhoneLink('shortcuts://');
 }
 
-function setAlarmSetupDone(done){
-    lsSet(ALARM_SETUP_KEY, done ? '1' : '0');
-    renderAlarmSetup();
-    if (done) { beep(700, 0.1); showToast('נשמר. לא אבקש שוב במכשיר הזה.'); }
-}
-
 function renderAlarmSetup(){
     const box = $('alarm-setup');
     if (!box) return;
     box.innerHTML = '';
-
-    if (alarmSetupDone()) {
-        const done = el('div', 'setup-done');
-        done.innerHTML = '<span class="tick">✓</span><span>הקיצור מוכן. תגיד ' +
-            '<b>"תעיר אותי ב-7"</b> והקש על הכרטיס.</span>';
-        box.appendChild(done);
-
-        const open = el('button', 'setup-btn');
-        open.innerText = '📱 פתח את Shortcuts';
-        open.onclick = openShortcutsApp;
-        box.appendChild(open);
-
-        const again = el('button', 'setup-btn quiet');
-        again.innerText = 'הצג שוב את ההוראות';
-        again.onclick = () => setAlarmSetupDone(false);
-        box.appendChild(again);
-        return;
-    }
 
     const intro = el('div', 'voice-info-block');
     intro.innerHTML = 'כדי ש-JARVIS יכוון לך <b>מעורר אמיתי</b> שמצלצל ומעיר — צריך ' +
@@ -5876,9 +5855,9 @@ function renderAlarmSetup(){
     open.onclick = openShortcutsApp;
     box.appendChild(open);
 
-    const mark = el('button', 'setup-btn');
-    mark.innerText = '✓ סיימתי — אל תציג לי את זה שוב';
-    mark.onclick = () => setAlarmSetupDone(true);
+    const mark = el('button', 'setup-btn' + (alarmSetupDone() ? '' : ' quiet'));
+    mark.innerText = alarmSetupDone() ? '✓ מוגדר' : '✓ סימנתי שהקיצור מוכן';
+    mark.onclick = () => { lsSet(ALARM_SETUP_KEY, alarmSetupDone() ? '0' : '1'); renderAlarmSetup(); };
     box.appendChild(mark);
 }
 renderAlarmSetup();
