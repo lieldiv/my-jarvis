@@ -75,7 +75,7 @@
 [data-theme="green"]{  --accent-rgb:0,255,136;  --color-bg:#02120a; --color-panel:rgba(4,34,22,0.75);   --color-text-dim:#7fd3a6; --color-green:#a8ffe0; }
 [data-theme="red"]{    --accent-rgb:255,45,45;  --color-bg:#120302; --color-panel:rgba(40,6,4,0.75);    --color-text-dim:#d99a92; --color-red:#ffb3b3; }
 [data-theme="purple"]{ --accent-rgb:170,70,255; --color-bg:#0a0512; --color-panel:rgba(24,10,42,0.75);  --color-text-dim:#c1a3e0; }
-[data-theme="pink"]{   --accent-rgb:255,45,140; --color-bg:#12030b; --color-panel:rgba(42,6,26,0.75);   --color-text-dim:#e099bd; }
+[data-theme="pink"]{   --accent-rgb:255,192,203; --color-bg:#12030b; --color-panel:rgba(42,6,26,0.75);   --color-text-dim:#e099bd; }
 
 /* ===== Ultron =============================================================
    Not a theme — a mode. It replaces the surfaces as well as the accent:
@@ -154,12 +154,6 @@
 .sc-form input::placeholder{ color:var(--color-text-dim); opacity:.75; }
 .sc-check{ display:flex; align-items:center; gap:9px; font-size:13px; color:var(--color-text-dim); cursor:pointer; }
 .sc-check input{ width:17px; height:17px; accent-color:rgb(var(--accent-rgb)); flex-shrink:0; }
-.setup-done{
-    display:flex; align-items:center; gap:10px; padding:14px;
-    background:rgba(0,255,136,.08); border:1px solid rgba(0,255,136,.4);
-    border-radius:var(--radius-sm); font-size:13.5px; color:var(--color-white);
-}
-.setup-done .tick{ font-size:17px; line-height:1; }
 .setup-btn{
     display:block; width:100%; margin-top:10px; padding:13px;
     border-radius:var(--radius-sm); font-size:13px; font-weight:700; cursor:pointer;
@@ -1072,9 +1066,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
             <div class="settings-sub">◂ הקיצורים שלי (iPhone בלבד)</div>
             <div id="shortcut-registry"></div>
-
-            <div class="settings-sub">◂ שעון מעורר (iPhone בלבד)</div>
-            <div id="alarm-setup"></div>
 
             <div class="settings-sub">◂ מראה</div>
             <div class="theme-row" id="theme-row"></div>
@@ -5134,13 +5125,9 @@ async function resolveConfirmation(approve){
         if (approve) {
             openPhoneLink(evt.details.url);
             // Nothing here can detect a missing shortcut — iOS reports that to
-            // itself, not back to the page. But we do know whether the user
-            // ever marked the setup done, which is the likeliest reason an
-            // alarm goes nowhere, so say it up front instead of leaving them
-            // staring at a Shortcuts error.
-            showToast(isAlarm ? (alarmSetupDone()
-                        ? `מכוון שעון מעורר ל-${evt.details.target}.`
-                        : `מכוון ל-${evt.details.target} — אם לא קרה כלום, הקיצור עוד לא מוגדר (הגדרות ← שעון מעורר).`)
+            // itself, not back to the page — so the alarm toast stays neutral
+            // about whether the underlying Shortcut is actually set up.
+            showToast(isAlarm ? `מכוון שעון מעורר ל-${evt.details.target}.`
                     : isNav   ? `פותח ${evt.details.label} — נסיעה טובה.`
                               : `פתחתי חיפוש עבור '${evt.details.query}'.`);
         } else {
@@ -5498,7 +5485,7 @@ const THEMES = {
     orange: { name: 'כתום',    rgb: '255,140,0'  },
     red:    { name: 'אדום',    rgb: '255,45,45'  },
     purple: { name: 'סגול',    rgb: '170,70,255' },
-    pink:   { name: 'ורוד',    rgb: '255,45,140' },
+    pink:   { name: 'ורוד',    rgb: '255,192,203' },
 };
 const THEME_KEY = 'jarvis_theme', MODE_KEY = 'jarvis_mode', ULTRON_KEY = 'jarvis_ultron_unlocked';
 
@@ -5813,54 +5800,12 @@ function renderShortcutRegistry(){
 }
 renderShortcutRegistry();
 
-const ALARM_SETUP_KEY = 'jarvis_alarm_setup_done';
-const ALARM_SHORTCUT_NAME = 'JARVIS Alarm';
-
-// Read by resolveConfirmation() when an alarm is actually triggered, to warn
-// up front if it was never marked configured -- iOS never reports back
-// whether the shortcut it just opened actually exists.
-function alarmSetupDone(){ return lsGet(ALARM_SETUP_KEY, '0') === '1'; }
-
 function openShortcutsApp(){
     // Same helper the confirmation cards use — this is a direct tap, so the
     // gesture is live and the scheme opens. Verified on the user's iPhone:
     // shortcuts:// works where clock-alarm:// does nothing.
     openPhoneLink('shortcuts://');
 }
-
-function renderAlarmSetup(){
-    const box = $('alarm-setup');
-    if (!box) return;
-    box.innerHTML = '';
-
-    const intro = el('div', 'voice-info-block');
-    intro.innerHTML = 'כדי ש-JARVIS יכוון לך <b>מעורר אמיתי</b> שמצלצל ומעיר — צריך ' +
-        'קיצור אחד, פעם אחת. אפל חוסמת גישה ישירה לאפליקציית השעון, וזו הדרך שנשארה. ' +
-        '<b>קיים רק באייפון.</b>';
-    box.appendChild(intro);
-
-    const steps = el('ol', 'setup-steps');
-    steps.innerHTML =
-        '<li>פתח את <b>Shortcuts</b> בכפתור למטה, ואז <b>➕</b></li>' +
-        '<li>הוסף פעולה <span class="lit">Get dates from</span> — ובשדה שלה בחר ' +
-            '<span class="lit">Shortcut Input</span></li>' +
-        '<li>הוסף פעולה <span class="lit">Create Alarm</span> — ובשדה השעה בחר את ' +
-            'הפלט של הפעולה הקודמת</li>' +
-        '<li>שנה את שם הקיצור בדיוק ל-<span class="lit">' + ALARM_SHORTCUT_NAME + '</span>. ' +
-            'שם שלא תואם לתו הוא כמעט תמיד הסיבה שכלום לא קורה.</li>';
-    box.appendChild(steps);
-
-    const open = el('button', 'setup-btn');
-    open.innerText = '📱 פתח את Shortcuts עכשיו';
-    open.onclick = openShortcutsApp;
-    box.appendChild(open);
-
-    const mark = el('button', 'setup-btn' + (alarmSetupDone() ? '' : ' quiet'));
-    mark.innerText = alarmSetupDone() ? '✓ מוגדר' : '✓ סימנתי שהקיצור מוכן';
-    mark.onclick = () => { lsSet(ALARM_SETUP_KEY, alarmSetupDone() ? '0' : '1'); renderAlarmSetup(); };
-    box.appendChild(mark);
-}
-renderAlarmSetup();
 
 /* ================================================================================
    Microphone monitor — hear yourself, and see the number.
