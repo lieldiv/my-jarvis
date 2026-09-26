@@ -23,6 +23,7 @@ Major changes from the original version:
 import ast
 import asyncio
 import difflib
+import ipaddress
 import json
 import logging
 import operator
@@ -37,6 +38,7 @@ import threading
 import time
 import webbrowser
 from datetime import datetime, timedelta
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
 # --- Resolve the app's real "home" directory and make it the working
@@ -809,7 +811,13 @@ _SHARED_INSTRUCTIONS = (
     "language the user described it in.\n\n"
     "Beyond that, you are a general-purpose agent for whatever the user "
     "needs." + _DESKTOP_CONTROL_GUIDANCE +
-    " Also available: get_weather and calculate. find_nearby_places is "
+    " Also available: get_weather and calculate. open_web_page is how you "
+    "show the user something on the web: when they ask you to search for, "
+    "look up, find or open a flight, a Wikipedia page about a person or "
+    "topic, or a website, call it so the page lands on their screen for a "
+    "tap — never read that content aloud in its place, and never say you "
+    "can't search or browse. Plain questions you can answer, you just "
+    "answer. find_nearby_places is "
     "narrow and deliberately so — only for an explicit 'find me X near me' "
     "request, never as a general web-search fallback and never just "
     "because you're unsure of an answer. get_current_info is equally "
@@ -1531,6 +1539,47 @@ TOOLS = [
                     "query": {"type": "string", "description": "What to find nearby, e.g. 'pizza' or 'פיצה'."},
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_web_page",
+            "description": (
+                "Put a web page on the user's HUD, which they tap to open on "
+                "their own device. Use it INSTEAD of reading web content aloud "
+                "whenever they ask to search for, look up, find or open "
+                "something online: a flight, a Wikipedia page about a person "
+                "or topic, a website. Don't ask for confirmation yourself, "
+                "just call it. Not for questions you can simply answer, nearby "
+                "places (find_nearby_places) or routes (navigate_to)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "enum": ["wikipedia", "flights", "google", "website"],
+                        "description": (
+                            "wikipedia = an article; flights = Google Flights; "
+                            "google = a general web search; website = a "
+                            "specific site the user named."
+                        ),
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "wikipedia/google: the topic — international names "
+                            "in their usual English spelling, Hebrew-only "
+                            "topics in Hebrew. flights: the whole trip in plain "
+                            "words with origin, destination and dates, e.g. "
+                            "'Tel Aviv to Paris on 2026-10-10'. website: the "
+                            "address, e.g. 'ynet.co.il'."
+                        ),
+                    },
+                },
+                "required": ["target", "query"],
             },
         },
     },
@@ -2336,6 +2385,7 @@ def resolve_shortcut_name(requested: str, allowed: list):
 # search result — must not, or the user would get raw tool output read aloud.
 TERMINAL_TOOLS = {
     "navigate_to", "set_alarm", "play_music", "run_shortcut", "find_nearby_places",
+    "open_web_page",
     # Every write/confirmation tool below already returns a complete,
     # ready-to-speak sentence (either result["message"] from
     # productivity_service, or "I've drawn up ... for your approval, sir")
@@ -2478,6 +2528,93 @@ def _find_nearby_places(user_id, args, persona="jarvis"):
                f"Searching for '{query}'. Tap it.")
 
 
+# Pages the user asked to SEE rather than have read out. Same proposal-then-tap
+# shape as navigate_to/find_nearby_places and for the same reason: opening a
+# browser from this process opens it on the SERVER (the bug that removed the
+# old web_search tool). Nothing here opens anything — the tap on the HUD's
+# approve button does, inside a real user gesture.
+_WEB_QUERY_MAX = 300
+
+
+def _has_hebrew(text: str) -> bool:
+    return any(0x0590 <= ord(ch) <= 0x05FF for ch in text)
+
+
+def _site_url(raw: str):
+    """A website address the user named -> a safe http(s) URL, or None.
+
+    The address comes from the model, which can be steered by text it read (an
+    email, a search result), so it is checked rather than trusted: http/https
+    only, a real dotted hostname (no localhost or bare words), no IP literals
+    (a link to 192.168.x.x would land on the user's own router), no user:pass@
+    prefix hiding the true host, default ports only. The HUD card shows the
+    host, so the user still sees where a tap is about to go."""
+    raw = _CONTROL_CHARS_RE.sub("", raw or "").strip()
+    if not raw or " " in raw or len(raw) > 2000:
+        return None
+    if "://" not in raw:
+        raw = "https://" + raw
+    try:
+        parts = urlsplit(raw)
+        port = parts.port
+    except ValueError:
+        return None
+    host = (parts.hostname or "").lower()
+    if parts.scheme not in ("http", "https") or "." not in host:
+        return None
+    if parts.username or parts.password or port not in (None, 80, 443):
+        return None
+    try:
+        ipaddress.ip_address(host)
+        return None
+    except ValueError:
+        return raw
+
+
+def _build_web_page(target: str, query: str):
+    """(label, host, url) for the page to propose.
+
+    Wikipedia goes through Special:Search with go=Go, which jumps straight to
+    the article when the title matches and lists results when it doesn't —
+    checked against en/he Wikipedia for both spellings of a Hebrew-transcribed
+    name. Google Flights takes the trip as plain words in q. An unknown target
+    or a 'website' that isn't an address falls back to a Google search: the
+    model occasionally invents a target, and 'search for it' is what it meant."""
+    q = quote(query, safe="")
+    if target == "website":
+        url = _site_url(query)
+        if url:
+            host = urlsplit(url).hostname
+            return host, host, url
+    elif target == "wikipedia":
+        lang = "he" if _has_hebrew(query) else "en"
+        host = f"{lang}.wikipedia.org"
+        return "Wikipedia", host, f"https://{host}/wiki/Special:Search?search={q}&go=Go"
+    elif target == "flights":
+        return "Google Flights", "www.google.com", f"https://www.google.com/travel/flights?q={q}"
+    return "Google", "www.google.com", f"https://www.google.com/search?q={q}"
+
+
+def _open_web_page(user_id, args, persona="jarvis"):
+    query = _CONTROL_CHARS_RE.sub(" ", str(args.get("query") or "")).strip()[:_WEB_QUERY_MAX]
+    if not query:
+        return "What should I look up, sir?"
+    target = str(args.get("target") or "").strip().lower()
+    label, host, url = _build_web_page(target, query)
+
+    details = {"action": "web", "label": label, "host": host, "target": query,
+               "query": query, "url": url, "ts": time.time()}
+    _PENDING_PHONE_LINK[user_id] = details
+    event_stream.push_event({
+        "type": "confirmation_required", "kind": "web_page",
+        "message": f"Open {label}: '{query}'?",
+        "details": details,
+    }, user_id=user_id)
+    what = label if label == host and target == "website" else f"{label} for '{query}'"
+    return say(persona, f"I've put {what} on the HUD, sir — tap to open it.",
+               f"{what}. Tap it.")
+
+
 # Every tool dispatch entry is now built fresh per request, closing over
 # that request's signed-in user_id — including the ones below that don't
 # touch calendar/mail data. They used to live in a shared, static dict, but
@@ -2513,6 +2650,7 @@ def _build_tool_impl(user_id: str, shortcuts: list = None, persona: str = "jarvi
         "set_alarm": lambda args: _set_alarm(user_id, args, persona),
         "navigate_to": lambda args: _navigate_to(user_id, args, persona),
         "find_nearby_places": lambda args: _find_nearby_places(user_id, args, persona),
+        "open_web_page": lambda args: _open_web_page(user_id, args, persona),
         "computer_use": lambda args: _computer_use(user_id, args),
         "list_workspace": lambda args: file_tools.list_dir(args.get("path", "."), user_id=user_id),
         "read_workspace_file": lambda args: file_tools.read_file(args.get("path", ""), user_id=user_id),

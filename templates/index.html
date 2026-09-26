@@ -4814,7 +4814,7 @@ async function submitPlaces(){
 const CONFIRM_TITLES = {
     calendar_event: 'הצעת אירוע ביומן', calendar_event_update: 'שינוי זמן אירוע',
     calendar_event_delete: 'ביטול אירוע ביומן', email: 'הצעת אימייל', web_search: 'הצעת חיפוש',
-    phone_app: 'פתיחת אפליקציה',
+    phone_app: 'פתיחת אפליקציה', web_page: 'פתיחת דף אינטרנט',
 };
 /* Assigned straight onto style.background / .color / .boxShadow, all of
    which resolve var() at paint time — so these follow the active theme and
@@ -4823,18 +4823,18 @@ const ACCENT = 'rgb(var(--accent-rgb))';
 const CONFIRM_ACCENTS = {
     calendar_event: ACCENT, calendar_event_update: ACCENT, calendar_event_delete: '#ff3b3b',
     phone_app: '#00ff88',
-    email: '#ffc800', web_search: '#ffc800',
+    email: '#ffc800', web_search: '#ffc800', web_page: '#ffc800',
 };
 const CONFIRMING_LABELS = {
     calendar_event: 'יוצר אירוע ביומן…', calendar_event_update: 'מעדכן שעה…', calendar_event_delete: 'מבטל פגישה…',
-    email: 'שולח מייל…', web_search: 'פותח מפות…', phone_app: 'פותח ניווט…',
+    email: 'שולח מייל…', web_search: 'פותח מפות…', phone_app: 'פותח ניווט…', web_page: 'פותח דף…',
 };
 // Fallback tool label for showConfirmModal's History entry, only used when
 // no in-flight command was tracking one already (see inFlightLogId).
 const CONFIRM_TOOL_NAMES = {
     calendar_event: 'create_calendar_event', calendar_event_update: 'update_calendar_event',
     calendar_event_delete: 'delete_calendar_event', email: 'send_email', web_search: 'find_nearby_places',
-    phone_app: 'navigate_to',
+    phone_app: 'navigate_to', web_page: 'open_web_page',
 };
 
 function formatDateTimeRange(startIso, endIso){
@@ -4893,6 +4893,12 @@ function renderConfirmReadFields(evt){
         }
     } else if (evt.kind === 'web_search' && d) {
         fieldRow(box, 'חיפוש', d.query);
+    } else if (evt.kind === 'web_page' && d) {
+        // The address is the part worth reading before the tap: the model
+        // picked it, and a page it was steered toward should look like one.
+        fieldRow(box, 'אתר', d.label);
+        if (d.query && d.query !== d.label) fieldRow(box, 'נושא', d.query);
+        if (d.host && d.host !== d.label) fieldRow(box, 'כתובת', d.host);
     } else if (evt.kind === 'calendar_event_delete' && d) {
         fieldRow(box, 'אירוע', d.summary);
     } else if (evt.kind === 'calendar_event_update' && d) {
@@ -5044,7 +5050,7 @@ async function saveConfirmEdit(){
    rather than calling back into the server. These are the ones bound by the
    user-activation rule below, and the only ones that must never be approved
    by voice. */
-const LINK_CONFIRM_KINDS = new Set(['web_search', 'phone_app']);
+const LINK_CONFIRM_KINDS = new Set(['web_search', 'phone_app', 'web_page']);
 
 /* Opening an app on the phone is a navigation, and browsers only allow one
    inside a user gesture. Everything on this path is therefore synchronous —
@@ -5102,6 +5108,7 @@ async function resolveConfirmation(approve){
     if (pendingConfirmEvt && LINK_CONFIRM_KINDS.has(pendingConfirmEvt.kind)) {
         const evt = pendingConfirmEvt;
         const isNav = evt.kind === 'phone_app';
+        const isWeb = evt.kind === 'web_page';
         pendingConfirmToken = null;
         hideConfirmModal();
         const isAlarm = evt.kind === 'phone_app' && evt.details.action === 'alarm';
@@ -5129,10 +5136,12 @@ async function resolveConfirmation(approve){
             // about whether the underlying Shortcut is actually set up.
             showToast(isAlarm ? `מכוון שעון מעורר ל-${evt.details.target}.`
                     : isNav   ? `פותח ${evt.details.label} — נסיעה טובה.`
+                    : isWeb   ? `פותח ${evt.details.label}.`
                               : `פתחתי חיפוש עבור '${evt.details.query}'.`);
         } else {
             showToast(isAlarm ? 'בסדר, בלי מעורר.'
                     : isNav   ? 'בסדר, לא ניווטתי.'
+                    : isWeb   ? 'בסדר, לא פתחתי.'
                               : 'בסדר, לא חיפשתי.');
         }
         if (evt.logId != null) updateActivityStatus(evt.logId, approve ? 'confirmed' : 'cancelled');
@@ -5217,8 +5226,10 @@ setInterval(async () => {
         const data3 = await res3.json();
         if (data3 && data3.ts && data3.ts > lastPhoneLinkTs) {
             lastPhoneLinkTs = data3.ts;
-            showConfirmModal({ type: 'confirmation_required', kind: 'phone_app',
-                message: `לפתוח את ${data3.label} ולנווט אל '${data3.target}'?`,
+            const isWebLink = data3.action === 'web';
+            showConfirmModal({ type: 'confirmation_required', kind: isWebLink ? 'web_page' : 'phone_app',
+                message: isWebLink ? `לפתוח את ${data3.label}?`
+                                   : `לפתוח את ${data3.label} ולנווט אל '${data3.target}'?`,
                 details: data3, token: null });
             return;
         }

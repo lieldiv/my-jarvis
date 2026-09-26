@@ -42,7 +42,9 @@ device for a cloud server to control:
    just an env allowlist. What's left: calculate, get_weather + file tools
    (now per-user sandboxed, see below), the schedule/email/reminder tools,
    `find_nearby_places`
-   (confirm-to-open Google Maps search, see below), `get_market_summary`
+   (confirm-to-open Google Maps search, see below), `open_web_page`
+   (the client-side successor of the removed web_search — see below),
+   `get_market_summary`
    (free market-index lookup, no AI involved, see below), and
    `get_current_info` (general news/current-events lookup via
    [tavily_service.py](tavily_service.py), see below) — the last three are
@@ -158,6 +160,32 @@ rather than failing if unset. (An earlier version of this used Gemini
 instead — its free tier turned out to require Google Cloud billing setup
 even to use, which defeated the point; replaced outright rather than kept
 as a fallback.)
+
+## Why open_web_page exists (show a page, don't read it out)
+
+The examiner's feedback: asked to search a flight or open the Wikipedia page
+about someone, JARVIS had no tool for it and either refused or talked. The
+removed `web_search` was never the answer (`webbrowser.open()` opens on the
+SERVER); `open_web_page` is the same proposal-then-tap mechanism as
+`navigate_to`/`find_nearby_places`: it pushes a `confirmation_required` event
+of kind `web_page` (details.action == "web", also parked in
+`_PENDING_PHONE_LINK` for the polling recovery) and the tap on the HUD's ✅
+does the `window.open` inside a real user gesture. A spoken "yes" is refused
+for this kind like every link kind (`LINK_CONFIRM_KINDS`).
+
+`target` picks the URL, built in `_build_web_page`: `wikipedia` →
+`{en|he}.wikipedia.org/wiki/Special:Search?search=…&go=Go` (jumps straight to
+the article when the title matches; Hebrew letters in the query → he);
+`flights` → `google.com/travel/flights?q=<plain-words trip>` (Google parses
+"Tel Aviv to Paris on 2026-10-10" and even "… next Thursday" into origin,
+destination and dates — checked in a real browser, not assumed); `google` →
+plain search; `website` → an address the model was given, run through
+`_site_url` (http/https only, dotted hostname, no IP literals, no `user@`
+tricks, default ports) because text the model read could steer it — anything
+that doesn't pass falls back to a Google search rather than opening. The card
+shows the host, so the user sees where the tap goes. It is a `TERMINAL_TOOLS`
+member (canned spoken reply, no second Groq round) and costs ~250 tokens of
+schema per request against the free-tier limit — keep its description short.
 
 ## Why get_market_summary exists (free, zero AI, for market questions)
 
