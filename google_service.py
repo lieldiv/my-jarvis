@@ -325,6 +325,7 @@ def list_recent_emails(user_id: str, max_results: int = 8, query: str = "is:unre
                 "subject": headers.get("Subject", "(no subject)"),
                 "sender": headers.get("From", "(unknown)"),
                 "snippet": msg.get("snippet", ""),
+                "date_ms": int(msg.get("internalDate") or 0),   # epoch ms; the inbox shows "2 hours ago"
                 "source": "Gmail",
             })
         return emails

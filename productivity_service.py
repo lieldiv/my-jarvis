@@ -70,17 +70,25 @@ def _collect_events(user_id: str, days_ahead: float, max_results: int = 15):
 
     google_min, google_max, ms_min, ms_max = _time_window(days_ahead)
     events = []
+    # [] is an ANSWER (nothing scheduled); None means the calendar did not answer at all (not connected, token
+    # revoked, request failed). When no provider answered, return None -- "not connected" must never be
+    # reported as "nothing on your calendar".
+    answered = False
 
     if google_service.CONFIGURED:
         g_events = google_service.list_calendar_events(user_id, google_min, google_max, max_results)
-        if g_events:
+        if g_events is not None:
+            answered = True
             events.extend(g_events)
 
     if microsoft_service.CONFIGURED:
         m_events = microsoft_service.list_calendar_events(ms_min, ms_max, max_results)
-        if m_events:
+        if m_events is not None:
+            answered = True
             events.extend(m_events)
 
+    if not answered:
+        return None
     events.sort(key=lambda e: e.get("start") or "")
     return events[:max_results]
 
@@ -165,17 +173,25 @@ def _collect_emails(user_id: str, unread_only: bool, max_results: int):
         return None
 
     emails = []
+    # An empty list is an ANSWER (nothing unread); None means the mailbox did not answer at all (not connected,
+    # token revoked, request failed). If no provider answered, say so with None -- otherwise "not connected"
+    # is shown to the user as "your inbox is empty", the one false answer this feature must never give.
+    answered = False
     if google_service.CONFIGURED:
         query = "is:unread" if unread_only else ""
         g_emails = google_service.list_recent_emails(user_id, max_results, query)
-        if g_emails:
+        if g_emails is not None:
+            answered = True
             emails.extend(g_emails)
 
     if microsoft_service.CONFIGURED:
         m_emails = microsoft_service.list_recent_emails(max_results, unread_only)
-        if m_emails:
+        if m_emails is not None:
+            answered = True
             emails.extend(m_emails)
 
+    if not answered:
+        return None
     return emails[:max_results]
 
 
@@ -207,6 +223,7 @@ def get_inbox_structured(user_id: str, max_results: int = 8):
             "sender_email": addr or e.get("sender", ""),
             "subject": e.get("subject", "(no subject)"),
             "snippet": e.get("snippet", ""),
+            "date_ms": e.get("date_ms", 0),
             "source": e.get("source", ""),
         })
     return structured
@@ -257,8 +274,8 @@ def get_daily_agenda_text(user_id: str) -> str:
     # prefixes each line with its weekday, so today/tomorrow read clearly
     # without needing a separate date-boundary split (which would need its
     # own timezone-edge-case handling for no real benefit here).
-    events = _collect_events(user_id, days_ahead=2, max_results=15) or []
-    emails = _collect_emails(user_id, unread_only=True, max_results=10) or []
+    events = _collect_events(user_id, days_ahead=2, max_results=15)      # None = did not answer
+    emails = _collect_emails(user_id, unread_only=True, max_results=10)  # None = did not answer
 
     parts = [f"Good morning, sir. Today is {today_label}."]
 
@@ -267,6 +284,8 @@ def get_daily_agenda_text(user_id: str) -> str:
         for e in events:
             where = f" at {e['location']}" if e.get("location") else ""
             parts.append(f"  {_format_time(e['start'])} — {e['summary']}{where}")
+    elif events is None:
+        parts.append("I couldn't reach your calendar, sir — it may need reconnecting.")
     elif any_calendar_configured():
         parts.append("Nothing on the calendar for today or tomorrow.")
 
@@ -283,6 +302,8 @@ def get_daily_agenda_text(user_id: str) -> str:
             counts[name] += 1
         senders = ", ".join(f"{counts[n]} from {n}" if counts[n] > 1 else f"one from {n}" for n in order)
         parts.append(f"There are {len(emails)} unread email(s): {senders}.")
+    elif emails is None:
+        parts.append("I couldn't reach your mailbox, sir — it may need reconnecting.")
     elif any_mail_configured():
         parts.append("Inbox is clear.")
 
@@ -304,7 +325,7 @@ def get_weekly_summary_text(user_id: str) -> str:
     if not any_calendar_configured():
         return "No calendar is connected, sir — see the README to set one up."
 
-    events = _collect_events(user_id, days_ahead=7, max_results=30) or []
+    events = _collect_events(user_id, days_ahead=7, max_results=30)   # None = did not answer
 
     parts = []
     if events:
@@ -312,6 +333,8 @@ def get_weekly_summary_text(user_id: str) -> str:
         for e in events:
             where = f" at {e['location']}" if e.get("location") else ""
             parts.append(f"  {_format_time(e['start'])} — {e['summary']}{where}")
+    elif events is None:
+        parts.append("I couldn't reach your calendar this week, sir — it may need reconnecting.")
     else:
         parts.append("Nothing on your calendar for the week ahead, sir.")
 

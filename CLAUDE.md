@@ -266,6 +266,24 @@ questions.
   implausible durations) are dropped and the card shows the video's real title
   so a wrong match is cancelled rather than heard.
 
+## The UI redesign (Sept 2026) — read before touching templates/index.html
+
+The examiner found the pages messy and asked for guidance for first-time users. The owner approved a
+mockup and a four-step plan, all shipped; the rules that came out of it are in
+[DESIGN.md](DESIGN.md) §13 (calm opaque content tabs, Hebrew type, 44px targets, one icon sprite and no
+emoji chrome, one create button per tab, bottom sheets, a calm cyan orb that is red only when the microphone
+cannot be used). Two rules are easy to break by accident:
+
+- **"Did not answer" is not "empty".** `_collect_events` / `_collect_emails` return `None` when no provider
+  answered (not connected, token revoked, request failed) and `[]` only for a real "nothing there". The HUD,
+  the LLM tools and the morning/weekly texts all branch on that. Never `or []` a `None` in new code.
+- **The orb stays 200px** (the owner asked for that specifically), and a create button is never repeated inside
+  an empty state.
+
+`index.html` is one CRLF file (git stores it LF). Patch it with a script that reads with `newline=""`, or use
+the Edit tool. `e2e/redesign/` holds 335 browser + unit checks for all of this: `cd e2e && npm run serve`,
+then `npm run test:redesign` (see its README for what a green run does and does not prove).
+
 ## Setup / running locally (rare — this fork is meant to run on Render)
 
 ```

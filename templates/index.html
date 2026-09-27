@@ -62,7 +62,7 @@
        for times/numerals via var(--font-mono). */
     --font-ui:'Rubik',system-ui,-apple-system,'Segoe UI',sans-serif;
     --dock-bg:#030c19;
-    --surface-solid:rgba(6,26,48,0.96);
+    --surface-solid:rgb(6,26,48);
     --dock-h:122px;
     --tracking-wide:1px; --tracking-wider:2px; --tracking-widest:4px;
 }
@@ -79,11 +79,11 @@
    swatches (17° apart in hue) so they're merged into one stronger orange.
    Applied as data-theme on <html>; no attribute at all is the cyan original,
    so the default page is byte-for-byte what it always was. */
-[data-theme="orange"]{ --accent-rgb:255,140,0;  --color-bg:#0e0700; --color-panel:rgba(40,22,2,0.75);  --color-text-dim:#d9a878; --color-gold:#fff0a8; }
-[data-theme="green"]{  --accent-rgb:0,255,136;  --color-bg:#02120a; --color-panel:rgba(4,34,22,0.75);   --color-text-dim:#7fd3a6; --color-green:#a8ffe0; }
-[data-theme="red"]{    --accent-rgb:255,45,45;  --color-bg:#120302; --color-panel:rgba(40,6,4,0.75);    --color-text-dim:#d99a92; --color-red:#ffb3b3; }
-[data-theme="purple"]{ --accent-rgb:170,70,255; --color-bg:#0a0512; --color-panel:rgba(24,10,42,0.75);  --color-text-dim:#c1a3e0; }
-[data-theme="pink"]{   --accent-rgb:255,192,203; --color-bg:#12030b; --color-panel:rgba(42,6,26,0.75);   --color-text-dim:#e099bd; }
+[data-theme="orange"]{ --accent-rgb:255,140,0;  --color-bg:#0e0700; --color-panel:rgba(40,22,2,0.75);  --color-text-dim:#d9a878; --color-gold:#fff0a8; --surface-solid:rgb(34,20,4); --dock-bg:#0b0600; }
+[data-theme="green"]{  --accent-rgb:0,255,136;  --color-bg:#02120a; --color-panel:rgba(4,34,22,0.75);   --color-text-dim:#7fd3a6; --color-green:#a8ffe0; --surface-solid:rgb(6,40,26); --dock-bg:#020f08; }
+[data-theme="red"]{    --accent-rgb:255,45,45;  --color-bg:#120302; --color-panel:rgba(40,6,4,0.75);    --color-text-dim:#d99a92; --color-red:#ffb3b3; --surface-solid:rgb(40,8,6); --dock-bg:#0f0201; }
+[data-theme="purple"]{ --accent-rgb:170,70,255; --color-bg:#0a0512; --color-panel:rgba(24,10,42,0.75);  --color-text-dim:#c1a3e0; --surface-solid:rgb(28,14,48); --dock-bg:#080410; }
+[data-theme="pink"]{   --accent-rgb:255,192,203; --color-bg:#12030b; --color-panel:rgba(42,6,26,0.75);   --color-text-dim:#e099bd; --surface-solid:rgb(44,8,28); --dock-bg:#0f020a; }
 
 /* ===== Ultron =============================================================
    Not a theme — a mode. It replaces the surfaces as well as the accent:
@@ -124,52 +124,7 @@
 .theme-swatch:hover{ transform:scale(1.09); }
 .theme-swatch.active{ border-color:var(--color-white); }
 .theme-swatch i{ width:26px; height:26px; border-radius:50%; background:rgb(var(--sw)); box-shadow:0 0 14px rgb(var(--sw)); }
-/* ===== Alarm setup (settings) ==========================================
-   Two states, because the instructions are worth reading exactly once. */
-.setup-steps{ counter-reset:step; display:flex; flex-direction:column; gap:9px; margin:12px 0 0; padding:0; list-style:none; }
-.setup-steps li{ display:flex; gap:10px; align-items:flex-start; font-size:13px; line-height:1.6; }
-.setup-steps li::before{
-    counter-increment:step; content:counter(step);
-    flex-shrink:0; width:21px; height:21px; border-radius:50%;
-    background:rgba(var(--accent-rgb),.12); border:1px solid rgba(var(--accent-rgb),.45);
-    color:rgb(var(--accent-rgb)); font-family:var(--font-mono); font-size:11px;
-    display:flex; align-items:center; justify-content:center; margin-top:1px;
-}
-.setup-steps b{ color:var(--color-white); font-weight:700; }
-.setup-steps .lit{ font-family:var(--font-mono); color:rgb(var(--accent-rgb)); unicode-bidi:plaintext; }
 /* ===== Shortcut registry ============================================== */
-.sc-row{
-    display:flex; align-items:center; gap:10px; padding:11px 13px; margin-top:8px;
-    background:var(--color-panel); border:var(--border-default);
-    border-radius:var(--radius-sm);
-}
-.sc-row .sc-info{ flex:1; min-width:0; }
-.sc-row .sc-name{
-    font-family:var(--font-mono); font-size:13px; color:rgb(var(--accent-rgb));
-    unicode-bidi:plaintext; word-break:break-word;
-}
-.sc-row .sc-meta{ font-size:11.5px; color:var(--color-text-dim); margin-top:2px; }
-.sc-row .sc-del{
-    flex-shrink:0; background:none; border:none; color:var(--color-red);
-    font-size:17px; cursor:pointer; padding:4px 6px; line-height:1;
-}
-.sc-form{ display:flex; flex-direction:column; gap:9px; margin-top:10px; }
-.sc-form input[type="text"]{
-    width:100%; padding:11px 12px; border-radius:var(--radius-sm);
-    background:#020509; border:var(--border-default); color:var(--color-white);
-    font-size:13.5px; font-family:var(--font-body);
-}
-.sc-form input::placeholder{ color:var(--color-text-dim); opacity:.75; }
-.sc-check{ display:flex; align-items:center; gap:9px; font-size:13px; color:var(--color-text-dim); cursor:pointer; }
-.sc-check input{ width:17px; height:17px; accent-color:rgb(var(--accent-rgb)); flex-shrink:0; }
-.setup-btn{
-    display:block; width:100%; margin-top:10px; padding:13px;
-    border-radius:var(--radius-sm); font-size:13px; font-weight:700; cursor:pointer;
-    background:var(--color-cyan-soft); border:1px solid rgba(var(--accent-rgb),.5);
-    color:var(--color-white); transition:border-color .2s ease, background .2s ease;
-}
-.setup-btn:hover{ border-color:rgba(var(--accent-rgb),.9); }
-.setup-btn.quiet{ background:none; border-color:rgba(255,255,255,.18); color:var(--color-text-dim); font-weight:500; }
 .ultron-btn{ display:block; width:100%; margin-top:10px; padding:13px; border-radius:var(--radius-sm); font-family:var(--font-display); font-size:13px; font-weight:800; letter-spacing:2px; cursor:pointer; border:1px solid rgba(255,45,45,.55); background:linear-gradient(140deg,rgba(60,64,72,.6),rgba(18,20,24,.92)); color:#ffe2e2; text-shadow:0 0 10px rgba(255,45,45,.8); transition:border-color .2s ease, box-shadow .2s ease; }
 .ultron-btn:hover{ border-color:rgba(255,45,45,.95); box-shadow:0 0 18px rgba(255,45,45,.35); }
 .ultron-btn.on{ background:linear-gradient(140deg,rgba(120,22,22,.72),rgba(30,10,10,.95)); }
@@ -202,6 +157,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 @keyframes jm-burst-in2 { 0% { transform:scale(2.1); opacity:.7; } 100% { transform:scale(.6); opacity:0; } }
 @keyframes jm-burst-in3 { 0% { transform:scale(1.7); opacity:.5; } 100% { transform:scale(.65); opacity:0; } }
 @keyframes jm-ready-breathe { 0%,100% { box-shadow:0 0 12px rgba(255,59,59,.45), inset 0 0 16px rgba(255,59,59,.18); } 50% { box-shadow:0 0 24px rgba(255,59,59,.8), inset 0 0 22px rgba(255,59,59,.3); } }
+@keyframes jm-ready-calm { 0%,100% { box-shadow:0 0 12px rgba(var(--accent-rgb),.4), inset 0 0 16px rgba(var(--accent-rgb),.16); } 50% { box-shadow:0 0 22px rgba(var(--accent-rgb),.7), inset 0 0 22px rgba(var(--accent-rgb),.26); } }
 @keyframes jm-livedot { 0%,100% { opacity:1; } 50% { opacity:.2; } }
 @keyframes jm-nudge { 0%,100% { transform:scale(1); } 30% { transform:scale(1.035); } 65% { transform:scale(.99); } }
 @keyframes jm-spark { 0% { transform:translate(0,0) scale(1); opacity:1; } 100% { transform:translate(var(--dx),var(--dy)) scale(0); opacity:0; } }
@@ -353,19 +309,14 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-stage.state-listening .orb-ring-svg.spin-a,.orb-stage.state-tool .orb-ring-svg.spin-a{ animation-duration:9s; }
 .orb-stage.state-listening .orb-ring-svg.spin-b,.orb-stage.state-tool .orb-ring-svg.spin-b{ animation-duration:14s; }
 .orb-stage.state-processing .orb-state-arc,.orb-stage.state-tool .orb-state-arc{ display:block; }
-/* Red at rest, cyan when live. Red here is NOT an error colour - across the
-   whole orb it means exactly one thing, "the mic is off", the same thing the
-   red slash on any mute button means. Which also fixes a contradiction the
-   first pass introduced: the chip was showing a red dot while LISTENING, the
-   opposite of what red means everywhere else.
-   So the orb has two unmistakable modes at a glance, from across the room:
-       red  = not hearing you
-       cyan = hearing you right now
-   The rim breathes rather than sitting flat, so "off" still reads as standby
-   rather than as something broken. */
-.orb-stage.state-ready .orb-body{ background:radial-gradient(circle,#2a0a0a 0%,#150505 70%,transparent 100%); }
-.orb-stage.state-ready .orb-rim{ border-color:rgba(255,59,59,.85); animation:jm-ready-breathe 3.2s ease-in-out infinite; }
-.orb-stage.state-ready .orb-wordmark{ text-shadow:0 0 12px rgba(255,59,59,.7); }
+/* Calm at rest: the orb waits in cyan with a slow breath (approved redesign; it used to sit in red, which read as
+   an error on the very first screen). Red now means one thing only: the microphone cannot be used here
+   (permission blocked, or the browser has no speech input) -- .blocked, set by renderOrb. Cyan and lit = it is
+   listening; the label under the orb says which. */
+.orb-stage.state-ready .orb-rim{ border-color:rgba(var(--accent-rgb),.6); animation:jm-ready-calm 4s ease-in-out infinite; }
+.orb-stage.state-ready.blocked .orb-body{ background:radial-gradient(circle,#2a0a0a 0%,#150505 70%,transparent 100%); }
+.orb-stage.state-ready.blocked .orb-rim{ border-color:rgba(255,59,59,.85); animation:jm-ready-breathe 3.2s ease-in-out infinite; }
+.orb-stage.state-ready.blocked .orb-wordmark{ text-shadow:0 0 12px rgba(255,59,59,.7); }
 .orb-stage.state-listening .orb-rim{ border-color:rgba(var(--accent-rgb),1); box-shadow:0 0 22px rgba(var(--accent-rgb),1), inset 0 0 22px rgba(var(--accent-rgb),.4); }
 /* The status chip beside the orb: a read-out, not a second control. It says
    at a glance what JARVIS is doing, and a click on it deliberately has NO
@@ -378,7 +329,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-status-chip{ position:absolute; bottom:14px; left:25px; width:40px; height:40px; border-radius:50%; background:rgba(var(--accent-rgb),.1); border:1px solid rgba(var(--accent-rgb),.4); display:flex; align-items:center; justify-content:center; font-size:16px; z-index:3; cursor:pointer; transition:background .2s ease, border-color .2s ease, transform .15s ease; }
 .orb-status-chip:hover{ transform:scale(1.09); }
 .orb-stage.state-sleeping .orb-status-chip{ background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.2); }
-.orb-stage.state-ready .orb-status-chip{ background:rgba(255,59,59,.16); border-color:rgba(255,59,59,.65); }
+.orb-stage.state-ready.blocked .orb-status-chip{ background:rgba(255,59,59,.16); border-color:rgba(255,59,59,.65); }
 .orb-stage.state-listening .orb-status-chip{ background:rgba(var(--accent-rgb),.18); border-color:rgba(var(--accent-rgb),.8); animation:jm-livedot 1.1s ease-in-out infinite; }
 .orb-stage.state-processing .orb-status-chip,.orb-stage.state-tool .orb-status-chip{ background:rgba(255,200,0,.14); border-color:rgba(255,200,0,.55); }
 .orb-stage.state-speaking .orb-status-chip{ background:rgba(0,255,136,.14); border-color:rgba(0,255,136,.55); }
@@ -388,7 +339,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-state-label.listening,.orb-state-label.processing{ color:var(--color-cyan); }
 .orb-state-label.tool{ color:var(--color-gold); }
 .orb-state-label.done{ color:var(--color-green); }
-.orb-state-label.ready{ color:var(--color-red); font-weight:700; }
 .orb-state-label.speaking{ color:var(--color-green); }
 .orb-waveform{ display:none; align-items:flex-end; gap:4px; height:22px; margin-top:12px; }
 .orb-waveform.show{ display:flex; }
@@ -410,12 +360,13 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .orb-cta{ display:flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--color-cyan); text-shadow:0 0 8px rgba(var(--accent-rgb),.5); opacity:.9; transition:opacity .25s ease; unicode-bidi:plaintext; text-align:center; line-height:1.35; }
 .orb-stage.state-processing .orb-cta,.orb-stage.state-tool .orb-cta{ opacity:.5; }
 .orb-stage.state-sleeping .orb-cta{ color:rgba(255,255,255,.72); text-shadow:none; }
-/* On the red resting body, cyan caption text fights the ground - near-white
-   keeps "how do I turn this on" the most readable thing on the orb. */
-.orb-stage.state-ready .orb-cta{ color:rgba(255,255,255,.94); text-shadow:0 0 10px rgba(255,59,59,.6); }
+/* On the red blocked body, cyan caption text fights the ground - near-white stays readable. */
+.orb-stage.state-ready.blocked .orb-cta{ color:rgba(255,255,255,.94); text-shadow:0 0 10px rgba(255,59,59,.6); }
+.orb-cta:empty{ display:none; }
 @media (prefers-reduced-motion: reduce){
     .orb-stage.state-ready .orb-rim,.orb-stage.busy-nudge .orb-body,.orb-stage.state-listening .orb-status-chip{ animation:none; }
-    .orb-stage.state-ready .orb-rim{ box-shadow:0 0 18px rgba(255,59,59,.6), inset 0 0 18px rgba(255,59,59,.24); }
+    .orb-stage.state-ready .orb-rim{ box-shadow:0 0 16px rgba(var(--accent-rgb),.5), inset 0 0 18px rgba(var(--accent-rgb),.2); }
+    .orb-stage.state-ready.blocked .orb-rim{ box-shadow:0 0 18px rgba(255,59,59,.6), inset 0 0 18px rgba(255,59,59,.24); }
     .orb-burst-ring{ display:none !important; }
 }
 
@@ -427,12 +378,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 /* Panels (shared card look) */
 .hud-panel{ position:relative; margin-top:16px; padding:16px; border-radius:var(--radius-md); background:var(--color-panel); border:var(--border-default); backdrop-filter:var(--blur-panel); }
 .hud-panel-title{ font-family:var(--font-display); font-size:12px; letter-spacing:var(--tracking-wide); color:var(--color-white); margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; }
-.hud-panel-toggle{ font-size:12px; font-weight:600; color:var(--color-cyan); cursor:pointer; }
 
-.event-row{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid rgba(var(--accent-rgb),0.12); }
-.event-row:last-child{ border-bottom:none; }
-.event-row .t{ width:70px; flex-shrink:0; font-size:12px; font-weight:600; color:var(--color-gold); }
-.event-row .s{ flex:1; min-width:0; font-size:13.5px; font-weight:500; color:var(--color-white); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .events-empty{ font-size:13px; color:var(--color-text-dim); padding:6px 0; }
 
 /* Discover panel — replaces the old rotating globe (it showed a static,
@@ -475,7 +421,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
     35%{ box-shadow:0 0 30px 8px rgba(var(--accent-rgb),.9), inset 0 0 24px rgba(var(--accent-rgb),.55); }
     100%{ box-shadow:0 0 14px rgba(var(--accent-rgb),.4), inset 0 0 14px rgba(var(--accent-rgb),.2); }
 }
-.discover-footer{ margin-top:14px; text-align:center; font-size:10.5px; font-weight:600; color:var(--color-text-dim); }
 @media (prefers-reduced-motion: reduce){
     .discover-orb-glow{ animation:none; opacity:.7; }
     .discover-orb.nudge{ animation:none; }
@@ -495,22 +440,11 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .log-row .meta{ font-size:11.5px; color:var(--color-text-dim); margin-top:4px; }
 
 /* Agenda tab */
-.section-title{ font-family:var(--font-display); font-size:15px; letter-spacing:var(--tracking-wide); color:var(--color-white); margin:8px 0 16px; }
 .input-field{ width:100%; background:var(--color-cyan-soft); border:var(--border-default); border-radius:var(--radius-sm); padding:12px; color:var(--color-white); font-size:14px; }
 .input-field.gold{ background:rgba(255,200,0,0.06); border:1px solid rgba(255,200,0,0.4); }
 .field-label{ font-size:12px; color:var(--color-text-dim); margin-bottom:5px; }
 
 /* Inbox tab */
-.inbox-header{ display:flex; align-items:center; justify-content:space-between; margin:8px 0 16px; }
-.inbox-compose-btn{ display:flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600; color:var(--color-gold); padding:8px 13px; border-radius:var(--radius-pill); background:rgba(255,200,0,0.1); border:1px solid rgba(255,200,0,0.4); cursor:pointer; }
-.mail-card{ padding:14px 8px; border-radius:var(--radius-sm); background:rgba(255,200,0,0.04); border-bottom:1px solid rgba(var(--accent-rgb),0.12); }
-.mail-card-top{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
-.mail-card-from{ display:flex; align-items:center; gap:7px; min-width:0; }
-.mail-dot{ width:6px; height:6px; border-radius:50%; background:rgb(var(--accent-rgb)); box-shadow:0 0 6px rgb(var(--accent-rgb)); flex-shrink:0; animation:jm-blink 1.8s ease-in-out infinite; }
-.mail-card-from span{ font-size:14.5px; font-weight:700; color:var(--color-white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.mail-subject{ font-size:13.5px; font-weight:600; color:var(--color-cyan); margin-top:4px; unicode-bidi:plaintext; }
-.mail-preview{ font-size:12.5px; color:var(--color-text-dim); line-height:1.6; margin:2px 0 10px; unicode-bidi:plaintext; }
-.mail-reply-btn{ display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border-radius:var(--radius-pill); background:rgba(255,200,0,0.12); border:1px solid rgba(255,200,0,0.4); font-size:12px; font-weight:700; color:var(--color-gold); cursor:pointer; }
 .mail-reply-box{ margin-top:12px; display:none; flex-direction:column; gap:8px; }
 .mail-reply-box.show{ display:flex; }
 .mail-reply-box textarea{ min-height:80px; resize:vertical; }
@@ -520,13 +454,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .small-btn.cancel{ background:rgba(255,59,59,0.1); border-color:rgba(255,59,59,0.4); color:var(--color-red); }
 
 /* Tasks tab */
-.task-stats-card{ padding:16px; border-radius:var(--radius-md); background:var(--color-panel); border:var(--border-default); margin-bottom:16px; backdrop-filter:var(--blur-panel); }
-.task-stats-row{ display:flex; align-items:center; margin-bottom:16px; }
-.task-stat{ flex:1; text-align:center; }
-.task-stat-num{ font-family:var(--font-display); font-size:26px; font-weight:700; color:rgb(var(--accent-rgb)); text-shadow:0 0 10px rgba(var(--accent-rgb),.4); line-height:1.2; font-variant-numeric:tabular-nums; }
-.task-stat-label{ font-size:11px; color:var(--color-text-dim); margin-top:2px; }
-.task-stat-divider{ width:1px; height:34px; background:rgba(var(--accent-rgb),0.2); }
-.task-chart{ display:flex; align-items:flex-end; justify-content:space-between; gap:6px; height:64px; padding-top:4px; direction:ltr; }
+.task-chart{ display:flex; align-items:flex-end; justify-content:space-between; gap:6px; height:64px; padding-top:4px; }
 .task-bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px; padding-top:6px; border-radius:var(--radius-sm); position:relative; }
 .task-bar{ width:100%; max-width:22px; min-height:3px; border-radius:3px 3px 0 0; background:rgba(var(--accent-rgb),0.25); transition:height .3s ease; }
 .task-bar.has-count{ background:rgb(var(--accent-rgb)); box-shadow:0 0 6px rgba(var(--accent-rgb),.5); }
@@ -537,11 +465,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .task-bar-col.is-today::before{ content:''; position:absolute; top:-2px; width:4px; height:4px; border-radius:50%; background:rgb(var(--accent-rgb)); box-shadow:0 0 5px rgba(var(--accent-rgb),.8); }
 .task-bar-col.is-today .task-bar-label{ color:rgb(var(--accent-rgb)); font-weight:700; }
 .task-bar-label{ font-size:10px; color:var(--color-text-dim); }
-.task-input-row{ display:flex; gap:8px; padding:0 0 8px; }
-.task-input-row2{ display:flex; gap:8px; padding:0 0 12px; }
-.task-input{ flex:1; min-width:0; background:rgba(0,0,0,0.5); border:var(--border-default); border-radius:var(--radius-pill); padding:10px 16px; color:var(--color-white); font-size:13px; }
-.task-input:focus{ outline:none; border-color:var(--color-cyan); box-shadow:0 0 10px rgba(var(--accent-rgb),.25); }
-.task-add-btn-wide{ flex:1; border-radius:var(--radius-pill); background:var(--color-cyan); color:var(--color-bg); border:none; font-size:13px; font-weight:700; cursor:pointer; }
 /* Recurrence picker — replaces a single-choice <select> (couldn't express
    "only Sunday and Monday") with independently toggleable day chips, so
    any combination of weekdays is selectable, plus two mutually-exclusive
@@ -550,35 +473,12 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .task-recur-mode-row{ display:flex; gap:8px; margin-bottom:8px; }
 .task-recur-mode-chip{ flex:1; padding:8px 10px; border-radius:var(--radius-pill); background:rgba(0,0,0,0.5); border:var(--border-default); color:var(--color-text-dim); font-size:12px; font-weight:600; cursor:pointer; transition:all var(--ease-standard); }
 .task-recur-mode-chip.active{ background:var(--color-cyan-soft); border-color:var(--color-cyan); color:var(--color-white); }
-.task-recur-days-row{ display:flex; gap:5px; direction:ltr; }
+.task-recur-days-row{ display:flex; gap:5px; }
 .task-recur-day-chip{ flex:1; padding:8px 0; border-radius:var(--radius-sm); background:rgba(0,0,0,0.5); border:var(--border-default); color:var(--color-text-dim); font-size:12px; font-weight:700; cursor:pointer; transition:all var(--ease-standard); }
 .task-recur-day-chip.active{ background:rgb(var(--accent-rgb)); border-color:rgb(var(--accent-rgb)); color:var(--color-bg); box-shadow:0 0 8px rgba(var(--accent-rgb),.5); }
-.task-add-btn-wide:hover{ opacity:0.8; }
-.task-card{ padding:14px 12px; border-radius:var(--radius-sm); background:rgba(0,255,136,0.04); border-bottom:1px solid rgba(0,255,136,0.15); display:flex; align-items:center; gap:12px; }
-.task-checkbox{ width:20px; height:20px; min-width:20px; cursor:pointer; }
-.task-body{ flex:1; min-width:0; }
-.task-text{ font-size:14px; color:var(--color-white); word-break:break-word; }
-.task-recurring-badge{ display:inline-block; margin-top:3px; font-size:10.5px; color:var(--color-cyan); background:var(--color-cyan-soft); border-radius:var(--radius-pill); padding:2px 8px; }
-.task-delete-btn{ width:28px; height:28px; min-width:28px; border-radius:50%; background:rgba(255,59,59,0.1); border:1px solid rgba(255,59,59,0.3); color:var(--color-red); font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; }
-.task-delete-btn:hover{ background:rgba(255,59,59,0.2); }
 
 /* Settings tab */
-.account-card{ display:flex; align-items:center; gap:12px; padding:14px; background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-md); margin-bottom:18px; backdrop-filter:var(--blur-panel); }
 .account-avatar{ width:42px; height:42px; border-radius:50%; background:var(--color-cyan-soft); border:var(--border-default); display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--color-cyan); font-size:16px; flex-shrink:0; }
-.account-info{ flex:1; min-width:0; }
-.account-name{ font-size:14.5px; font-weight:700; color:var(--color-white); }
-.account-email{ font-size:11.5px; color:var(--color-text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:ltr; text-align:right; }
-.account-switch-btn{ font-size:12px; font-weight:600; color:var(--color-cyan); padding:7px 12px; border-radius:var(--radius-pill); border:var(--border-default); cursor:pointer; flex-shrink:0; background:none; }
-.status-card{ display:flex; align-items:center; gap:16px; padding:16px; border-radius:var(--radius-md); background:var(--color-panel); border:var(--border-default); margin-bottom:18px; backdrop-filter:var(--blur-panel); }
-.status-card-title{ font-size:13.5px; font-weight:700; color:var(--color-white); margin-bottom:4px; }
-.status-card-sub{ font-size:12px; color:var(--color-cyan); line-height:1.6; }
-.settings-sub{ font-family:var(--font-display); font-weight:700; font-size:17px; letter-spacing:var(--tracking-wide); color:var(--color-white); text-shadow:0 0 10px rgba(var(--accent-rgb),.5); margin:24px 0 12px; }
-.conn-row{ display:flex; align-items:center; justify-content:space-between; padding:13px 14px; background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-sm); margin-bottom:8px; }
-.conn-row span:first-child{ font-size:13.5px; font-weight:600; color:var(--color-white); }
-.conn-row .ok{ font-size:12px; font-weight:700; color:var(--color-green); }
-.voice-info-block{ padding:14px; background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-sm); font-size:13px; font-weight:500; color:var(--color-cyan); line-height:1.7; }
-.danger-btn{ margin-top:14px; text-align:center; font-size:13px; font-weight:600; color:var(--color-red); padding:12px; border-radius:var(--radius-sm); border:1px solid rgba(255,59,59,0.4); cursor:pointer; background:none; width:100%; }
-.reset-btn{ margin-top:20px; text-align:center; font-size:13px; font-weight:600; color:var(--color-text-dim); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--color-cyan-border); cursor:pointer; background:none; width:100%; }
 
 /* Text-command input row + bottom nav: ONE dock on ONE opaque surface. They used to be two
    separate bars at 85% / 90% alpha, so page content showed through both. */
@@ -822,10 +722,8 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 #device-screen[data-tab]:not([data-tab="home"]) .bg-radar,
 #device-screen[data-tab]:not([data-tab="home"]) .bg-scanline{ display:none; }
 /* Hebrew titles: Rubik, no tracking (Orbitron has no Hebrew; 1px tracking on the fallback glyphs reads as spaced-out). */
-.hud-panel-title,.section-title,.settings-sub,.activity-title,.sheet-header span.title,.confirm-kind-label,.orb-state-label,.orb-tool-label,.confirming-label,.sheet-submit,.confirm-btn.confirm,.confirm-btn.save,.tool-search-btn{ font-family:var(--font-ui); letter-spacing:0; }
+.hud-panel-title,.settings-sub,.activity-title,.sheet-header span.title,.confirm-kind-label,.orb-state-label,.orb-tool-label,.confirming-label,.sheet-submit,.confirm-btn.confirm,.confirm-btn.save,.tool-search-btn{ font-family:var(--font-ui); letter-spacing:0; }
 .hud-panel-title,.activity-title{ font-size:14px; font-weight:600; }
-.section-title{ font-size:22px; font-weight:700; margin:6px 0 14px; }
-.settings-sub{ font-size:16px; font-weight:600; }
 .orb-state-label{ font-size:15px; font-weight:500; }
 .orb-state-label.ready{ color:var(--color-white); font-weight:600; }
 .confirm-kind-label{ font-size:13px; font-weight:600; }
@@ -839,7 +737,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .qa-chip .i{ width:18px; height:18px; color:var(--color-cyan); }
 .activity-row .txt{ font-size:14.5px; }
 .discover-row .txt{ font-size:14.5px; font-weight:500; }
-.discover-footer{ font-size:12.5px; display:flex; align-items:center; justify-content:center; gap:6px; }
 .orb-status-chip .i{ width:18px; height:18px; }
 
 /* ===== Redesign v1, step 2: page header, day-grouped agenda, bottom sheets, create button ============ */
@@ -876,11 +773,8 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .ds-btn.block{ width:100%; }
 .try-chip{ display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:8px 14px; border:1px dashed rgba(var(--accent-rgb),.4); border-radius:999px; background:transparent; color:var(--color-white); font-size:14px; cursor:pointer; text-align:start; }
 .try-chip .i{ color:var(--color-cyan); width:18px; height:18px; }
-.event-row .t{ width:auto; min-width:92px; font-size:13px; font-weight:500; color:var(--color-cyan); }
-.event-row .s{ font-size:14.5px; }
-.event-row .s .i{ width:16px; height:16px; vertical-align:-3px; margin-inline-end:6px; color:var(--color-cyan); }
 /* the one create button of a tab */
-.fab{ display:none; position:absolute; inset-inline-end:16px; bottom:calc(var(--dock-h) + 14px); z-index:55; height:52px; padding:0 20px 0 18px; border-radius:26px; background:var(--color-cyan); color:var(--color-bg); align-items:center; gap:8px; font-family:var(--font-ui); font-weight:600; font-size:15.5px; border:0; cursor:pointer; box-shadow:0 0 26px rgba(var(--accent-rgb),.45); }
+.fab{ display:none; position:absolute; inset-inline-end:16px; bottom:calc(var(--dock-h) + 14px + var(--bubble-h, 0px)); transition:bottom .2s ease; z-index:55; height:52px; padding:0 20px 0 18px; border-radius:26px; background:var(--color-cyan); color:var(--color-bg); align-items:center; gap:8px; font-family:var(--font-ui); font-weight:600; font-size:15.5px; border:0; cursor:pointer; box-shadow:0 0 26px rgba(var(--accent-rgb),.45); }
 .fab.show{ display:flex; }
 #device-screen[data-fab="1"] .app-body{ padding-bottom:calc(var(--dock-h) + 92px + env(safe-area-inset-bottom)); }
 @media (hover:none) and (pointer:coarse){ .fab{ position:fixed; } }
@@ -970,6 +864,93 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .tour-card .row-btns{ margin-top:12px; justify-content:space-between; }
 .tour-step{ font-size:12.5px; color:var(--color-text-dim); margin-bottom:2px; }
 @media (prefers-reduced-motion: reduce){ .tour-ring{ transition:none; } }
+
+/* ===== Redesign v1, step 4a: tasks + inbox ================================================================ */
+.page-head-row{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.page-head-row .hdr-btn{ margin-top:-4px; border-color:var(--color-cyan-border); color:var(--color-cyan); }
+.row-item.task-row{ grid-template-columns:48px 1fr 44px; cursor:default; }
+.chk{ width:44px; height:44px; display:grid; place-items:center; background:none; border:0; padding:0; cursor:pointer; }
+.chk::before{ content:''; grid-area:1/1; width:26px; height:26px; border-radius:50%; border:1.7px solid var(--color-cyan); transition:background .15s ease, border-color .15s ease; }
+.chk .i{ grid-area:1/1; width:16px; height:16px; stroke-width:2.6; color:var(--color-bg); opacity:0; }
+.chk.on::before, .chk:disabled::before{ background:var(--color-green); border-color:var(--color-green); }
+.chk.on .i, .chk:disabled .i{ opacity:1; }
+.row-item.done .row-title{ color:var(--color-text-dim); text-decoration:line-through; }
+.prog-card{ margin-top:16px; padding:14px 16px; background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-xl); }
+.prog-head{ display:flex; justify-content:space-between; align-items:baseline; font-size:14px; color:var(--color-text-dim); }
+.prog-head b{ font-family:var(--font-mono); font-size:26px; font-weight:400; color:var(--color-cyan); direction:ltr; }
+.prog-card .task-chart{ margin-top:8px; height:56px; }
+.prog-card .task-bar.has-count{ background:rgba(var(--accent-rgb),.55); box-shadow:none; }
+.prog-card .is-today .task-bar.has-count{ background:rgb(var(--accent-rgb)); }
+.task-recur-mode-chip, .task-recur-day-chip{ min-height:44px; font-size:14.5px; }
+.mail-card{ background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-md); padding:14px; margin-bottom:10px; }
+.mail-top{ display:flex; align-items:center; gap:8px; }
+.mail-from{ font-weight:600; font-size:15.5px; color:var(--color-white); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; unicode-bidi:plaintext; }
+.mail-when{ margin-inline-start:auto; font-size:12.5px; color:var(--color-text-dim); flex:none; }
+.mail-subject{ font-size:15px; margin-top:6px; color:var(--color-white); unicode-bidi:plaintext; }
+.mail-preview{ font-size:13.5px; color:var(--color-text-dim); margin-top:2px; line-height:1.5; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; unicode-bidi:plaintext; }
+.mail-actions{ margin-top:10px; }
+.ds-inp.ta{ height:auto; min-height:96px; padding:10px 14px; resize:vertical; line-height:1.6; }
+
+/* ===== Redesign v1, step 4b: settings rows, the Home "your day" card ==================================== */
+.settings-sub{ font-size:18px; font-weight:700; color:var(--color-white); text-shadow:0 0 10px rgba(var(--accent-rgb),.5); margin:26px 0 10px; }
+.home-h{ font-size:15px; font-weight:600; color:var(--color-white); margin:0 2px 10px; }
+.today-block{ margin-top:24px; }
+.grpcard{ background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-xl); overflow:hidden; }
+#tab-home .grpcard{ backdrop-filter:var(--blur-panel); }
+.grpcard > * + *{ border-top:1px solid var(--color-cyan-border); }
+.grpcard > .events-empty{ padding:14px; }
+.set{ display:grid; grid-template-columns:24px minmax(0,1fr) auto; align-items:center; column-gap:12px; width:100%; min-height:60px; padding:8px 14px; background:none; border:0; color:var(--color-white); font-family:var(--font-ui); font-size:16px; text-align:start; }
+button.set, summary.set{ cursor:pointer; }
+button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
+.set > .i{ color:var(--color-cyan); }
+.set .lbl{ display:block; min-width:0; }
+.set .nm{ display:block; unicode-bidi:plaintext; text-align:right; overflow-wrap:anywhere; }
+.set .lbl small{ display:block; margin-top:2px; font-size:13.5px; line-height:1.45; color:var(--color-text-dim); unicode-bidi:plaintext; text-align:right; overflow-wrap:anywhere; }
+.set .v{ display:inline-flex; align-items:center; gap:6px; font-size:14px; color:var(--color-text-dim); }
+.set .v.ok{ color:var(--color-green); }
+.set .v.bad{ color:var(--color-gold); }
+.set .go{ color:var(--color-text-dim); }
+.set-acts{ display:inline-flex; gap:6px; }
+.set .ds-btn{ min-height:44px; padding:0 14px; font-size:14px; }
+.set.acct{ grid-template-columns:42px minmax(0,1fr) auto; }
+.set.acct .lbl small{ direction:ltr; text-align:right; }
+.set-more > summary{ list-style:none; }
+.set-more > summary::-webkit-details-marker{ display:none; }
+.set-more > summary::after{ content:''; width:8px; height:8px; border-right:2px solid var(--color-text-dim); border-bottom:2px solid var(--color-text-dim); transform:rotate(45deg) translate(-2px,-2px); transition:transform .2s; }
+.set-more[open] > summary::after{ transform:rotate(225deg) translate(-2px,-2px); }
+.set-body{ padding:6px 14px 16px; border-top:1px solid var(--color-cyan-border); }
+.tog{ width:48px; height:28px; border-radius:14px; border:1px solid var(--color-cyan-border); background:rgba(255,255,255,.05); position:relative; transition:background .2s ease, border-color .2s ease; }
+.tog::after{ content:''; position:absolute; top:3px; inset-inline-start:3px; width:20px; height:20px; border-radius:50%; background:var(--color-text-dim); transition:inset-inline-start .2s ease, background .2s ease; }
+[aria-checked="true"] > .tog{ background:var(--color-cyan-soft); border-color:rgba(var(--accent-rgb),.6); }
+[aria-checked="true"] > .tog::after{ inset-inline-start:23px; background:var(--color-cyan); }
+.set-swatches{ padding:14px; }
+.set-swatches .theme-row{ margin-bottom:0; }
+.set-swatches small{ display:block; margin-top:10px; font-size:13.5px; color:var(--color-text-dim); }
+.theme-swatch{ padding:0; }
+.voice-info-block{ padding:2px 0 8px; font-size:13.5px; line-height:1.6; color:var(--color-text-dim); }
+.set-body .ds-btn.block{ margin-top:10px; }
+.set-body .ds-btn.block:first-child{ margin-top:8px; }
+.mic-track{ height:10px; margin:12px 0 4px; background:rgba(var(--accent-rgb),.06); border:var(--border-default); border-radius:6px; overflow:hidden; }
+.mic-track > div{ height:100%; width:0; background:rgb(var(--accent-rgb)); transition:width .08s linear; }
+.mic-num{ margin-top:8px; font-family:var(--font-mono); font-size:12px; direction:ltr; text-align:left; color:var(--color-text-dim); }
+.dev-row{ display:flex; align-items:center; gap:10px; width:100%; min-height:44px; margin-top:6px; padding:0 12px; border:1px solid var(--color-cyan-border); border-radius:var(--radius-md); background:none; color:var(--color-text-dim); font-size:14.5px; text-align:start; cursor:pointer; }
+.dev-row .i{ visibility:hidden; }
+.dev-row.on{ border-color:rgba(var(--accent-rgb),.6); background:var(--color-cyan-soft); color:var(--color-white); }
+.dev-row.on .i{ visibility:visible; color:var(--color-cyan); }
+.sc-row{ display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--color-cyan-border); }
+.sc-row .sc-info{ flex:1; min-width:0; }
+.sc-row .sc-name{ font-size:15px; color:var(--color-cyan); unicode-bidi:plaintext; overflow-wrap:anywhere; }
+.sc-row .sc-meta{ font-size:13px; color:var(--color-text-dim); margin-top:2px; }
+.sc-row .sc-del{ width:44px; height:44px; flex:none; display:grid; place-items:center; background:none; border:0; color:var(--color-text-dim); cursor:pointer; }
+.sc-form{ display:grid; gap:8px; margin:12px 0 2px; }
+.signout{ margin-top:24px; }
+.signout .i{ transform:scaleX(-1); }
+.sheet-submit .i, .file-add-chip .i{ vertical-align:-4px; margin-inline-end:6px; }
+.seal-ring .i{ width:30px; height:30px; stroke-width:2.6; }
+.file-chip button{ width:44px; height:44px; margin:-12px -8px -12px -4px; display:grid; place-items:center; color:var(--color-text-dim); }
+.acct-list-row .forget{ width:44px; height:44px; display:grid; place-items:center; padding:0; }
+.warn-block .i{ vertical-align:-3px; }
+.orb-state-label.blocked{ color:var(--color-gold); }
 </style>
 </head>
 <body>
@@ -1011,6 +992,8 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
   <symbol id="i-msg" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-4 4v-4H4z"/></symbol>
   <symbol id="i-trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-9M15 6h6v6"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="m20 11.5-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.8 1.8 0 0 1-2.5-2.5l7.9-7.9"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 4.5 3 19.5h18z"/><path d="M12 10.5v4M12 17v.5"/></symbol>
   <symbol id="i-hourglass" viewBox="0 0 24 24"><path d="M7 3h10M7 21h10M8 3v3.5a4 4 0 0 0 1.6 3.2L12 12l2.4-2.3A4 4 0 0 0 16 6.5V3M8 21v-3.5a4 4 0 0 1 1.6-3.2L12 12l2.4 2.3A4 4 0 0 1 16 17.5V21"/></symbol>
   <symbol id="i-nav" viewBox="0 0 24 24"><path d="M12 2 19 20 12 16 5 20Z"/></symbol>
 </svg>
@@ -1113,16 +1096,13 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
             <div class="quick-actions-row" id="quick-actions-row"></div>
 
-            <div class="hud-panel">
-              <div class="hud-panel-title">
-                <span>◂ האירועים הקרובים</span>
-                <span class="hud-panel-toggle" id="home-upcoming-toggle" style="display:none;" onclick="toggleHomeUpcoming()">הצג הכל</span>
-              </div>
-              <div id="home-upcoming-list"><div class="events-empty">טוען…</div></div>
+            <div class="today-block">
+              <div class="home-h">היום שלך</div>
+              <div class="grpcard" id="home-upcoming-list"><div class="events-empty">טוען…</div></div>
             </div>
 
             <div class="hud-panel discover-panel">
-              <div class="hud-panel-title"><span>◂ עוד דברים שאני יודע לעשות</span></div>
+              <div class="hud-panel-title"><span>עוד דברים שאני יודע לעשות</span></div>
               <div class="discover-orb-wrap">
                 <div class="discover-orb-glow"></div>
                 <div class="discover-orb" id="discover-orb">
@@ -1131,11 +1111,10 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
                 </div>
               </div>
               <div class="discover-list" id="discover-list"></div>
-              <div class="discover-footer"><svg class="i s" aria-hidden="true"><use href="#i-mail"/></svg> <span id="home-unread-label">— חדשים</span> · Google מחובר</div>
             </div>
 
             <div class="activity-section">
-              <div class="activity-title">◂ פעילות אחרונה</div>
+              <div class="activity-title">פעילות אחרונה</div>
               <div id="home-activity-list"><div class="events-empty">אין עדיין פקודות — נסה להקיש על הכדור.</div></div>
             </div>
           </div>
@@ -1151,114 +1130,115 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
           <!-- INBOX -->
           <div class="tab-panel" id="tab-inbox">
-            <div class="inbox-header">
-              <div class="section-title" style="margin:0;">דואר נכנס</div>
-              <div class="inbox-compose-btn" onclick="openComposeModal()">✎ מייל חדש</div>
+            <div class="page-head page-head-row">
+              <div>
+                <h1 class="page-title">הדואר שלי</h1>
+                <p class="page-sub" id="inbox-sub"></p>
+              </div>
+              <button class="hdr-btn" onclick="loadInboxTab(true)" aria-label="רענן"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></button>
             </div>
             <div id="inbox-list"><div class="events-empty">טוען…</div></div>
           </div>
 
-          <!-- LOG -->
+          <!-- TASKS -->
           <div class="tab-panel" id="tab-tasks">
-            <div class="section-title">משימות שלך</div>
-
-            <div class="task-stats-card">
-              <div class="task-stats-row">
-                <div class="task-stat">
-                  <div class="task-stat-num" id="task-stat-today">0</div>
-                  <div class="task-stat-label">הושלמו היום</div>
-                </div>
-                <div class="task-stat-divider"></div>
-                <div class="task-stat">
-                  <div class="task-stat-num" id="task-stat-week">0</div>
-                  <div class="task-stat-label">השבוע</div>
-                </div>
-              </div>
+            <div class="page-head">
+              <h1 class="page-title">המשימות שלי</h1>
+              <p class="page-sub" id="tasks-sub"></p>
+            </div>
+            <div id="tasks-list"><div class="events-empty">טוען…</div></div>
+            <div class="prog-card" id="task-progress">
+              <div class="prog-head"><span>ההתקדמות שלי · השבוע</span><b id="task-stat-week">0</b></div>
               <div class="task-chart" id="task-chart"></div>
             </div>
-
-            <div class="task-input-row">
-              <input type="text" id="task-input" placeholder="הוסף משימה..." class="task-input" />
-            </div>
-            <div class="task-recur-picker" id="task-recur-picker">
-              <div class="task-recur-mode-row">
-                <button type="button" class="task-recur-mode-chip active" data-mode="none" onclick="setTaskRecurMode('none')">חד פעמי</button>
-                <button type="button" class="task-recur-mode-chip" data-mode="daily" onclick="setTaskRecurMode('daily')">כל יום</button>
-              </div>
-              <div class="task-recur-days-row">
-                <button type="button" class="task-recur-day-chip" data-day="Sunday" onclick="toggleTaskRecurDay('Sunday')">א'</button>
-                <button type="button" class="task-recur-day-chip" data-day="Monday" onclick="toggleTaskRecurDay('Monday')">ב'</button>
-                <button type="button" class="task-recur-day-chip" data-day="Tuesday" onclick="toggleTaskRecurDay('Tuesday')">ג'</button>
-                <button type="button" class="task-recur-day-chip" data-day="Wednesday" onclick="toggleTaskRecurDay('Wednesday')">ד'</button>
-                <button type="button" class="task-recur-day-chip" data-day="Thursday" onclick="toggleTaskRecurDay('Thursday')">ה'</button>
-                <button type="button" class="task-recur-day-chip" data-day="Friday" onclick="toggleTaskRecurDay('Friday')">ו'</button>
-                <button type="button" class="task-recur-day-chip" data-day="Saturday" onclick="toggleTaskRecurDay('Saturday')">ש'</button>
-              </div>
-            </div>
-            <div class="task-input-row2">
-              <button onclick="addTaskFromInput()" class="task-add-btn-wide">הוסף משימה</button>
-            </div>
-            <div id="tasks-list"><div class="events-empty">אין לך משימות, sir.</div></div>
           </div>
 
           <!-- SETTINGS -->
           <div class="tab-panel" id="tab-settings">
-            <div class="section-title">הגדרות וחשבון</div>
-            <div class="account-card">
-              <div class="account-avatar" id="settings-account-initial">?</div>
-              <div class="account-info">
-                <div class="account-name" id="settings-account-name">—</div>
-                <div class="account-email" id="settings-account-email">—</div>
-              </div>
-              <button class="account-switch-btn" onclick="switchGoogleAccount()">⇄ החלף</button>
+            <div class="page-head">
+              <h1 class="page-title">הגדרות</h1>
             </div>
 
-            <div class="status-card" onclick="tapStatusCard()">
-              <svg width="72" height="72" viewBox="0 0 72 72">
-                <circle cx="36" cy="36" r="31" fill="none" style="stroke:rgba(var(--accent-rgb),0.15)" stroke-width="4"/>
-                <circle cx="36" cy="36" r="31" fill="none" stroke-width="4" stroke-linecap="round" stroke-dasharray="194.8" stroke-dashoffset="0" transform="rotate(-90 36 36)" style="stroke:rgb(var(--accent-rgb));filter:drop-shadow(0 0 5px rgb(var(--accent-rgb)));"/>
-                <circle cx="36" cy="36" r="22" fill="none" stroke="rgba(0,255,136,0.5)" stroke-width="1" stroke-dasharray="3 4"/>
-                <text x="36" y="40" text-anchor="middle" font-family="Share Tech Mono" font-size="12" font-weight="700" fill="#eefcff">מחובר</text>
-              </svg>
-              <div>
-                <div class="status-card-title">מצב מערכת</div>
-                <div class="status-card-sub">כל המערכות תקינות</div>
+            <div class="grpcard">
+              <div class="set acct">
+                <div class="account-avatar" id="settings-account-initial">?</div>
+                <div class="lbl">
+                  <span class="nm" id="settings-account-name">—</span>
+                  <small id="settings-account-email">—</small>
+                </div>
+                <button type="button" class="ds-btn" onclick="switchGoogleAccount()">החלף</button>
+              </div>
+              <div class="set">
+                <svg class="i" aria-hidden="true"><use href="#i-plug"/></svg>
+                <span class="lbl"><span class="nm">חיבורים</span><small><bdi>Google Calendar</bdi> · <bdi>Gmail</bdi></small></span>
+                <span class="v" id="conn-status">בודק…</span>
               </div>
             </div>
-
-            <div class="settings-sub">◂ חיבורים</div>
-            <div class="conn-row"><span>📅 Google Calendar</span><span class="ok">מחובר ✓</span></div>
-            <div class="conn-row"><span>✉️ Gmail</span><span class="ok">מחובר ✓</span></div>
-
-            <div class="settings-sub">◂ קול</div>
-            <div class="voice-info-block">לחיצה לדיבור · עברית בקלט, אנגלית בפלט<br/>אישור לפני פעולה: כל שינוי ביומן או מייל ממתין לאישורך, וניתן לעריכה לפני האישור.</div>
 
             <div id="standalone-warning"></div>
 
-            <div class="settings-sub">◂ אבחון דיבור</div>
-            <div id="voice-diag"></div>
+            <div class="settings-sub">קול והתראות</div>
+            <div class="grpcard">
+              <details class="set-more">
+                <summary class="set">
+                  <svg class="i" aria-hidden="true"><use href="#i-wave"/></svg>
+                  <span class="lbl"><span class="nm">בדיקת מיקרופון</span><small>אם JARVIS לא שומע אותך</small></span>
+                </summary>
+                <div class="set-body" id="voice-diag"></div>
+              </details>
+              <button type="button" class="set" id="autostop-row" role="switch" aria-checked="true" onclick="setAutoStop(!autoStopEnabled())">
+                <svg class="i" aria-hidden="true"><use href="#i-mic"/></svg>
+                <span class="lbl"><span class="nm">עצירה אוטומטית בסוף משפט</span><small>ההקלטה נעצרת כשאתה מפסיק לדבר</small></span>
+                <span class="tog"></span>
+              </button>
+              <div class="set">
+                <svg class="i" aria-hidden="true"><use href="#i-bell"/></svg>
+                <span class="lbl"><span class="nm">התראות בדפדפן</span><small id="push-status-text">תזכורות מגיעות במייל. אפשר לקבל אותן גם כהתראה בטלפון, גם כשהאתר סגור.</small></span>
+                <span class="set-acts">
+                  <button type="button" class="ds-btn" id="push-enable-btn" onclick="enablePushNotifications()">הפעל</button>
+                  <button type="button" class="ds-btn" id="push-test-btn" style="display:none;" onclick="sendTestPush()">בדיקה</button>
+                </span>
+              </div>
+            </div>
 
-            <div class="settings-sub">◂ הקיצורים שלי (iPhone בלבד)</div>
-            <div id="shortcut-registry"></div>
+            <div class="settings-sub">מראה</div>
+            <div class="grpcard">
+              <div class="set-swatches">
+                <div class="theme-row" id="theme-row"></div>
+                <small id="appearance-note">הצבע נשמר במכשיר הזה בלבד.</small>
+              </div>
+            </div>
 
-            <div class="settings-sub">◂ מראה</div>
-            <div class="theme-row" id="theme-row"></div>
-            <div class="voice-info-block" id="appearance-note">בחר צבע ל-J.A.R.V.I.S. הבחירה נשמרת במכשיר הזה בלבד.</div>
+            <div class="settings-sub">מתקדם</div>
+            <div class="grpcard">
+              <div class="set">
+                <svg class="i" aria-hidden="true"><use href="#i-mail"/></svg>
+                <span class="lbl"><span class="nm">סיכום שבועי במייל</span><small>נשלח אוטומטית בימי ראשון בבוקר</small></span>
+                <button type="button" class="ds-btn" onclick="sendWeeklySummaryNow()">שלח עכשיו</button>
+              </div>
+              <details class="set-more">
+                <summary class="set">
+                  <svg class="i" aria-hidden="true"><use href="#i-cog"/></svg>
+                  <span class="lbl"><span class="nm">קיצורי דרך</span><small>אייפון בלבד</small></span>
+                </summary>
+                <div class="set-body" id="shortcut-registry"></div>
+              </details>
+              <button type="button" class="set" onclick="resetMemory()">
+                <svg class="i" aria-hidden="true"><use href="#i-repeat"/></svg>
+                <span class="lbl"><span class="nm">איפוס זיכרון שיחה</span><small>JARVIS מתחיל שיחה חדשה מאפס</small></span>
+              </button>
+            </div>
 
-            <div class="settings-sub">◂ התראות</div>
-            <div class="voice-info-block" id="push-status-text">תזכורות נשלחות כברירת מחדל במייל. ניתן גם לקבל אותן כהתראה אמיתית בדפדפן/בטלפון, גם כשהאתר סגור.</div>
-            <button class="mic-btn show" id="push-enable-btn" onclick="enablePushNotifications()">🔔 הפעל התראות בדפדפן</button>
-            <button class="mic-btn show" id="push-test-btn" onclick="sendTestPush()">🧪 שלח הודעת בדיקה עכשיו</button>
+            <div class="settings-sub">עזרה</div>
+            <div class="grpcard">
+              <button type="button" class="set" onclick="openHelp()">
+                <svg class="i" aria-hidden="true"><use href="#i-book"/></svg>
+                <span class="lbl"><span class="nm">מדריך ושאלות נפוצות</span></span>
+                <svg class="i s go" aria-hidden="true"><use href="#i-chev"/></svg>
+              </button>
+            </div>
 
-            <div class="settings-sub">◂ עזרה</div>
-            <button class="mic-btn show" onclick="openHelp()">מדריך ושאלות נפוצות</button>
-
-            <div class="settings-sub">◂ סיכום שבועי</div>
-            <div class="voice-info-block">נשלח למייל אוטומטית כל יום ראשון בבוקר, עם מה שמחכה לך בשבוע הקרוב. אפשר לשלוח תצוגה מקדימה עכשיו.</div>
-            <button class="mic-btn show" onclick="sendWeeklySummaryNow()">שלח סיכום עכשיו</button>
-
-            <button class="reset-btn" onclick="resetMemory()">🧹 איפוס זיכרון שיחה</button>
-            <button class="danger-btn" onclick="disconnectGoogle()">⏻ התנתקות</button>
+            <button type="button" class="ds-btn danger block signout" onclick="disconnectGoogle()"><svg class="i s" aria-hidden="true"><use href="#i-out"/></svg>התנתקות</button>
           </div>
 
         </div>
@@ -1357,6 +1337,36 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
           </div>
         </div>
 
+        <!-- Task sheet -->
+        <div class="bsheet-overlay" id="task-sheet" onclick="if(event.target===this)closeTaskSheet()">
+          <div class="bsheet" role="dialog" aria-modal="true" aria-labelledby="task-sheet-title">
+            <div class="bsheet-grab"></div>
+            <div class="bsheet-title" id="task-sheet-title">משימה חדשה</div>
+            <label class="ds-lbl" for="task-input">מה צריך לעשות?</label>
+            <input class="ds-inp" id="task-input" placeholder="למשל: לקנות חלב" autocomplete="off" onkeydown="if(event.key==='Enter'){submitTaskSheet();}">
+            <label class="ds-lbl">חוזרת?</label>
+            <div class="task-recur-picker" id="task-recur-picker">
+              <div class="task-recur-mode-row">
+                <button type="button" class="task-recur-mode-chip active" data-mode="none" onclick="setTaskRecurMode('none')">חד פעמית</button>
+                <button type="button" class="task-recur-mode-chip" data-mode="daily" onclick="setTaskRecurMode('daily')">כל יום</button>
+              </div>
+              <div class="task-recur-days-row">
+                <button type="button" class="task-recur-day-chip" data-day="Sunday" onclick="toggleTaskRecurDay('Sunday')">א'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Monday" onclick="toggleTaskRecurDay('Monday')">ב'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Tuesday" onclick="toggleTaskRecurDay('Tuesday')">ג'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Wednesday" onclick="toggleTaskRecurDay('Wednesday')">ד'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Thursday" onclick="toggleTaskRecurDay('Thursday')">ה'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Friday" onclick="toggleTaskRecurDay('Friday')">ו'</button>
+                <button type="button" class="task-recur-day-chip" data-day="Saturday" onclick="toggleTaskRecurDay('Saturday')">ש'</button>
+              </div>
+            </div>
+            <div class="sheet-actions">
+              <button type="button" class="ds-btn" onclick="closeTaskSheet()">ביטול</button>
+              <button type="button" class="ds-btn pri" onclick="submitTaskSheet()">הוסף משימה</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Action sheet: the one place a row's actions live -->
         <div class="bsheet-overlay" id="action-sheet" onclick="if(event.target===this)closeActionSheet()">
           <div class="bsheet" role="dialog" aria-modal="true" aria-labelledby="action-sheet-title">
@@ -1377,7 +1387,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
               <div class="field-label">קבצים מצורפים (עד 3)</div>
               <input type="file" id="compose-file-input" multiple style="display:none;" onchange="handleComposeFilesChosen(this.files)">
               <div class="file-chip-list" id="compose-file-chips"></div>
-              <div class="file-add-chip" id="compose-file-add" onclick="document.getElementById('compose-file-input').click()">📎 צרף קובץ</div>
+              <div class="file-add-chip" id="compose-file-add" onclick="document.getElementById('compose-file-input').click()"><svg class="i s" aria-hidden="true"><use href="#i-clip"/></svg> צרף קובץ</div>
             </div>
           </div>
           <div class="sheet-fields" id="compose-stage-send" style="display:none;">
@@ -1385,8 +1395,8 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div><div class="field-label">הודעה</div><textarea class="input-field gold" id="compose-body" style="min-height:100px;"></textarea></div>
           </div>
           <div class="sheet-spacer"></div>
-          <div class="sheet-submit gold" id="compose-draft-btn" onclick="draftComposeEmail()">✍️ נסח</div>
-          <div class="sheet-submit gold" id="compose-send-btn" style="display:none;" onclick="sendComposeEmail()">📤 שלח</div>
+          <div class="sheet-submit gold" id="compose-draft-btn" onclick="draftComposeEmail()"><svg class="i s" aria-hidden="true"><use href="#i-edit"/></svg> נסח</div>
+          <div class="sheet-submit gold" id="compose-send-btn" style="display:none;" onclick="sendComposeEmail()"><svg class="i s" aria-hidden="true"><use href="#i-send"/></svg> שלח</div>
         </div>
 
         <!-- Reminder edit sheet -->
@@ -1420,12 +1430,12 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             </div>
           </div>
           <div class="sheet-spacer"></div>
-          <div class="sheet-submit" onclick="saveReminderEdit()">💾 שמור</div>
+          <div class="sheet-submit" onclick="saveReminderEdit()"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg> שמור</div>
         </div>
 
         <!-- Tool panel sheet (stocks / qa / places / current) -->
         <div class="sheet-overlay cyan" id="tool-panel-sheet">
-          <div class="sheet-header"><span class="title" id="tool-panel-title">◂ חיפוש מניה</span><button class="sheet-close" onclick="closeToolPanel()"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+          <div class="sheet-header"><span class="title" id="tool-panel-title">חיפוש מניה</span><button class="sheet-close" onclick="closeToolPanel()"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></div>
 
           <div class="tool-sub" id="panel-stocks">
             <div class="tool-search-row">
@@ -1456,7 +1466,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
         <!-- Switch account sheet -->
         <div class="sheet-overlay cyan" id="switch-account-sheet">
-          <div class="sheet-header"><span class="title">◂ החלפת חשבון</span><button class="sheet-close" onclick="closeSwitchAccountModal()"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+          <div class="sheet-header"><span class="title">החלפת חשבון</span><button class="sheet-close" onclick="closeSwitchAccountModal()"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></div>
           <div id="switch-account-list"></div>
         </div>
 
@@ -1472,7 +1482,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
               <div id="confirm-read-fields"></div>
               <div class="confirm-edit-fields" id="confirm-edit-fields"></div>
               <div class="confirming-overlay" id="confirming-overlay">
-                <div class="seal-ring">✓</div>
+                <div class="seal-ring"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg></div>
                 <div class="confirming-label" id="confirming-label"></div>
               </div>
             </div>
@@ -1483,7 +1493,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             </div>
             <div class="confirm-btn-row hide" id="confirm-btn-row-edit">
               <button class="confirm-btn" onclick="exitConfirmEditMode()">ביטול עריכה</button>
-              <button class="confirm-btn save" onclick="saveConfirmEdit()">💾 שמור</button>
+              <button class="confirm-btn save" onclick="saveConfirmEdit()"><svg class="i s" aria-hidden="true"><use href="#i-check"/></svg>שמור</button>
             </div>
           </div>
         </div>
@@ -1703,11 +1713,14 @@ function renderNav(){
 // One create button per content tab, always in the same corner; the tab decides what it creates.
 const FAB_DEFS = {
     agenda: { label: 'הוסף', run: () => openAddSheet('event') },
+    tasks: { label: 'משימה', run: () => openTaskSheet() },
+    inbox: { label: 'מייל חדש', run: () => openComposeModal(), when: () => inboxConfigured },
 };
 function updateFab(){
     const def = FAB_DEFS[currentTab];
-    $('fab').classList.toggle('show', !!def);
-    $('device-screen').dataset.fab = def ? '1' : '0';
+    const on = !!def && (!def.when || def.when());
+    $('fab').classList.toggle('show', on);
+    $('device-screen').dataset.fab = on ? '1' : '0';
     if (def) $('fab-label').textContent = def.label;
 }
 function fabTap(){ const def = FAB_DEFS[currentTab]; if (def) def.run(); }
@@ -1726,6 +1739,7 @@ function setTab(key){
     if (key === 'inbox') loadInboxTab();
     if (key === 'agenda') loadAgendaTab();
     if (key === 'tasks') loadTasksTab();
+    if (key === 'settings') renderConnStatus();
 }
 renderNav();
 
@@ -2037,6 +2051,7 @@ const IS_STANDALONE = window.navigator.standalone === true ||
 let micInitialized = false;
 const SPEECH_RECOGNITION_SUPPORTED = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 let textOnlyMode = false;
+let micPermissionState = 'unknown';   // 'granted' | 'prompt' | 'denied' once the browser tells us
 let pendingConfirmToken = null;
 let pendingConfirmEvt = null;
 let editingApproval = false;
@@ -2047,12 +2062,12 @@ let editingApproval = false;
    next tap will do. Every state has both, so there is never a state where
    the orb is tappable but nothing tells you so. */
 const STATE_LABELS = { sleeping: 'המתנה', ready: 'לחץ על הכדור ודבר', listening: 'מקשיב…', processing: 'מעבד…', tool: 'מבצע פעולה…', speaking: 'משיב…' };
-const ORB_CTA = { sleeping: 'הקש להתחלה', ready: 'הקש כדי לדבר', listening: 'הקש כדי לעצור', processing: 'חושב…', tool: 'מבצע…', speaking: 'הקש להשתקה' };
+const ORB_CTA = { sleeping: 'הקש להתחלה', ready: '', listening: 'הקש כדי לעצור', processing: 'חושב…', tool: 'מבצע…', speaking: 'הקש להשתקה' };
 /* Third piece of copy, for the chip beside the orb: pure STATE, no action
    verb. The chip answers "what is it doing", the caption answers "what will
    my tap do", the label under the orb spells the state out in words. */
-const ORB_STATUS_ICON  = { sleeping: 'moon', ready: 'micoff', listening: 'mic', processing: 'hourglass', tool: 'cog', speaking: 'sound' };
-const ORB_STATUS_TITLE = { sleeping: 'במצב המתנה', ready: 'המיקרופון כבוי — הקש כדי לדבר', listening: 'מקשיב לך עכשיו', processing: 'מעבד את הבקשה', tool: 'מבצע פעולה', speaking: 'JARVIS מדבר' };
+const ORB_STATUS_ICON  = { sleeping: 'moon', ready: 'mic', listening: 'mic', processing: 'hourglass', tool: 'cog', speaking: 'sound' };
+const ORB_STATUS_TITLE = { sleeping: 'במצב המתנה', ready: 'הקש כדי לדבר', listening: 'מקשיב לך עכשיו', processing: 'מעבד את הבקשה', tool: 'מבצע פעולה', speaking: 'JARVIS מדבר' };
 
 function isSpeaking(){ return !!(currentAudio && !currentAudio.paused && !currentAudio.ended); }
 /* micMuted is the press-to-talk latch, not a user preference - it flips back
@@ -2129,18 +2144,23 @@ function orbVisualState(){
     return 'ready';   // includes voiceState 'done' with no audio (text-only reply)
 }
 
+/* The one case where the resting orb is not calm: talking is impossible here (blocked, or no speech input).
+   Someone who chose text-only on purpose is not "blocked". */
+function orbBlocked(){ return !textOnlyMode && (!speechInputSupported() || micPermissionState === 'denied'); }
+
 function renderOrb(){
     const visualState = orbVisualState();
+    const blocked = visualState === 'ready' && orbBlocked();
     const stage = $('orb-stage');
     // Keep the transient interaction classes. renderOrb runs on every state
     // change, and a bare `className =` mid-tap would wipe .tap-burst/.pressing
     // the instant they were added, killing the feedback they exist for.
     const transient = ['pressing','tap-burst','burst-stop','busy-nudge'].filter(c => stage.classList.contains(c));
-    stage.className = ['orb-stage', 'state-' + visualState].concat(transient).join(' ');
+    stage.className = ['orb-stage', 'state-' + visualState].concat(blocked ? ['blocked'] : [], transient).join(' ');
 
     const label = $('orb-state-label');
-    label.className = 'orb-state-label ' + visualState;
-    label.innerText = STATE_LABELS[visualState] || '';
+    label.className = 'orb-state-label ' + visualState + (blocked ? ' blocked' : '');
+    label.innerText = blocked ? (speechInputSupported() ? 'המיקרופון חסום' : 'אין תמיכה בדיבור') : (STATE_LABELS[visualState] || '');
 
     let cta = ORB_CTA[visualState] || '';
     if (visualState === 'ready' && (!speechInputSupported() || textOnlyMode)) cta = 'הקש כדי להקליד';
@@ -2150,8 +2170,9 @@ function renderOrb(){
     if (visualState === 'listening' && pcmCtx && !pcmLive) cta = 'רגע…';
     $('orb-cta-text').innerText = cta;
 
-    $('orb-status-icon').innerHTML = ORB_STATUS_ICON[visualState] ? icon(ORB_STATUS_ICON[visualState]) : '';
-    $('orb-status-chip').title = ORB_STATUS_TITLE[visualState] || '';
+    const chipIcon = blocked ? 'micoff' : ORB_STATUS_ICON[visualState];
+    $('orb-status-icon').innerHTML = chipIcon ? icon(chipIcon) : '';
+    $('orb-status-chip').title = blocked ? 'המיקרופון לא זמין — אפשר להקליד' : (ORB_STATUS_TITLE[visualState] || '');
 
     $('orb-waveform').classList.toggle('show', visualState === 'listening');
 
@@ -2415,12 +2436,15 @@ function setOrbResponse(text){
 function showReplyBubble(text){
     $('reply-bubble-text').innerText = text;
     $('reply-bubble').classList.add('show');
+    // the create button steps up over the bubble instead of hiding under it
+    document.documentElement.style.setProperty('--bubble-h', ($('reply-bubble').offsetHeight + 6) + 'px');
     clearTimeout(replyBubbleTimer);
     replyBubbleTimer = setTimeout(hideReplyBubble, 12000);
 }
 function hideReplyBubble(){
     clearTimeout(replyBubbleTimer);
     const b = $('reply-bubble'); if (b) b.classList.remove('show');
+    document.documentElement.style.removeProperty('--bubble-h');
 }
 function clearOrbBubbles(){ setOrbTranscript(''); setOrbTool(''); setOrbResponse(''); }
 
@@ -2570,7 +2594,7 @@ function playJarvisAudio(b64Audio, onStart, onEnded){
         // failure in this function does.
         vlog('tts-error', 'decode or network');
         voiceState = 'idle'; renderOrb();
-        showToast('🔇 השמע לא עלה — נסה שוב.', true);
+        showToast('השמע לא עלה — נסה שוב.', true);
         if (onEnded) onEnded();
     };
     currentAudio.play().catch(() => {
@@ -2582,7 +2606,7 @@ function playJarvisAudio(b64Audio, onStart, onEnded){
         // race it.
         vlog('tts-blocked', 'play() rejected');
         voiceState = 'idle'; renderOrb(); if (onStart) onStart();
-        showToast('🔇 הדפדפן חסם ניגון קול אוטומטי — גע במסך ונסה שוב.', true);
+        showToast('הדפדפן חסם ניגון קול אוטומטי — גע במסך ונסה שוב.', true);
         if (onEnded) onEnded();
     });
 }
@@ -4430,20 +4454,9 @@ let upcomingEventsCache = [];
 // On the app's stated #1 pillar (schedule management), that's a false
 // answer, not just a stuck spinner — worse than showing nothing at all.
 let upcomingEventsLoaded = false;
-let homeUpcomingExpanded = false;
-function toggleHomeUpcoming(){ homeUpcomingExpanded = !homeUpcomingExpanded; renderHomeUpcoming(); }
 
-// Reminders/tasks for the Home "upcoming" widget — separate caches from
-// upcomingEventsCache (calendar only, also used by the Agenda tab) so this
-// stays a Home-only addition with no risk to Agenda's existing rendering.
-// Grouped as event-rows -> reminder-rows -> task-rows rather than
-// interleaved by time: calendar events only carry a pre-formatted
-// time_label (no raw timestamp — see get_upcoming_events_structured), so
-// there's nothing to sort tasks/reminders against for a true chronological
-// merge without a backend change. Read-only here (no cancel/reschedule) --
-// editing already lives on the Agenda/Tasks tabs, and wiring reminder/task
-// delete into a row shaped for calendar-event actions risked calling the
-// wrong endpoint for the wrong item type.
+// Reminders and open tasks, kept next to the calendar cache: the Agenda files reminders into its day list,
+// and the Home "your day" card counts the open tasks.
 let homeRemindersCache = [];
 let homeTasksCache = [];
 
@@ -4543,18 +4556,28 @@ function buildNowLine(hhmm){
     n.firstChild.textContent = hhmm;
     return n;
 }
-function buildEmptyCard(iconName, title, text, withActions){
+function buildEmptyCard(iconName, title, text, opts){
+    // opts: { buttons: [{ label, icon?, primary?, run }], tryText? } — every empty state offers a next step
+    opts = opts || {};
     const c = el('div', 'empty-card');
     c.innerHTML = `<div class="pi">${icon(iconName)}</div><h3></h3><p></p>`;
     c.querySelector('h3').textContent = title; c.querySelector('p').textContent = text;
-    if (withActions) {
+    if (opts.buttons && opts.buttons.length) {
         const btns = el('div', 'row-btns');
-        btns.innerHTML = `<button type="button" class="ds-btn" onclick="openAddSheet('event')">${icon('plus', 's')}פגישה</button>` +
-                         `<button type="button" class="ds-btn" onclick="openAddSheet('reminder')">${icon('plus', 's')}תזכורת</button>`;
+        opts.buttons.forEach(b => {
+            const x = el('button', 'ds-btn' + (b.primary ? ' pri' : '')); x.type = 'button';
+            if (b.icon) x.innerHTML = icon(b.icon, 's');
+            x.appendChild(document.createTextNode(b.label));
+            x.onclick = b.run;
+            btns.appendChild(x);
+        });
         c.appendChild(btns);
+    }
+    if (opts.tryText) {
         const t = el('button', 'try-chip'); t.type = 'button';
-        t.innerHTML = icon('mic') + '<span>“קבע פגישה מחר ב-10”</span>';
-        t.onclick = () => fillCommand('קבע פגישה מחר ב-10');
+        t.innerHTML = icon('mic') + '<span></span>';
+        t.querySelector('span').textContent = '“' + opts.tryText + '”';
+        t.onclick = () => fillCommand(opts.tryText);
         c.appendChild(t);
     }
     return c;
@@ -4567,11 +4590,8 @@ function renderAgenda(){
     if (!upcomingEventsLoaded) { box.innerHTML = '<div class="events-empty">טוען…</div>'; return; }
     if (!upcomingConfigured) {
         // "not connected" must never read as "nothing scheduled" — that would be a false answer on the app's #1 job
-        const c = buildEmptyCard('cal', 'היומן לא מחובר', 'כדי לראות את האירועים שלך, התחבר שוב עם Google.', false);
-        const b = el('div', 'row-btns');
-        b.innerHTML = '<button type="button" class="ds-btn pri" onclick="switchGoogleAccount()">התחבר עם Google</button>';
-        c.appendChild(b);
-        box.appendChild(c);
+        box.appendChild(buildEmptyCard('cal', 'היומן לא מחובר', 'כדי לראות את האירועים שלך, התחבר שוב עם Google.',
+            { buttons: [{ label: 'התחבר עם Google', primary: true, run: () => switchGoogleAccount() }] }));
     }
     const groups = agendaGroups(), today = todayKey();
     const anything = groups.some(g => g.items.length);
@@ -4585,7 +4605,10 @@ function renderAgenda(){
         if (!g.items.length) {
             box.appendChild(upcomingConfigured
                 ? buildEmptyCard('cal', anything ? 'היום פנוי' : 'אין כלום ב-7 הימים הקרובים',
-                                 anything ? 'אין אירועים או תזכורות להיום. רוצה להוסיף משהו?' : 'היומן ריק. רוצה להוסיף משהו?', true)
+                                 anything ? 'אין אירועים או תזכורות להיום. רוצה להוסיף משהו?' : 'היומן ריק. רוצה להוסיף משהו?',
+                                 { buttons: [{ label: 'פגישה', icon: 'plus', run: () => openAddSheet('event') },
+                                             { label: 'תזכורת', icon: 'plus', run: () => openAddSheet('reminder') }],
+                                   tryText: 'קבע פגישה מחר ב-10' })
                 : document.createDocumentFragment());
             return;
         }
@@ -4745,48 +4768,92 @@ document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     if ($('tour').classList.contains('show')) endTour();
     else if ($('add-sheet').classList.contains('show')) closeAddSheet();
+    else if ($('task-sheet').classList.contains('show')) closeTaskSheet();
     else if ($('action-sheet').classList.contains('show')) closeActionSheet();
     else if ($('help-screen').classList.contains('show')) closeHelp();
 });
 
-/* ---- Home: the next few things, read-only (actions live in the Agenda) ---- */
-function homeWhen(day, timeText, allDay){ const [main] = dayLabels(day); return allDay ? `${main} · כל היום` : `${main} ${timeText}`; }
-function buildHomeRow(when, iconName, text){
-    const row = el('div', 'event-row');
-    const t = el('span', 't'); t.textContent = when;
-    const s = el('span', 's');
-    if (iconName) s.insertAdjacentHTML('afterbegin', icon(iconName, 's'));
-    s.appendChild(document.createTextNode(text));
-    row.append(t, s);
+/* One row per thing that matters today, each a way into its tab. The rows say what IS there (the next thing,
+   how many tasks, how much unread mail) -- never a made-up "all clear". */
+function sumRow(iconName, title, sub, go){
+    const row = el(go ? 'button' : 'div', 'set');
+    if (go) { row.type = 'button'; row.onclick = go; }
+    row.innerHTML = icon(iconName) + '<span class="lbl"><span class="nm"></span><small></small></span>' + (go ? icon('chev', 's go') : '');
+    row.querySelector('.nm').textContent = title;
+    const s = row.querySelector('small');
+    if (sub) s.textContent = sub; else s.remove();
     return row;
 }
-function renderHomeUpcoming(){
-    const container = $('home-upcoming-list');
-    container.innerHTML = '';
-    const flat = [];
-    agendaGroups().forEach(g => g.items.forEach(it => flat.push({ day: g.day, it })));
-    const tasks = homeTasksCache.map(t => ({ task: t }));
-    const combined = [...flat, ...tasks];
-    const shown = homeUpcomingExpanded ? combined : combined.slice(0, 3);
-    if (!upcomingEventsLoaded) {
-        container.innerHTML = '<div class="events-empty">טוען…</div>';
-    } else if (!upcomingConfigured && combined.length === 0) {
-        container.innerHTML = '<div class="events-empty">היומן לא מחובר — התחבר שוב בהגדרות.</div>';
-    } else if (combined.length === 0) {
-        container.innerHTML = '<div class="events-empty">אין כלום בקרוב — יום רגוע.</div>';
-    } else {
-        shown.forEach(x => {
-            if (x.task) container.appendChild(buildHomeRow('משימה', 'task', x.task.text));
-            else if (x.it.kind === 'event') container.appendChild(buildHomeRow(homeWhen(x.day, x.it.from, x.it.allDay), null, x.it.ev.summary));
-            else container.appendChild(buildHomeRow(homeWhen(x.day, x.it.from, false), 'bell', x.it.r.text));
-        });
+function homeNextRow(){
+    const go = () => setTab('agenda');
+    if (!upcomingEventsLoaded) return sumRow('clock', 'טוען…', '', null);
+    const groups = agendaGroups(), today = todayKey(), now = nowHHMM();
+    const todayHad = groups.some(g => g.day === today && g.items.length);
+    let next = null;
+    for (const g of groups) {
+        let items = g.items;
+        // today: only what is still ahead (or still going on)
+        if (g.day === today) items = items.filter(it => it.allDay || it.sort >= now || (it.kind === 'event' && it.to && it.to > now));
+        // a timed thing beats an all-day one, which is background
+        const timed = items.filter(it => !it.allDay);
+        if (timed.length) items = timed;
+        if (items.length) { next = { day: g.day, it: items[0] }; break; }
     }
-    const toggle = $('home-upcoming-toggle');
-    if (combined.length > 3) {
-        toggle.style.display = '';
-        toggle.innerText = homeUpcomingExpanded ? 'הצג פחות' : 'הצג הכל';
+    if (!next) {
+        return upcomingConfigured
+            ? sumRow('cal', 'אין כלום בקרוב', 'היומן ריק ב-7 הימים הקרובים', go)
+            : sumRow('cal', 'היומן לא מחובר', 'הקש כדי להתחבר', go);
+    }
+    const { day, it } = next, isToday = day === today;
+    const title = it.kind === 'event' ? it.ev.summary : it.r.text;
+    const [dayMain] = dayLabels(day);
+    const at = it.allDay ? 'כל היום' : it.from;
+    const when = isToday ? at : (at ? `${dayMain} ${at}` : dayMain);
+    const ongoing = isToday && !it.allDay && it.sort < now;
+    let sub;
+    if (ongoing) sub = 'מתרחש עכשיו';
+    else if (isToday) sub = it.allDay ? 'היום ביומן' : (it.kind === 'event' ? 'הבא ביומן' : 'התזכורת הבאה');
+    else sub = todayHad ? 'אין עוד להיום · הבא ביומן' : 'היום פנוי · הבא ביומן';
+    return sumRow(it.kind === 'event' ? 'clock' : 'bell', when ? `${when} · ${title}` : title, sub, go);
+}
+function homeTasksRow(){
+    const go = () => setTab('tasks');
+    if (!upcomingEventsLoaded) return sumRow('task', 'טוען…', '', null);
+    const n = homeTasksCache.length;
+    const title = n === 0 ? 'אין משימות פתוחות' : n === 1 ? 'משימה פתוחה אחת' : `${n} משימות פתוחות`;
+    return sumRow('task', title, n ? homeTasksCache[0].text : '', go);
+}
+function homeMailRow(){
+    const go = () => setTab('inbox');
+    if (!inboxLoaded) return sumRow('mail', 'בודק דואר…', '', go);
+    if (!inboxConfigured) return sumRow('mail', 'הדואר לא מחובר', 'הקש כדי להתחבר', go);
+    const n = inboxEmailsCache.length;
+    if (!n) return sumRow('mail', 'אין הודעות חדשות', '', go);
+    return sumRow('mail', unreadText(n), 'מאת ' + inboxEmailsCache[0].sender_name, go);
+}
+function renderHomeUpcoming(){
+    const box = $('home-upcoming-list');
+    if (!box) return;
+    box.innerHTML = '';
+    box.append(homeNextRow(), homeTasksRow(), homeMailRow());
+}
+/* Settings > connections: what the calendar and mail requests actually said, not a fixed "connected" */
+function renderConnStatus(){
+    const box = $('conn-status');
+    if (!box) return;
+    const cal = upcomingEventsLoaded ? upcomingConfigured : null;
+    const mail = inboxLoaded ? inboxConfigured : null;
+    box.className = 'v'; box.innerHTML = '';
+    if (cal === false || mail === false) {
+        box.classList.add('bad');
+        const b = el('button', 'ds-btn'); b.type = 'button'; b.textContent = 'התחבר';
+        b.onclick = () => switchGoogleAccount();
+        box.appendChild(b);
+    } else if (cal && mail) {
+        box.classList.add('ok');
+        box.innerHTML = icon('check', 's') + 'מחובר';
     } else {
-        toggle.style.display = 'none';
+        box.textContent = 'בודק…';
     }
 }
 async function pollUpcomingEvents(){
@@ -4806,7 +4873,10 @@ async function pollUpcomingEvents(){
         const taskData = await taskRes.json();
         homeTasksCache = (taskData.tasks || []).filter(t => !t.done_this_period);
         renderHomeUpcoming();
+        renderConnStatus();
         if (currentTab === 'agenda') renderAgenda();
+        // the Home card also wants the unread count: fetched once, then again every 5 minutes (never while the Inbox is open)
+        if (currentTab !== 'inbox' && (!inboxLoaded || Date.now() - inboxLoadedAt > 300000)) loadInboxTab(true, true);
     } catch (e) { /* keep whatever was last shown */ }
 }
 async function cancelEvent(eventId, summary){
@@ -4874,52 +4944,104 @@ async function sendWeeklySummaryNow(){
    ================================================================================ */
 let inboxEmailsCache = [];
 let inboxLoaded = false;
-async function loadInboxTab(force){
-    if (inboxLoaded && !force) return;
+let inboxConfigured = true;
+function relTime(ms){
+    if (!ms) return '';
+    const diff = Date.now() - ms, min = Math.floor(diff / 60000), hrs = Math.floor(diff / 3600000);
+    if (min < 1) return 'עכשיו';
+    if (min < 60) return `לפני ${min} דק׳`;
+    if (hrs < 24) return hrs === 1 ? 'לפני שעה' : hrs === 2 ? 'לפני שעתיים' : `לפני ${hrs} שעות`;
+    const d = new Date(ms), days = Math.floor(hrs / 24);
+    return days === 1 ? 'אתמול' : `${d.getDate()}.${d.getMonth() + 1}`;
+}
+let inboxLoadedAt = 0, inboxInflight = null;
+const INBOX_LIMIT = 8;   // mirrors the server's max_results: at this many we can only say "8 or more"
+function unreadText(n){
+    if (n === 1) return 'הודעה אחת שלא נקראה';
+    return `${n >= INBOX_LIMIT ? INBOX_LIMIT + '+' : n} הודעות שלא נקראו`;
+}
+function fetchInbox(){
+    if (!inboxInflight) inboxInflight = (async () => {
+        try {
+            const res = await fetchWithTimeout('/api/inbox');
+            const data = await res.json();
+            inboxConfigured = data.configured !== false;
+            inboxEmailsCache = data.emails || [];
+            inboxLoaded = true; inboxLoadedAt = Date.now();
+            return true;
+        } catch (e) { return false; }
+        finally { inboxInflight = null; }
+    })();
+    return inboxInflight;
+}
+/* force: refresh even if the list is recent. quiet: background refresh for the Home card -- never touches the Inbox screen. */
+async function loadInboxTab(force, quiet){
     const list = $('inbox-list');
-    list.innerHTML = '<div class="events-empty">טוען…</div>';
-    let data;
-    try {
-        const res = await fetchWithTimeout('/api/inbox');
-        data = await res.json();
-    } catch (e) {
-        list.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>';
+    const stale = !inboxLoaded || Date.now() - inboxLoadedAt > 60000;
+    const replying = () => !!document.querySelector('.mail-reply-box.show');   // someone is writing an answer in a card
+    if (!quiet) {
+        if (!inboxLoaded) list.innerHTML = '<div class="events-empty">טוען…</div>';
+        else if (!replying()) renderInboxList();   // show what we have at once, refresh behind it
+    }
+    if (!force && !stale) return;
+    const ok = await fetchInbox();
+    if (!ok) {
+        if (!quiet) {
+            if (inboxLoaded) showToast('לא הצלחתי לרענן את הדואר.', true);
+            else list.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>';
+        }
         return;
     }
-    inboxEmailsCache = data.emails || [];
-    inboxLoaded = true;
-    $('home-unread-label').innerText = `${inboxEmailsCache.length} חדשים`;
-    renderInboxList();
+    updateFab(); renderConnStatus(); renderHomeUpcoming();
+    // never rebuild the list under someone who is typing a reply: it catches up when they are done
+    if (!quiet && currentTab === 'inbox') {
+        if (!replying()) renderInboxList();
+        else { updateInboxSub(); if (force) showToast('יש תשובה פתוחה. הרשימה תתעדכן אחרי שתסיים.'); }
+    }
+}
+function updateInboxSub(){
+    const n = inboxEmailsCache.length;
+    $('inbox-sub').textContent = !inboxConfigured ? 'הדואר לא מחובר' : n ? `${unreadText(n)} · מחובר ל-Gmail` : 'אין הודעות שלא נקראו';
 }
 function renderInboxList(){
     const list = $('inbox-list');
     list.innerHTML = '';
-    if (!inboxEmailsCache.length) {
-        list.innerHTML = '<div class="events-empty">אין הודעות שלא נקראו.</div>';
+    const n = inboxEmailsCache.length;
+    updateInboxSub();
+    if (!inboxConfigured) {
+        list.appendChild(buildEmptyCard('mail', 'הדואר לא מחובר', 'כדי לראות את ההודעות שלך, התחבר שוב עם Google.',
+            { buttons: [{ label: 'התחבר עם Google', primary: true, run: () => switchGoogleAccount() }] }));
+        return;
+    }
+    if (!n) {
+        list.appendChild(buildEmptyCard('mail', 'תיבת הדואר ריקה', 'אין הודעות חדשות.',
+            { tryText: 'שלח מייל ל-dana@gmail.com שאני מאחר' }));
         return;
     }
     inboxEmailsCache.forEach((e, i) => {
-        const card = el('div','mail-card');
-        const top = el('div','mail-card-top');
-        const from = el('div','mail-card-from');
-        from.innerHTML = `<div class="mail-dot"></div><span>${escapeHtml(e.sender_name)}</span>`;
-        top.appendChild(from);
-        const subj = el('div','mail-subject'); subj.textContent = e.subject;
-        const prev = el('div','mail-preview'); prev.textContent = e.snippet;
-        const replyBtn = el('div','mail-reply-btn'); replyBtn.innerText = '↩ השב עם JARVIS';
-        const replyBox = el('div','mail-reply-box'); replyBox.id = `inbox-reply-${i}`;
+        const card = el('div', 'mail-card');
+        const top = el('div', 'mail-top');
+        top.innerHTML = '<span class="mail-from"></span><span class="mail-when"></span>';
+        top.querySelector('.mail-from').textContent = e.sender_name;
+        top.querySelector('.mail-when').textContent = relTime(e.date_ms);
+        const subj = el('div', 'mail-subject'); subj.textContent = e.subject;
+        const prev = el('div', 'mail-preview'); prev.textContent = e.snippet;
+        const actions = el('div', 'mail-actions');
+        const replyBtn = el('button', 'ds-btn'); replyBtn.type = 'button';
+        replyBtn.innerHTML = icon('msg', 's') + 'השב עם JARVIS';
+        const replyBox = el('div', 'mail-reply-box'); replyBox.id = `inbox-reply-${i}`;
         replyBtn.onclick = () => replyBox.classList.toggle('show');
+        actions.appendChild(replyBtn);
 
-        const instr = document.createElement('input'); instr.className = 'input-field'; instr.placeholder = 'מה תרצה להגיד?'; instr.id = `inbox-instr-${i}`;
-        const draftBtn = el('div','small-btn'); draftBtn.innerText = '✍️ נסח'; draftBtn.onclick = () => draftInboxReply(i);
-        const draftArea = document.createElement('textarea'); draftArea.className = 'input-field'; draftArea.style.cssText = 'display:none;min-height:70px;margin-top:8px;'; draftArea.id = `inbox-draft-${i}`;
-        const sendRow = el('div','mail-reply-actions'); sendRow.id = `inbox-send-row-${i}`; sendRow.style.display = 'none';
-        const sendBtn = el('div','small-btn send'); sendBtn.innerText = '📤 שלח'; sendBtn.onclick = () => sendInboxReply(i);
-        const cancelBtn = el('div','small-btn cancel'); cancelBtn.innerText = '✖ בטל'; cancelBtn.onclick = () => replyBox.classList.remove('show');
+        const instr = document.createElement('input'); instr.className = 'ds-inp'; instr.placeholder = 'מה תרצה להגיד?'; instr.id = `inbox-instr-${i}`; instr.autocomplete = 'off';
+        const draftBtn = el('button', 'ds-btn'); draftBtn.type = 'button'; draftBtn.innerHTML = icon('edit', 's') + 'נסח'; draftBtn.onclick = () => draftInboxReply(i);
+        const draftArea = document.createElement('textarea'); draftArea.className = 'ds-inp ta'; draftArea.style.display = 'none'; draftArea.id = `inbox-draft-${i}`;
+        const sendRow = el('div', 'mail-reply-actions'); sendRow.id = `inbox-send-row-${i}`; sendRow.style.display = 'none';
+        const sendBtn = el('button', 'ds-btn pri'); sendBtn.type = 'button'; sendBtn.innerHTML = icon('send', 's') + 'שלח לאישור'; sendBtn.onclick = () => sendInboxReply(i);
+        const cancelBtn = el('button', 'ds-btn'); cancelBtn.type = 'button'; cancelBtn.textContent = 'ביטול'; cancelBtn.onclick = () => replyBox.classList.remove('show');
         sendRow.append(sendBtn, cancelBtn);
-
         replyBox.append(instr, draftBtn, draftArea, sendRow);
-        card.append(top, subj, prev, replyBtn, replyBox);
+        card.append(top, subj, prev, actions, replyBox);
         list.appendChild(card);
     });
 }
@@ -4992,7 +5114,7 @@ function renderComposeFileChips(){
     composeSelectedFiles.forEach((file, i) => {
         const chip = el('div','file-chip');
         chip.innerHTML = `<span>${escapeHtml(file.name)}</span><span style="color:var(--color-text-dim);font-size:11px;">${formatFileSize(file.size)}</span>`;
-        const rm = document.createElement('button'); rm.innerText = '✕'; rm.title = 'הסר';
+        const rm = document.createElement('button'); rm.type = 'button'; rm.innerHTML = '<svg class="i s" aria-hidden="true"><use href="#i-x"/></svg>'; rm.title = 'הסר'; rm.setAttribute('aria-label', 'הסר');
         rm.onclick = () => { composeSelectedFiles.splice(i, 1); renderComposeFileChips(); };
         chip.appendChild(rm);
         box.appendChild(chip);
@@ -5065,7 +5187,7 @@ async function sendComposeEmail(){
    'market' is intentionally absent — no backing endpoint (see brief).
    ================================================================================ */
 let currentToolPanel = null;
-const TOOL_PANEL_TITLES = { stocks: '◂ חיפוש מניה', qa: '◂ צאט', places: '◂ מקומות', current: '◂ עדכונים' };
+const TOOL_PANEL_TITLES = { stocks: 'חיפוש מניה', qa: 'צאט', places: 'מקומות', current: 'עדכונים' };
 function openToolPanel(key){
     currentToolPanel = key;
     $('tool-panel-title').innerText = TOOL_PANEL_TITLES[key] || '';
@@ -5832,15 +5954,10 @@ function _base64UrlToUint8Array(base64Url){
     return out;
 }
 function markPushEnabledUi(){
-    const status = $('push-status-text'), btn = $('push-enable-btn');
-    if (status) status.innerText = 'התראות פעילות בדפדפן/מכשיר הזה. ✓';
+    const status = $('push-status-text'), btn = $('push-enable-btn'), test = $('push-test-btn');
+    if (status) status.textContent = 'פעילות במכשיר הזה. תזכורות יגיעו גם כהתראה.';
     if (btn) btn.style.display = 'none';
-    // daily_briefing.py delivers by push instead of email once a
-    // subscription exists (see its has_push check) — the reminder modal's
-    // own label should say so, not keep promising email once that's no
-    // longer the actual delivery channel.
-    const reminderBtn = $('reminder-submit-btn');
-    if (reminderBtn) reminderBtn.textContent = 'קבע תזכורת · תישלח בהתראה';
+    if (test) test.style.display = '';
 }
 
 /* Silent re-registration, run on every load once signed in. This is what
@@ -5963,7 +6080,7 @@ async function sendTestPush(){
     } catch (err) {
         showToast('הבקשה נכשלה — נסה שוב.', true);
     } finally {
-        btn.disabled = false; btn.innerText = '🧪 שלח הודעת בדיקה עכשיו';
+        btn.disabled = false; btn.innerText = 'בדיקה';
     }
 }
 
@@ -6047,11 +6164,12 @@ function renderAppearanceUi(){
     const active = currentTheme(), ultron = currentMode() === 'ultron';
     row.innerHTML = '';
     Object.entries(THEMES).forEach(([key, t]) => {
-        const b = el('div', 'theme-swatch' + (key === active && !ultron ? ' active' : ''));
+        const on = key === active && !ultron;
+        const b = el('button', 'theme-swatch' + (on ? ' active' : '')); b.type = 'button';
         b.style.setProperty('--sw', t.rgb);
         b.title = t.name;
-        b.setAttribute('role', 'button');
         b.setAttribute('aria-label', t.name);
+        b.setAttribute('aria-pressed', String(on));
         b.appendChild(el('i'));
         b.onclick = () => setTheme(key);
         row.appendChild(b);
@@ -6094,19 +6212,6 @@ function tapStatusCard(){
 applyAppearance();
 
 /* ================================================================================
-   Alarm setup — the one-time Shortcuts step, and remembering it was done.
-
-   In localStorage rather than users.db, and not merely for convenience: the
-   shortcut physically lives on ONE iPhone. "Set up" is a fact about this
-   device, not about the account, so a second device genuinely should still be
-   asked — which is exactly what per-device storage gives for free.
-
-   What can't be remembered is the ✅ on each alarm. That tap isn't our
-   confirmation step, it's the browser's: opening another app is only allowed
-   inside a user gesture, so there is no setting anywhere that could skip it.
-   Said plainly in the UI rather than left as a mystery.
-   ================================================================================ */
-/* ================================================================================
    The shortcut registry — what JARVIS is allowed to run on this phone.
 
    It exists because the server cannot see the phone. A shortcut named
@@ -6115,8 +6220,8 @@ applyAppearance();
    of it. Registering one here puts its name into the system message for
    every command, so the model can call it by name.
 
-   Per device, like the alarm setup and for the same reason: shortcuts live on
-   one phone. A different phone has different ones, and should say so.
+   Per device: shortcuts live on one phone. A different phone has different
+   ones, and should say so.
    ================================================================================ */
 /* Shown only when the page is running as a home-screen app on iOS, where
    WebKit withholds the speech access it grants in Safari. Standing text in
@@ -6149,14 +6254,14 @@ function renderStandaloneWarning(){
     if (!box) return;
     box.innerHTML = '';
     if (!(IS_IOS && IS_STANDALONE)) return;
-    box.appendChild(Object.assign(el('div', 'settings-sub'), { innerText: '◂ שים לב' }));
+    box.appendChild(Object.assign(el('div', 'settings-sub'), { innerText: 'שים לב' }));
     const w = el('div', 'warn-block');
     w.innerHTML =
-        '⚠ JARVIS פתוח כרגע מ<b>מסך הבית</b>, ובאייפון זה קובע מה עובד:' +
+        icon('warn', 's') + ' JARVIS פתוח כרגע מ<b>מסך הבית</b>, ובאייפון זה קובע מה עובד:' +
         '<br/><br/>' +
-        '🎙 <b>דיבור</b> — אפל לא נותנת לזיהוי דיבור את אותה גישה כאן שיש לו ב-Safari. ' +
+        icon('mic', 's') + ' <b>דיבור</b> — אפל לא נותנת לזיהוי דיבור את אותה גישה כאן שיש לו ב-Safari. ' +
         'זו הסיבה שלפעמים הוא פשוט לא שומע.<br/>' +
-        '🔔 <b>התראות</b> — עובדות <b>רק</b> מהאפליקציה שבמסך הבית. ב-Safari הן לא קיימות כלל.' +
+        icon('bell', 's') + ' <b>התראות</b> — עובדות <b>רק</b> מהאפליקציה שבמסך הבית. ב-Safari הן לא קיימות כלל.' +
         '<br/><br/>' +
         'השניים סותרים זה את זה, וזו מגבלה של אפל — לא משהו שאפשר לתקן מהצד שלנו. ' +
         '<b>ההמלצה: השאר את האייקון</b> (הוא מה שמביא לך את התזכורות), ופתח את הכתובת ' +
@@ -6172,33 +6277,31 @@ function renderVoiceLog(){
     if (pre) pre.innerText = voiceLogText();
 }
 
+function syncAutoStopRow(){
+    const r = $('autostop-row');
+    if (r) r.setAttribute('aria-checked', String(autoStopEnabled()));
+}
+
 function renderVoiceDiag(){
     const box = $('voice-diag');
     if (!box) return;
     box.innerHTML = '';
-    const intro = el('div', 'voice-info-block');
-    intro.innerHTML = 'אם הדיבור לא נקלט — בדוק את המיקרופון כאן.';
-    box.appendChild(intro);
+    const running = monitorRunning();
 
-    const monitorBtn = el('button', 'setup-btn' + (monitorRunning() ? '' : ' quiet'));
-    monitorBtn.innerText = monitorRunning() ? '⏹ עצור את בדיקת המיקרופון'
-                                            : '🎧 בדיקת מיקרופון — שמע את עצמך';
+    const monitorBtn = el('button', 'ds-btn block' + (running ? ' danger' : '')); monitorBtn.type = 'button';
+    monitorBtn.innerHTML = icon(running ? 'x' : 'wave', 's') + (running ? 'עצור את הבדיקה' : 'התחל בדיקה — שמע את עצמך');
     monitorBtn.onclick = () => (monitorRunning() ? stopMicMonitor() : startMicMonitor());
     box.appendChild(monitorBtn);
 
-    if (monitorRunning()) {
-        const track = el('div');
-        track.style.cssText = 'height:10px;background:#02131f;border:var(--border-default);' +
-            'border-radius:6px;overflow:hidden;margin:8px 0 4px';
+    if (running) {
+        const track = el('div', 'mic-track');
         const bar = el('div');
         bar.id = 'mic-monitor-bar';
-        bar.style.cssText = 'height:100%;width:0%;background:var(--color-accent, #00f3ff);' +
-            'transition:width .08s linear';
         track.appendChild(bar);
         box.appendChild(track);
 
-        const hear = el('button', 'setup-btn' + (monitorPlayback ? '' : ' quiet'));
-        hear.innerText = monitorPlayback ? '🔈 השמעה חוזרת פעילה' : '🔈 השמע אותי (עם אוזניות)';
+        const hear = el('button', 'ds-btn block' + (monitorPlayback ? ' pri' : '')); hear.type = 'button';
+        hear.innerHTML = icon('sound', 's') + (monitorPlayback ? 'השמעה חוזרת פעילה' : 'השמע אותי (עם אוזניות)');
         hear.onclick = () => setMonitorPlayback(!monitorPlayback);
         box.appendChild(hear);
 
@@ -6207,22 +6310,15 @@ function renderVoiceDiag(){
            you cannot hear is guessing — which is the thing this replaces. */
         const devices = el('div');
         devices.id = 'mic-device-list';
-        devices.style.cssText = 'margin-top:8px';
         box.appendChild(devices);
         renderMicDeviceList();
 
-        const num = el('div');
+        const num = el('div', 'mic-num');
         num.id = 'mic-monitor-num';
-        num.style.cssText = 'font-family:var(--font-mono);font-size:11.5px;direction:ltr;' +
-            'text-align:left;color:var(--color-text-dim)';
         num.textContent = 'עכשיו 0.0000  ·  שיא 0.0000';
         box.appendChild(num);
     }
-
-    const auto = el('button', 'setup-btn' + (autoStopEnabled() ? '' : ' quiet'));
-    auto.innerText = autoStopEnabled() ? '🎙️ עצירה אוטומטית — פעילה' : '🎙️ עצירה אוטומטית — כבויה';
-    auto.onclick = () => setAutoStop(!autoStopEnabled());
-    box.appendChild(auto);
+    syncAutoStopRow();   // the auto-stop switch lives on its own row now
 }
 renderVoiceDiag();
 
@@ -6277,9 +6373,9 @@ function renderShortcutRegistry(){
         const meta = el('div', 'sc-meta');
         meta.innerText = sc.does || 'קיצור';
         info.append(nm, meta);
-        const del = el('button', 'sc-del');
-        del.innerText = '✕';
-        del.title = 'הסר';
+        const del = el('button', 'sc-del'); del.type = 'button';
+        del.innerHTML = icon('x', 's');
+        del.title = 'הסר'; del.setAttribute('aria-label', 'הסר');
         del.onclick = () => removeShortcut(sc.name);
         row.append(info, del);
         box.appendChild(row);
@@ -6287,17 +6383,17 @@ function renderShortcutRegistry(){
 
     const form = el('div', 'sc-form');
     form.innerHTML =
-        '<input type="text" id="sc-name" placeholder="שם הקיצור — בדיוק כמו באפליקציה" dir="auto">' +
-        '<input type="text" id="sc-does" placeholder="מתי להשתמש בו (לא חובה)" dir="auto">';
+        '<input type="text" class="ds-inp" id="sc-name" placeholder="שם הקיצור — בדיוק כמו באפליקציה" dir="auto">' +
+        '<input type="text" class="ds-inp" id="sc-does" placeholder="מתי להשתמש בו (לא חובה)" dir="auto">';
     box.appendChild(form);
 
-    const add = el('button', 'setup-btn');
-    add.innerText = '＋ הוסף קיצור';
+    const add = el('button', 'ds-btn block'); add.type = 'button';
+    add.innerHTML = icon('plus', 's') + 'הוסף קיצור';
     add.onclick = addShortcut;
     box.appendChild(add);
 
-    const open = el('button', 'setup-btn quiet');
-    open.innerText = '📱 פתח את Shortcuts כדי לבדוק שמות';
+    const open = el('button', 'ds-btn block'); open.type = 'button';
+    open.innerText = 'פתח את Shortcuts כדי לבדוק שמות';
     open.onclick = openShortcutsApp;
     box.appendChild(open);
 }
@@ -6456,7 +6552,6 @@ async function renderMicDeviceList(){
     if (devices.length < 2) {
         // One input is not a choice, and saying so beats an empty box.
         const only = el('div', 'voice-info-block');
-        only.style.cssText = 'font-size:11.5px;opacity:.75';
         only.innerText = devices.length
             ? 'יש מיקרופון אחד בלבד במכשיר הזה.'
             : 'לא הצלחתי לרשום את המיקרופונים במכשיר הזה.';
@@ -6465,9 +6560,11 @@ async function renderMicDeviceList(){
     }
     const chosen = chosenMicId();
     const row = (id, name, active) => {
-        const b = el('button', 'setup-btn' + (active ? '' : ' quiet'));
-        b.style.cssText = 'display:block;width:100%;text-align:right;margin-top:4px';
-        b.innerText = (active ? '● ' : '○ ') + name;
+        const b = el('button', 'dev-row' + (active ? ' on' : ''));
+        b.type = 'button';
+        b.setAttribute('aria-pressed', String(active));
+        b.innerHTML = icon('check', 's') + '<span></span>';
+        b.lastChild.textContent = name;
         b.onclick = () => switchMicDevice(id);
         box.appendChild(b);
     };
@@ -6511,14 +6608,14 @@ function renderSwitchAccountList(){
         const row = el('div','acct-list-row');
         const label = el('span','email'); label.textContent = email;
         label.onclick = () => { window.location.href = '/auth/google/start?login_hint=' + encodeURIComponent(email); };
-        const forget = el('button','forget'); forget.textContent = '✕'; forget.title = 'שכח חשבון זה';
+        const forget = el('button','forget'); forget.type = 'button'; forget.innerHTML = '<svg class="i s" aria-hidden="true"><use href="#i-x"/></svg>'; forget.title = 'שכח חשבון זה'; forget.setAttribute('aria-label', 'שכח חשבון זה');
         forget.onclick = (ev) => { ev.stopPropagation(); forgetAccount(email); };
         row.append(label, forget);
         row.onclick = () => label.onclick();
         box.appendChild(row);
     });
     const addRow = el('div','acct-list-row add-new');
-    addRow.textContent = '+ התחבר עם חשבון אחר';
+    addRow.innerHTML = '<svg class="i s" aria-hidden="true"><use href="#i-plus"/></svg> התחבר עם חשבון אחר';
     addRow.onclick = () => { window.location.href = '/auth/google/start'; };
     box.appendChild(addRow);
 }
@@ -6713,61 +6810,80 @@ function recurringDayBadgeText(recurring_day){
     if (days.length <= 1) return RECURRING_DAY_LABELS[recurring_day] || recurring_day;
     return 'כל ' + days.map(d => RECURRING_DAY_SHORT[d] || d).join(', ');
 }
+let tasksLoadedOnce = false, taskDoneToday = null;
 async function loadTasksTab(){
     const list = $('tasks-list');
-    list.innerHTML = '<div class="events-empty">טוען…</div>';
+    if (!tasksLoadedOnce) list.innerHTML = '<div class="events-empty">טוען…</div>';   // never blank a list that is already showing
     try {
         const res = await fetchWithTimeout('/api/tasks');
         const data = await res.json();
         tasksCache = data.tasks || [];
+        homeTasksCache = tasksCache.filter(t => !t.done_this_period);
+        tasksLoadedOnce = true;
     } catch (e) {
         list.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>';
         return;
     }
     renderTasksList();
+    renderHomeUpcoming();
     loadTaskStats();
+}
+function updateTasksSub(){
+    const open = tasksCache.filter(t => !t.done_this_period).length;
+    // "done today" comes from the stats (it also counts one-off tasks that already left the list)
+    $('tasks-sub').textContent = taskDoneToday == null ? `${open} פתוחות` : `${open} פתוחות · ${taskDoneToday} הושלמו היום`;
+}
+function buildTaskRow(t){
+    const row = el('div', 'row-item task-row' + (t.done_this_period ? ' done' : ''));
+    const chk = el('button', 'chk'); chk.type = 'button';
+    chk.setAttribute('role', 'checkbox'); chk.setAttribute('aria-checked', String(!!t.done_this_period));
+    chk.setAttribute('aria-label', 'סמן כבוצע: ' + t.text);
+    chk.innerHTML = icon('check');
+    chk.disabled = !!t.done_this_period;   // recurring, already done this period: nothing to undo here
+    chk.onclick = () => { chk.classList.add('on'); chk.setAttribute('aria-checked', 'true'); markTaskComplete(t.id); };
+    const main = el('div');
+    const ttl = el('div', 'row-title'); ttl.textContent = t.text; main.appendChild(ttl);
+    if (t.recurring_day) {
+        const meta = el('div', 'row-meta');
+        const tag = el('span', 'tag-chip'); tag.innerHTML = icon('repeat') + ''; tag.appendChild(document.createTextNode(recurringDayBadgeText(t.recurring_day)));
+        meta.appendChild(tag); main.appendChild(meta);
+    }
+    const more = el('button', 'row-more'); more.type = 'button';
+    more.setAttribute('aria-label', 'עוד פעולות'); more.innerHTML = icon('dots');
+    more.onclick = () => openActionSheet(t.text, [{ icon: 'trash', label: 'מחק משימה', danger: true, run: () => deleteTask(t.id) }]);
+    row.append(chk, main, more);
+    return row;
 }
 function renderTasksList(){
     const list = $('tasks-list');
     list.innerHTML = '';
-    if (!tasksCache.length) {
-        list.innerHTML = '<div class="events-empty">אין לך משימות, sir.</div>';
-        return;
+    updateTasksSub();
+    const open = tasksCache.filter(t => !t.done_this_period);
+    const done = tasksCache.filter(t => t.done_this_period);
+    if (!open.length) {
+        list.appendChild(buildEmptyCard('task', done.length ? 'הכל סגור להיום' : 'אין משימות פתוחות',
+            done.length ? 'סיימת את כל המשימות של היום. כל הכבוד.' : 'משימה חדשה מתחילה במילה אחת.',
+            { tryText: 'תוסיף משימה: לקנות חלב' }));
     }
-    // Recurring tasks not yet done this period first (the ones needing
-    // action), then done-this-period recurring, then one-time — keeps
-    // "what do I still need to do" at the top instead of buried under
-    // already-checked recurring tasks.
-    const sorted = [...tasksCache].sort((a, b) => {
-        const rank = t => !t.recurring_day ? 1 : (t.done_this_period ? 2 : 0);
-        return rank(a) - rank(b);
-    });
-    sorted.forEach(t => {
-        const card = el('div','task-card');
-        const checkbox = el('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'task-checkbox';
-        checkbox.checked = !!t.done_this_period;
-        checkbox.disabled = !!t.done_this_period;  // recurring-done-today: nothing to undo here
-        checkbox.onchange = () => markTaskComplete(t.id);
-
-        const body = el('div','task-body');
-        const text = el('div','task-text');
-        text.textContent = t.text;
-        body.appendChild(text);
-        if (t.recurring_day) {
-            const badge = el('span','task-recurring-badge');
-            badge.textContent = recurringDayBadgeText(t.recurring_day);
-            body.appendChild(badge);
-        }
-
-        const delBtn = el('button','task-delete-btn');
-        delBtn.innerHTML = '✕';
-        delBtn.onclick = () => deleteTask(t.id);
-
-        card.append(checkbox, body, delBtn);
-        list.appendChild(card);
-    });
+    // what still needs doing first; recurring ones (which have a schedule) ahead of one-off notes
+    open.sort((a, b) => Number(!!b.recurring_day) - Number(!!a.recurring_day));
+    open.forEach(t => list.appendChild(buildTaskRow(t)));
+    if (done.length) {
+        const head = el('div', 'day-head'); head.innerHTML = '<b>הושלמו</b><span>היום</span>'; list.appendChild(head);
+        done.forEach(t => list.appendChild(buildTaskRow(t)));
+    }
+}
+function openTaskSheet(){
+    $('task-input').value = '';
+    resetTaskRecurPicker();
+    $('task-sheet').classList.add('show');
+    setTimeout(() => $('task-input').focus(), 320);
+}
+function closeTaskSheet(){ $('task-sheet').classList.remove('show'); }
+async function submitTaskSheet(){
+    if (!$('task-input').value.trim()) { showToast('מה צריך לעשות?', true); $('task-input').focus(); return; }
+    closeTaskSheet();
+    await addTaskFromInput();
 }
 // Recurrence picker state — 'none'/'daily' are mutually exclusive with a
 // set of specific days (toggling any day chip switches mode to 'days');
@@ -6845,11 +6961,12 @@ async function loadTaskStats(){
         const res = await fetchWithTimeout('/api/tasks/stats');
         stats = await res.json();
     } catch (e) {
-        return;  // stats card just keeps showing zeros — not worth a toast
+        return;  // the progress card just keeps showing zeros — not worth a toast
     }
-    $('task-stat-today').textContent = stats.today || 0;
+    taskDoneToday = stats.today || 0;
     $('task-stat-week').textContent = stats.week || 0;
     renderTaskChart(stats.daily || []);
+    updateTasksSub();
 }
 function renderTaskChart(daily){
     const chart = $('task-chart');
@@ -6903,8 +7020,8 @@ const HELP_TABS = [
     { icon: 'gear', name: 'הגדרות', text: 'חשבון וחיבורים, קול והתראות, צבע, והמדריך הזה.' },
 ];
 const HELP_FAQ = [
-    { q: 'JARVIS לא שומע אותי', a: 'בדוק שהאתר מורשה להשתמש במיקרופון (סמל המנעול בדפדפן). בהגדרות יש בדיקת מיקרופון שמשמיעה לך את עצמך. ובכל מקרה אפשר להקליד בשורה התחתונה.' },
-    { q: 'אין לי התראות בטלפון', a: 'באנדרואיד: הגדרות ← הפעל התראות בדפדפן, ואשר. באייפון: קודם מוסיפים את האתר למסך הבית (שיתוף ← הוסף למסך הבית) ורק משם מפעילים, כי בטאב רגיל של ספארי אפל לא מאפשרת התראות.' },
+    { q: 'JARVIS לא שומע אותי', a: 'בדוק שהאתר מורשה להשתמש במיקרופון (סמל המנעול בדפדפן). ב"הגדרות ← בדיקת מיקרופון" אפשר לשמוע את עצמך. ובכל מקרה אפשר להקליד בשורה התחתונה.' },
+    { q: 'אין לי התראות בטלפון', a: 'באנדרואיד: הגדרות ← התראות בדפדפן ← הפעל, ואשר. באייפון: קודם מוסיפים את האתר למסך הבית (שיתוף ← הוסף למסך הבית) ורק משם מפעילים, כי בטאב רגיל של ספארי אפל לא מאפשרת התראות.' },
     { q: 'JARVIS ענה משהו לא נכון', a: 'נסח שוב במשפט אחד וברור. אם הוא ממשיך להתבלבל: הגדרות ← איפוס זיכרון שיחה.' },
     { q: 'הוא אומר שהגיע למגבלת שימוש', a: 'המערכת רצה על מכסה חינמית. כמה דקות של המתנה, ונסה שוב.' },
     { q: 'גוגל לא נותנת לי להתחבר', a: 'האפליקציה עדיין בבדיקות: רק חשבונות שנוספו מראש יכולים להיכנס. בקש מהמפתח להוסיף את כתובת ה-Gmail שלך.' },
@@ -7034,13 +7151,13 @@ updateCoach();
 window.addEventListener('resize', () => { if (tourIdx >= 0) renderTourStep(); });
 
 /* ---- mic notes: only when there is something to explain (never for a working mic) ---- */
-let micPermissionState = 'unknown';
 function updateMicNote(){
     const box = $('mic-note'); if (!box) return;
     let msg = '';
     if (!speechInputSupported() && !textOnlyMode) msg = 'הדפדפן הזה לא תומך בזיהוי דיבור — אפשר להקליד בשורה התחתונה.';
     else if (micPermissionState === 'denied') msg = 'המיקרופון חסום לאתר הזה. אפשר להקליד בשורה התחתונה, או לאפשר אותו דרך סמל המנעול בדפדפן.';
     box.textContent = msg; box.style.display = msg ? '' : 'none';
+    renderOrb();   // the orb turns red only when the microphone genuinely cannot be used
 }
 (function watchMicPermission(){
     if (!navigator.permissions || !navigator.permissions.query) { updateMicNote(); return; }

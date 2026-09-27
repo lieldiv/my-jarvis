@@ -5,7 +5,10 @@
   "scripts": {
     "setup": "npm install && npx playwright install chromium",
     "serve": "python serve.py",
-    "test": "node run.mjs"
+    "test": "node run.mjs",
+    "test:redesign": "node redesign/run_all.mjs"
   },
-  "dependencies": { "playwright": "^1.63.0" }
+  "dependencies": {
+    "playwright": "^1.63.0"
+  }
 }

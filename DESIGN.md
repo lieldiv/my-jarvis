@@ -635,3 +635,75 @@ If quota, tooling, or sandbox limits block you, say it immediately and stop at a
 checkpoint. A truthful "I could not verify this" is worth more than a confident summary
 of work nobody has seen. Every unverified claim in this project has cost more time to
 undo than it saved.
+
+---
+
+## 13. Redesign v1 — amendments (approved by the owner, 2026-09-27)
+
+Why: the examiner found the pages "messy" (the Agenda was his example) and wanted first-time
+users to be guided. The owner approved a mockup and the four-step plan; all four steps are
+shipped. **Where this section and an earlier one disagree, this section describes the app as it
+now is** — the rest of the document still describes the visual language (substrate, glow,
+three-layer model) that Home keeps.
+
+**1. Two densities.** Home keeps the full HUD. Content tabs (Agenda, Inbox, Tasks, Settings)
+are *calm surfaces*: opaque cards on `--surface-solid`, ambient decoration off
+(`#device-screen[data-tab]:not([data-tab="home"])`). §1 already said the substrate must never
+sit behind body text; now the CSS enforces it.
+
+**2. Type for Hebrew.** UI text is Rubik (`--font-ui`), not the mono face (the mono stack made
+Hebrew sentences ~9% wider). Mono only for times and numerals. Orbitron only for the wordmark.
+
+| Role | Size / weight |
+|---|---|
+| Page title (`.page-title`) | 24px / 700 |
+| Settings group title (`.settings-sub`) | 18px / 700, white, soft accent glow (the owner asked for these to be big and clear) |
+| Row title, body | 15–16px |
+| Sub-label, meta | 13.5px, `--color-text-dim` |
+| Nav label | 12px |
+
+This replaces the 13px `--fs-body` for Hebrew content. English-only technical text may keep 13px.
+
+**3. Touch.** Every control is at least 44×44px (rows, chips, checkboxes, ⋯ buttons, sheet
+buttons, swatches). Checked in `e2e/redesign/`.
+
+**4. Icons.** One line-icon sprite (`<symbol id="i-…">` right after `<body>`, helper
+`icon(name, cls)`; stroke 1.7, `currentColor`). No emoji or glyph chrome (◂ ✕ ✓ ＋ 💾 …).
+Emoji stay only where they are the user's own content (a reminder's emoji). Exceptions: ▲▼ price
+direction on the stocks card (data), and the hidden Ultron mode strings.
+
+**5. One create button per tab.** A single floating button (`#fab`, `FAB_DEFS`): Agenda "הוסף",
+Tasks "משימה", Inbox "מייל חדש" (hidden when the mailbox is not connected). Empty states never
+repeat it; they show a "try saying…" chip instead. It steps up over the reply bubble
+(`--bubble-h`) rather than hiding under it.
+
+**6. One opaque dock.** Command bar and navigation share `--dock-bg`; `--dock-h` is measured
+from the real dock, and page padding derives from it. `--surface-solid` and `--dock-bg` are fully
+opaque and each `[data-theme]` sets its own, so cards follow the chosen colour like the Home
+panels do.
+
+**7. Bottom sheets** (`.bsheet`) replace inline forms for creating things and for row actions.
+Each row has one ⋯ menu instead of loose icon buttons; destructive actions are the red row of
+that menu and still go through confirm-to-act where they write to a calendar or mailbox.
+
+**8. The orb** keeps its size (200px body — the owner asked for exactly this). At rest it is calm
+cyan with a slow breath and one instruction under it ("לחץ על הכדור ודבר"); nothing is repeated
+inside it. **Red now means one thing: the microphone cannot be used here** (`.blocked`: permission
+denied, or no speech input in the browser). A user who chose text-only is not shown an error. The
+shipped orb is the theme-accent orb, not the gold filament orb described in §4.
+
+**9. Honest states.** *Not connected* is never displayed as *empty*: the server returns `None`
+when a calendar or mailbox did not answer (`_collect_events` / `_collect_emails`), the HUD shows
+"לא מחובר" with a way to reconnect, and the Settings connection row reflects what the requests
+actually said. A list capped by the server says "8+", not a made-up exact count.
+
+**10. Guidance is part of the interface.** A help screen with tap-to-try phrases (only read-only
+phrases run on tap; anything that writes is placed in the command bar for the user to edit), a
+one-time first-run card, a four-step tour, an explanation when the microphone is blocked, and an
+example phrase in every empty state.
+
+**11. Right-to-left is real.** The week runs Sunday → Saturday from the right in pickers and the
+progress chart; chevrons point the reading direction; the sign-out arrow is mirrored.
+
+**Verifying** — `e2e/redesign/` (see its README): 335 checks across nine suites, Chromium at
+Pixel 7 size. It does not prove behaviour on iOS Safari or a real phone, and it never calls Google.
