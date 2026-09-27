@@ -910,6 +910,66 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .act-row{ display:grid; grid-template-columns:28px 1fr; align-items:center; gap:12px; width:100%; min-height:56px; padding:0 8px; background:none; border:0; border-bottom:1px solid var(--color-cyan-border); color:var(--color-white); font-size:16px; text-align:start; cursor:pointer; }
 .act-row .i{ color:var(--color-cyan); }
 .act-row.danger, .act-row.danger .i{ color:var(--color-red); }
+
+/* ===== Redesign v1, step 3: guide, first-run coach, tour, mic notes ================================ */
+.app-header{ padding:max(10px, env(safe-area-inset-top)) 20px 4px 8px; }
+.app-header-tools{ display:flex; align-items:center; gap:2px; }
+.hdr-btn{ width:44px; height:44px; flex:none; border-radius:50%; display:grid; place-items:center; padding:0; background:none; border:1px solid transparent; color:var(--color-text-dim); cursor:pointer; }
+.hdr-btn:active{ background:var(--color-cyan-soft); }
+.warn-block{ margin-top:20px; padding:13px 14px; background:rgba(255,200,0,0.06); border:var(--border-alert); border-radius:var(--radius-sm); font-size:14px; font-weight:500; color:var(--color-gold); line-height:1.6; }
+.mic-note{ margin-top:10px; max-width:300px; text-align:center; font-size:13.5px; color:var(--color-gold); line-height:1.5; }
+.coach{ position:absolute; inset-inline:12px; bottom:calc(var(--dock-h) + 12px); z-index:56; background:var(--surface-solid); border:1px solid rgba(var(--accent-rgb),.5); border-radius:var(--radius-xl); padding:14px 14px 12px; box-shadow:0 0 30px rgba(var(--accent-rgb),.12), 0 -8px 24px rgba(2,8,19,.6); }
+@media (hover:none) and (pointer:coarse){ .coach{ position:fixed; } }
+.coach-x{ position:absolute; inset-block-start:2px; inset-inline-start:2px; width:44px; height:44px; display:grid; place-items:center; color:var(--color-text-dim); background:none; border:0; cursor:pointer; }
+.coach-title{ margin:0 0 8px; padding-inline-start:38px; font-size:16.5px; font-weight:600; color:var(--color-white); }
+.coach-list{ list-style:none; margin:0; padding:0; display:grid; gap:8px; font-size:14.5px; color:var(--color-white); }
+.coach-list li{ display:grid; grid-template-columns:22px 1fr; gap:10px; align-items:start; }
+.coach-list .i{ width:19px; height:19px; color:var(--color-cyan); margin-top:2px; }
+.coach-actions{ display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+.help-screen{ position:absolute; inset:0; z-index:125; background:var(--color-bg); display:none; flex-direction:column; }
+.help-screen.show{ display:flex; }
+.help-head{ display:flex; align-items:center; gap:6px; padding:max(12px, env(safe-area-inset-top)) 12px 8px 16px; flex-shrink:0; border-bottom:1px solid var(--color-cyan-border); }
+.help-head h2{ margin:0; font-size:20px; font-weight:600; color:var(--color-white); }
+.help-body{ flex:1; min-height:0; overflow-y:auto; padding:14px 20px calc(30px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling:touch; }
+.help-hero{ background:var(--color-panel); border:1px solid rgba(var(--accent-rgb),.4); border-radius:var(--radius-xl); padding:16px; margin-bottom:6px; }
+.help-hero h3{ margin:0; font-size:19px; font-weight:600; color:var(--color-white); }
+.help-hero p{ margin:4px 0 0; font-size:14.5px; color:var(--color-text-dim); }
+.help-steps{ list-style:none; counter-reset:s; display:grid; gap:8px; margin:12px 0 14px; padding:0; }
+.help-steps li{ counter-increment:s; display:grid; grid-template-columns:30px 1fr; gap:10px; align-items:start; font-size:14.5px; color:var(--color-white); }
+.help-steps li::before{ content:counter(s); width:26px; height:26px; border-radius:50%; border:1px solid rgba(var(--accent-rgb),.4); display:grid; place-items:center; font-family:var(--font-mono); font-size:14px; color:var(--color-cyan); }
+.help-sec{ margin:22px 0 8px; display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.help-sec b{ font-size:16px; font-weight:600; color:var(--color-white); }
+.help-sec span{ font-size:13px; color:var(--color-text-dim); }
+.help-cats{ display:flex; gap:8px; overflow-x:auto; scrollbar-width:none; margin:6px 0 10px; padding-bottom:2px; }
+.help-cats::-webkit-scrollbar{ display:none; }
+.help-cat{ flex:none; min-height:44px; padding:0 16px; border:1px solid var(--color-cyan-border); border-radius:999px; background:none; color:var(--color-text-dim); font-size:14.5px; cursor:pointer; }
+.help-cat.on{ border-color:rgba(var(--accent-rgb),.6); background:var(--color-cyan-soft); color:var(--color-cyan); }
+.help-phrases{ display:grid; gap:6px; }
+.help-phrase{ display:grid; grid-template-columns:22px 1fr; gap:10px; align-items:center; min-height:48px; padding:6px 12px; text-align:start; background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-md); font-size:14.5px; color:var(--color-white); cursor:pointer; }
+.help-phrase .i{ color:var(--color-cyan); width:18px; height:18px; }
+.help-rows{ background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-xl); padding:2px 14px; }
+.help-row{ display:grid; grid-template-columns:30px 1fr; gap:10px; padding:12px 0; border-bottom:1px solid var(--color-cyan-border); }
+.help-row:last-child{ border-bottom:0; }
+.help-row .i{ color:var(--color-cyan); margin-top:2px; }
+.help-row b{ display:block; font-size:15.5px; font-weight:600; color:var(--color-white); }
+.help-row span{ font-size:14.5px; color:var(--color-text-dim); line-height:1.6; }
+.faq{ border-bottom:1px solid var(--color-cyan-border); }
+.faq:last-child{ border-bottom:0; }
+.faq summary{ min-height:52px; display:flex; align-items:center; gap:10px; font-size:15.5px; font-weight:500; color:var(--color-white); cursor:pointer; list-style:none; }
+.faq summary::-webkit-details-marker{ display:none; }
+.faq summary::after{ content:''; margin-inline-start:auto; flex:none; width:8px; height:8px; border-right:2px solid var(--color-text-dim); border-bottom:2px solid var(--color-text-dim); transform:rotate(45deg) translate(-2px,-2px); transition:transform .2s; }
+.faq[open] summary::after{ transform:rotate(225deg) translate(-2px,-2px); }
+.faq p{ margin:0 0 14px; font-size:14.5px; line-height:1.65; color:var(--color-text-dim); }
+.tour{ position:absolute; inset:0; z-index:150; display:none; overflow:hidden; }
+.tour.show{ display:block; }
+.tour-ring{ position:absolute; border-radius:14px; box-shadow:0 0 0 2000px rgba(2,8,19,.84), 0 0 0 2px var(--color-cyan), 0 0 26px rgba(var(--accent-rgb),.5); pointer-events:none; transition:left .3s ease-out, top .3s ease-out, width .3s ease-out, height .3s ease-out; }
+.tour-ring.round{ border-radius:50%; }
+.tour-card{ position:absolute; inset-inline:16px; background:var(--surface-solid); border:1px solid rgba(var(--accent-rgb),.5); border-radius:var(--radius-xl); padding:14px 14px 12px; box-shadow:var(--glow-md); }
+.tour-card h4{ margin:0 0 4px; font-size:17px; font-weight:600; color:var(--color-white); }
+.tour-card p{ margin:0; font-size:14.5px; line-height:1.6; color:var(--color-white); }
+.tour-card .row-btns{ margin-top:12px; justify-content:space-between; }
+.tour-step{ font-size:12.5px; color:var(--color-text-dim); margin-bottom:2px; }
+@media (prefers-reduced-motion: reduce){ .tour-ring{ transition:none; } }
 </style>
 </head>
 <body>
@@ -1003,7 +1063,10 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="app-header-dot"></div>
             <span class="app-header-word">JARVIS</span>
           </div>
-          <span class="app-header-time" id="app-header-time">--:-- · --</span>
+          <div class="app-header-tools">
+            <span class="app-header-time" id="app-header-time">--:-- · --</span>
+            <button class="hdr-btn" id="help-btn" onclick="openHelp()" aria-label="מדריך ועזרה"><svg class="i" aria-hidden="true"><use href="#i-help"/></svg></button>
+          </div>
         </div>
 
         <div class="toast" id="toast"></div>
@@ -1039,6 +1102,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
                 </div>
               </div>
               <div class="orb-state-label" id="orb-state-label">המתנה</div>
+              <div class="mic-note" id="mic-note" role="status" style="display:none;"></div>
               <div class="orb-waveform" id="orb-waveform">
                 <div class="orb-wave-bar"></div><div class="orb-wave-bar"></div><div class="orb-wave-bar"></div><div class="orb-wave-bar"></div><div class="orb-wave-bar"></div>
               </div>
@@ -1186,6 +1250,9 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <button class="mic-btn show" id="push-enable-btn" onclick="enablePushNotifications()">🔔 הפעל התראות בדפדפן</button>
             <button class="mic-btn show" id="push-test-btn" onclick="sendTestPush()">🧪 שלח הודעת בדיקה עכשיו</button>
 
+            <div class="settings-sub">◂ עזרה</div>
+            <button class="mic-btn show" onclick="openHelp()">מדריך ושאלות נפוצות</button>
+
             <div class="settings-sub">◂ סיכום שבועי</div>
             <div class="voice-info-block">נשלח למייל אוטומטית כל יום ראשון בבוקר, עם מה שמחכה לך בשבוע הקרוב. אפשר לשלוח תצוגה מקדימה עכשיו.</div>
             <button class="mic-btn show" onclick="sendWeeklySummaryNow()">שלח סיכום עכשיו</button>
@@ -1195,6 +1262,20 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
           </div>
 
         </div>
+
+        <div class="coach" id="coach" style="display:none;">
+              <button class="coach-x" onclick="dismissCoach()" aria-label="סגור"><svg class="i s" aria-hidden="true"><use href="#i-x"/></svg></button>
+              <h3 class="coach-title">שלושה דברים שכדאי לדעת</h3>
+              <ul class="coach-list">
+                <li><svg class="i" aria-hidden="true"><use href="#i-mic"/></svg><span>לחץ על הכדור ודבר בעברית, או הקלד למטה.</span></li>
+                <li><svg class="i" aria-hidden="true"><use href="#i-globe"/></svg><span>JARVIS עונה באנגלית, גם כשמדברים אליו בעברית.</span></li>
+                <li><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><span>שום דבר ביומן או במייל לא משתנה בלי אישור שלך.</span></li>
+              </ul>
+              <div class="coach-actions">
+                <button type="button" class="ds-btn pri" onclick="startTour()">סיור קצר · 30 שניות</button>
+                <button type="button" class="ds-btn" onclick="dismissCoach()">הבנתי</button>
+              </div>
+            </div>
 
         <button class="fab" id="fab" onclick="fabTap()"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg><span id="fab-label">הוסף</span></button>
 
@@ -1249,6 +1330,29 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <div class="sheet-actions">
               <button type="button" class="ds-btn" onclick="closeAddSheet()">ביטול</button>
               <button type="button" class="ds-btn pri" id="add-submit" onclick="submitAddSheet()">המשך לאישור</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Guide -->
+        <div class="help-screen" id="help-screen" role="dialog" aria-modal="true" aria-labelledby="help-title">
+          <div class="help-head">
+            <button class="hdr-btn" onclick="closeHelp()" aria-label="חזרה"><svg class="i" aria-hidden="true" style="transform:scaleX(-1);"><use href="#i-chev"/></svg></button>
+            <h2 id="help-title">מדריך</h2>
+          </div>
+          <div class="help-body" id="help-body"></div>
+        </div>
+
+        <!-- Short tour: a spotlight on four things -->
+        <div class="tour" id="tour" role="dialog" aria-modal="true" aria-label="סיור קצר">
+          <div class="tour-ring" id="tour-ring"></div>
+          <div class="tour-card" id="tour-card">
+            <div class="tour-step" id="tour-step"></div>
+            <h4 id="tour-title"></h4>
+            <p id="tour-text"></p>
+            <div class="row-btns">
+              <button type="button" class="ds-btn" onclick="endTour()">דלג</button>
+              <button type="button" class="ds-btn pri" id="tour-next" onclick="nextTour()">הבא</button>
             </div>
           </div>
         </div>
@@ -1615,6 +1719,7 @@ function setTab(key){
     // Content tabs get a calm, opaque surface (CSS keys off this); Home keeps the full HUD.
     $('device-screen').dataset.tab = key;
     updateFab();
+    updateCoach();
     if (key === 'home') hideReplyBubble();
     $('app-body').scrollTop = 0;
     renderNav();
@@ -4638,8 +4743,10 @@ async function submitReminder(text, dayText, time){
 }
 document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if ($('add-sheet').classList.contains('show')) closeAddSheet();
+    if ($('tour').classList.contains('show')) endTour();
+    else if ($('add-sheet').classList.contains('show')) closeAddSheet();
     else if ($('action-sheet').classList.contains('show')) closeActionSheet();
+    else if ($('help-screen').classList.contains('show')) closeHelp();
 });
 
 /* ---- Home: the next few things, read-only (actions live in the Agenda) ---- */
@@ -6764,6 +6871,184 @@ function renderTaskChart(daily){
 /* ================================================================================
    Boot.
    ================================================================================ */
+
+/* ================================================================================
+   Guide — what to say, how it works, what each tab is for, what to do when something
+   is wrong. Phrases marked run:true are read-only or only open a card that still asks
+   first, so a tap sends them; anything that would write (an event, an email, a task, a
+   reminder) is only PLACED in the command bar, for the user to edit and send.
+   ================================================================================ */
+const HELP_CATS = [
+    { key: 'cal', label: 'יומן', items: [
+        { t: 'מה יש לי היום?', run: true }, { t: 'קבע פגישה עם דנה מחר ב-10:00' },
+        { t: 'תזיז את הפגישה של מחר לשעה 11' }, { t: 'מה יש לי השבוע?', run: true } ] },
+    { key: 'mail', label: 'דואר', items: [
+        { t: 'יש לי מיילים חדשים?', run: true }, { t: 'תקריא לי את המיילים האחרונים', run: true },
+        { t: 'שלח מייל ל-dana@gmail.com שאני מאחר' } ] },
+    { key: 'task', label: 'משימות', items: [
+        { t: 'תוסיף משימה: לקנות חלב' }, { t: 'תזכיר לי בעוד שעה להתקשר לדנה' },
+        { t: 'כל יום רביעי ב-15:00 תזכיר לי לצאת עם הכלבה' } ] },
+    { key: 'info', label: 'מידע', items: [
+        { t: 'מה מזג האוויר בתל אביב?', run: true }, { t: 'מה המניה של אפל?', run: true }, { t: 'איך השוק היום?', run: true } ] },
+    { key: 'web', label: 'דפים', items: [
+        { t: 'פתח לי את הדף בוויקיפדיה על קנדריק למאר', run: true },
+        { t: 'תחפש לי טיסה מתל אביב לפריז ב-10 באוקטובר', run: true }, { t: 'פתח את ynet', run: true } ] },
+    { key: 'nav', label: 'ניווט', items: [ { t: 'קח אותי לדיזנגוף סנטר', run: true }, { t: 'איפה יש פיצה קרובה?', run: true } ] },
+];
+const HELP_TABS = [
+    { icon: 'home', name: 'בית', text: 'הכדור: לחץ ודבר. מתחתיו מה קורה היום, והצעות לנסות.' },
+    { icon: 'cal', name: 'יומן', text: 'כל מה שיש לך בזמן, מקובץ לפי ימים: אירועים ותזכורות. "הוסף" יוצר פגישה או תזכורת.' },
+    { icon: 'mail', name: 'דואר', text: 'ההודעות שלא נקראו. "השב עם JARVIS" מנסח תשובה, ולפני שליחה אתה מאשר.' },
+    { icon: 'task', name: 'משימות', text: 'מה עוד צריך לעשות. מסמנים בעיגול, או אומרים "תוסיף משימה…". משימה יכולה לחזור כל יום או בימים קבועים.' },
+    { icon: 'gear', name: 'הגדרות', text: 'חשבון וחיבורים, קול והתראות, צבע, והמדריך הזה.' },
+];
+const HELP_FAQ = [
+    { q: 'JARVIS לא שומע אותי', a: 'בדוק שהאתר מורשה להשתמש במיקרופון (סמל המנעול בדפדפן). בהגדרות יש בדיקת מיקרופון שמשמיעה לך את עצמך. ובכל מקרה אפשר להקליד בשורה התחתונה.' },
+    { q: 'אין לי התראות בטלפון', a: 'באנדרואיד: הגדרות ← הפעל התראות בדפדפן, ואשר. באייפון: קודם מוסיפים את האתר למסך הבית (שיתוף ← הוסף למסך הבית) ורק משם מפעילים, כי בטאב רגיל של ספארי אפל לא מאפשרת התראות.' },
+    { q: 'JARVIS ענה משהו לא נכון', a: 'נסח שוב במשפט אחד וברור. אם הוא ממשיך להתבלבל: הגדרות ← איפוס זיכרון שיחה.' },
+    { q: 'הוא אומר שהגיע למגבלת שימוש', a: 'המערכת רצה על מכסה חינמית. כמה דקות של המתנה, ונסה שוב.' },
+    { q: 'גוגל לא נותנת לי להתחבר', a: 'האפליקציה עדיין בבדיקות: רק חשבונות שנוספו מראש יכולים להיכנס. בקש מהמפתח להוסיף את כתובת ה-Gmail שלך.' },
+];
+let helpCat = 'cal';
+function helpSection(title, hint){
+    const s = el('div', 'help-sec'); s.innerHTML = '<b></b><span></span>';
+    s.firstChild.textContent = title; s.lastChild.textContent = hint || '';
+    return s;
+}
+function renderHelp(){
+    const body = $('help-body');
+    body.innerHTML = '';
+    const hero = el('div', 'help-hero');
+    hero.innerHTML = '<h3>הכל מתחיל בקול</h3><p>לחץ על הכדור ודבר בעברית, או הקלד בשורה התחתונה.</p>' +
+        '<ol class="help-steps"><li><span>אשר גישה למיקרופון (פעם אחת).</span></li><li><span>לחץ על הכדור ואמור משפט אחד.</span></li>' +
+        '<li><span>אם JARVIS מציע שינוי, אשר ב"אישור" או דחה.</span></li></ol>' +
+        '<button type="button" class="ds-btn" onclick="startTour()">סיור קצר · 30 שניות</button>';
+    body.appendChild(hero);
+
+    body.appendChild(helpSection('מה אפשר להגיד?', 'לחץ על משפט כדי לנסות'));
+    const cats = el('div', 'help-cats'); cats.setAttribute('role', 'tablist');
+    const phrases = el('div', 'help-phrases');
+    const paint = () => {
+        cats.querySelectorAll('.help-cat').forEach(b => b.classList.toggle('on', b.dataset.k === helpCat));
+        phrases.innerHTML = '';
+        const cat = HELP_CATS.find(c => c.key === helpCat);
+        cat.items.forEach(it => {
+            const b = el('button', 'help-phrase'); b.type = 'button';
+            b.innerHTML = icon('mic'); b.appendChild(document.createTextNode(it.t));
+            b.onclick = () => useHelpPhrase(it);
+            phrases.appendChild(b);
+        });
+    };
+    HELP_CATS.forEach(c => {
+        const b = el('button', 'help-cat'); b.type = 'button'; b.dataset.k = c.key; b.textContent = c.label;
+        b.setAttribute('role', 'tab');
+        b.onclick = () => { helpCat = c.key; paint(); };
+        cats.appendChild(b);
+    });
+    body.append(cats, phrases);
+    paint();
+
+    body.appendChild(helpSection('איך זה עובד'));
+    const how = el('div', 'help-rows');
+    [['globe', 'מדברים עברית, עונים באנגלית', 'זו בחירה מכוונת של המערכת.'],
+     ['shield', 'אישור לפני שינוי', 'שינוי ביומן או שליחת מייל מחכים ללחיצה שלך, ואפשר לערוך לפני האישור.'],
+     ['globe', 'דפים נפתחים בלחיצה שלך', 'כשמבקשים לפתוח דף או טיסה, מופיע כרטיס — לחיצה על "אישור" פותחת אותו.']].forEach(r => {
+        const row = el('div', 'help-row'); row.innerHTML = icon(r[0]) + '<div><b></b><span></span></div>';
+        row.querySelector('b').textContent = r[1]; row.querySelector('span').textContent = r[2];
+        how.appendChild(row);
+    });
+    body.appendChild(how);
+
+    body.appendChild(helpSection('מסך אחרי מסך'));
+    const tabs = el('div', 'help-rows');
+    HELP_TABS.forEach(t => {
+        const row = el('div', 'help-row'); row.innerHTML = icon(t.icon) + '<div><b></b><span></span></div>';
+        row.querySelector('b').textContent = t.name; row.querySelector('span').textContent = t.text;
+        tabs.appendChild(row);
+    });
+    body.appendChild(tabs);
+
+    body.appendChild(helpSection('משהו לא עובד?'));
+    const faq = el('div', 'help-rows');
+    HELP_FAQ.forEach(f => {
+        const d = el('details', 'faq'); d.innerHTML = '<summary></summary><p></p>';
+        d.querySelector('summary').textContent = f.q; d.querySelector('p').textContent = f.a;
+        faq.appendChild(d);
+    });
+    body.appendChild(faq);
+}
+function openHelp(){ closeActionSheet(); $('help-screen').classList.add('show'); $('help-body').scrollTop = 0; }
+function closeHelp(){ $('help-screen').classList.remove('show'); }
+function useHelpPhrase(item){
+    closeHelp();
+    setTab('home');
+    // 'done' is only the few seconds a finished answer stays on the orb; it must not block a tap.
+    if (voiceState === 'done') { voiceState = 'idle'; renderOrb(); clearOrbBubbles(); }
+    if (item.run && voiceState === 'idle') { runVoiceCommand(item.t); return; }
+    fillCommand(item.t);
+    showToast(item.run ? 'JARVIS עסוק כרגע — לחץ על שליחה בעוד רגע.' : 'ערוך אם צריך, ואז לחץ על שליחה.');
+}
+renderHelp();
+
+/* ---- first-run card + the short tour ---- */
+const COACH_KEY = 'jarvis_coach_v1';
+// A first-run tip floating above the dock (not in Home's scrolling content, where its buttons sat below the fold).
+function updateCoach(){
+    const c = $('coach');
+    c.style.display = (currentTab === 'home' && lsGet(COACH_KEY, '0') !== '1' && tourIdx < 0) ? '' : 'none';
+}
+function dismissCoach(){ lsSet(COACH_KEY, '1'); updateCoach(); }
+const TOUR_STEPS = [
+    { sel: '#orb-body', round: true, pad: 10, title: 'כאן מדברים', text: 'לחץ על הכדור ואמור משפט אחד, למשל "מה יש לי היום?".' },
+    { sel: '.cmd-input-row', pad: 4, title: 'או מקלידים', text: 'אפשר להקליד כאן פקודה, והמיקרופון שלידה עובד מכל מסך.' },
+    { sel: '#bottom-nav', pad: 2, title: 'הלשוניות', text: 'יומן, דואר ומשימות — כל אחד במקום משלו.' },
+    { sel: '#help-btn', round: true, pad: 4, title: 'המדריך', text: 'אם משהו לא ברור, המדריך תמיד כאן — עם משפטים שאפשר ללחוץ עליהם.' },
+];
+let tourIdx = -1;
+function startTour(){
+    lsSet(COACH_KEY, '1'); closeHelp(); setTab('home');
+    tourIdx = 0;
+    updateCoach();
+    $('tour').classList.add('show');
+    renderTourStep();
+}
+function renderTourStep(){
+    const s = TOUR_STEPS[tourIdx];
+    const target = document.querySelector(s.sel);
+    if (!target) { endTour(); return; }
+    const host = $('device-screen').getBoundingClientRect(), r = target.getBoundingClientRect();
+    const ring = $('tour-ring'), pad = s.pad || 6;
+    ring.style.left = (r.left - host.left - pad) + 'px'; ring.style.top = (r.top - host.top - pad) + 'px';
+    ring.style.width = (r.width + pad * 2) + 'px'; ring.style.height = (r.height + pad * 2) + 'px';
+    ring.classList.toggle('round', !!s.round);
+    $('tour-step').textContent = `${tourIdx + 1} מתוך ${TOUR_STEPS.length}`;
+    $('tour-title').textContent = s.title; $('tour-text').textContent = s.text;
+    $('tour-next').textContent = tourIdx === TOUR_STEPS.length - 1 ? 'סיום' : 'הבא';
+    const card = $('tour-card'), h = card.offsetHeight;
+    const below = r.bottom - host.top + pad + 14, above = r.top - host.top - pad - 14 - h;
+    card.style.top = Math.max(12, (below + h < host.height - 12) ? below : above) + 'px';
+}
+function nextTour(){ if (tourIdx >= TOUR_STEPS.length - 1) { endTour(); return; } tourIdx++; renderTourStep(); }
+function endTour(){ tourIdx = -1; $('tour').classList.remove('show'); updateCoach(); }
+updateCoach();
+window.addEventListener('resize', () => { if (tourIdx >= 0) renderTourStep(); });
+
+/* ---- mic notes: only when there is something to explain (never for a working mic) ---- */
+let micPermissionState = 'unknown';
+function updateMicNote(){
+    const box = $('mic-note'); if (!box) return;
+    let msg = '';
+    if (!speechInputSupported() && !textOnlyMode) msg = 'הדפדפן הזה לא תומך בזיהוי דיבור — אפשר להקליד בשורה התחתונה.';
+    else if (micPermissionState === 'denied') msg = 'המיקרופון חסום לאתר הזה. אפשר להקליד בשורה התחתונה, או לאפשר אותו דרך סמל המנעול בדפדפן.';
+    box.textContent = msg; box.style.display = msg ? '' : 'none';
+}
+(function watchMicPermission(){
+    if (!navigator.permissions || !navigator.permissions.query) { updateMicNote(); return; }
+    navigator.permissions.query({ name: 'microphone' })
+        .then(st => { micPermissionState = st.state; updateMicNote(); st.onchange = () => { micPermissionState = st.state; updateMicNote(); }; })
+        .catch(() => updateMicNote());
+})();
+
 migrateStoredEngine();
 checkGoogleAuthGate();
 </script>
