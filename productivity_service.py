@@ -85,14 +85,33 @@ def _collect_events(user_id: str, days_ahead: float, max_results: int = 15):
     return events[:max_results]
 
 
+def _parse_event_when(value):
+    """(aware datetime in LOCAL_TZ, all_day) for an event start/end value, or (None, False).
+
+    Google sends a bare "YYYY-MM-DD" for an all-day event. That must NOT go through
+    .astimezone(): a naive datetime is taken as the SERVER's local time, so on Render (UTC)
+    an all-day Sunday became Sun 00:00 UTC = "Sun 03:00" in Jerusalem — a vacation shown as
+    starting at three in the morning."""
+    if not value:
+        return None, False
+    if len(value) == 10:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=LOCAL_TZ), True
+        except ValueError:
+            return None, False
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(LOCAL_TZ), False
+    except ValueError:
+        return None, False
+
+
 def _format_time(iso_str: str) -> str:
     if not iso_str:
         return "?"
-    try:
-        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00")).astimezone(LOCAL_TZ)
-        return dt.strftime("%a %H:%M")
-    except ValueError:
+    dt, all_day = _parse_event_when(iso_str)
+    if dt is None:
         return iso_str
+    return f"{dt.strftime('%a')} (all day)" if all_day else dt.strftime("%a %H:%M")
 
 
 def get_calendar_events_text(user_id: str, days_ahead: float = 1, max_results: int = 15) -> str:
@@ -110,21 +129,35 @@ def get_calendar_events_text(user_id: str, days_ahead: float = 1, max_results: i
 
 
 def get_upcoming_events_structured(user_id: str, max_results: int = 3):
-    """Structured (not spoken-string) event list for the HUD's "upcoming
-    events" widget — same data as get_calendar_events_text but as
-    JSON-friendly dicts. Returns None if no calendar provider is configured
-    at all (vs. an empty list, which means configured-but-nothing-on-it or
-    not yet authenticated)."""
+    """Structured (not spoken-string) event list for the HUD's agenda and Home widget — same
+    data as get_calendar_events_text but as JSON-friendly dicts. Returns None if no calendar
+    provider is configured at all (vs. an empty list, which means configured-but-nothing-on-it
+    or not yet authenticated).
+
+    The HUD groups by day, so each event carries real dates rather than only a pre-formatted
+    label: `day` (YYYY-MM-DD in LOCAL_TZ), `all_day`, `end_day` (inclusive; Google's all-day end
+    date is exclusive), and `start_iso`/`end_iso` for timed events (local, with offset).
+    `time_label` stays for older callers."""
     events = _collect_events(user_id, days_ahead=7, max_results=max_results)
     if events is None:
         return None
-    return [
-        {
-            "id": e.get("id", ""), "summary": e.get("summary", "(no title)"),
-            "time_label": _format_time(e.get("start")), "source": e.get("source", ""),
-        }
-        for e in events
-    ]
+    out = []
+    for e in events:
+        start_dt, all_day = _parse_event_when(e.get("start"))
+        end_dt, _ = _parse_event_when(e.get("end"))
+        day = start_dt.strftime("%Y-%m-%d") if start_dt else ""
+        end_day = day
+        if all_day and end_dt:
+            end_day = max(day, (end_dt - timedelta(days=1)).strftime("%Y-%m-%d"))
+        out.append({
+            "id": e.get("id", ""), "summary": e.get("summary", "(no title)"), "source": e.get("source", ""),
+            "location": e.get("location") or "",
+            "all_day": all_day, "day": day, "end_day": end_day,
+            "start_iso": start_dt.isoformat() if (start_dt and not all_day) else "",
+            "end_iso": end_dt.isoformat() if (end_dt and not all_day) else "",
+            "time_label": _format_time(e.get("start")),
+        })
+    return out
 
 
 def _collect_emails(user_id: str, unread_only: bool, max_results: int):

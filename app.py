@@ -3129,7 +3129,10 @@ def upcoming_events():
     events = productivity_service.get_upcoming_events_structured(user_id, max_results=30)
     if events is None:
         return jsonify({"configured": False, "events": []})
-    return jsonify({"configured": True, "events": events})
+    # `today` (in the user's zone, not the server's UTC) is what "היום"/"מחר" are measured against.
+    now_local = datetime.now(productivity_service.LOCAL_TZ)
+    return jsonify({"configured": True, "events": events, "today": now_local.strftime("%Y-%m-%d"),
+                    "now_iso": now_local.isoformat(), "tz": str(productivity_service.LOCAL_TZ)})
 
 
 @app.route("/api/tasks")
@@ -3216,8 +3219,11 @@ def list_reminders():
         else:
             dt = datetime.fromtimestamp(r["remind_at"], tz=productivity_service.LOCAL_TZ)
             label = f"{_HEBREW_WEEKDAYS[dt.weekday()]}, {dt.day}.{dt.month} בשעה {dt.hour:02d}:{dt.minute:02d}"
+        due = datetime.fromtimestamp(r["remind_at"], tz=productivity_service.LOCAL_TZ)
         out.append({
             "id": r["id"], "text": r["text"], "label": label, "recurring": bool(r["recurrence"]),
+            # The agenda files reminders by day, so give it the day and time in the user's zone.
+            "day": due.strftime("%Y-%m-%d"), "time": due.strftime("%H:%M"),
             "remind_at": r["remind_at"], "weekday": weekday, "hour": hour, "minute": minute,
             "emoji": r.get("emoji") or "", "flourish": r.get("flourish") or "",
         })

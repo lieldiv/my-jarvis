@@ -433,14 +433,6 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .event-row:last-child{ border-bottom:none; }
 .event-row .t{ width:70px; flex-shrink:0; font-size:12px; font-weight:600; color:var(--color-gold); }
 .event-row .s{ flex:1; min-width:0; font-size:13.5px; font-weight:500; color:var(--color-white); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-/* Was 24px — under the ~44px touch-target guideline. Not going all the way
-   there: two of these now sit side by side in a dense row, and a literal
-   44px circle each would visually overwhelm it. 32px is a real improvement
-   without that tradeoff. */
-.event-row .cancel-x{ flex-shrink:0; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--color-red); border:1px solid rgba(255,59,59,0.4); cursor:pointer; font-size:12px; background:none; }
-.event-row .cancel-x:hover{ background:rgba(255,59,59,0.15); }
-.event-row .cancel-x.resched{ color:var(--color-cyan); border-color:var(--color-cyan-border); }
-.event-row .cancel-x.resched:hover{ background:var(--color-cyan-soft); }
 .events-empty{ font-size:13px; color:var(--color-text-dim); padding:6px 0; }
 
 /* Discover panel — replaces the old rotating globe (it showed a static,
@@ -503,21 +495,10 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .log-row .meta{ font-size:11.5px; color:var(--color-text-dim); margin-top:4px; }
 
 /* Agenda tab */
-.agenda-tabs-row{ display:flex; align-items:center; gap:8px; margin:8px 0 16px; }
-.pill-tab{ padding:8px 16px; border-radius:var(--radius-pill); font-size:13px; font-weight:700; cursor:pointer; background:transparent; color:var(--color-text-dim); border:1px solid transparent; }
-.pill-tab.active{ background:rgba(var(--accent-rgb),0.18); color:var(--color-white); border-color:rgba(var(--accent-rgb),0.4); }
-.pill-spacer{ flex:1; }
-.pill-action{ display:flex; align-items:center; gap:5px; font-size:12.5px; font-weight:600; color:var(--color-cyan); padding:8px 13px; border-radius:var(--radius-pill); background:var(--color-cyan-soft); border:var(--border-default); cursor:pointer; }
 .section-title{ font-family:var(--font-display); font-size:15px; letter-spacing:var(--tracking-wide); color:var(--color-white); margin:8px 0 16px; }
 .input-field{ width:100%; background:var(--color-cyan-soft); border:var(--border-default); border-radius:var(--radius-sm); padding:12px; color:var(--color-white); font-size:14px; }
 .input-field.gold{ background:rgba(255,200,0,0.06); border:1px solid rgba(255,200,0,0.4); }
 .field-label{ font-size:12px; color:var(--color-text-dim); margin-bottom:5px; }
-.action-pill-btn{ display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:var(--radius-pill); background:var(--color-cyan-soft); border:1px solid rgba(var(--accent-rgb),0.4); font-size:12.5px; font-weight:700; color:var(--color-white); cursor:pointer; }
-.action-pill-btn.gold{ background:rgba(255,200,0,0.14); border-color:rgba(255,200,0,0.4); color:var(--color-gold); }
-.reminder-row{ display:flex; gap:8px; margin-bottom:10px; }
-.reminder-row input:first-child{ flex:1; min-width:0; }
-.reminder-row input:last-child{ width:74px; flex-shrink:0; box-sizing:border-box; direction:ltr; text-align:center; }
-.submit-block{ text-align:center; padding:10px; border-radius:var(--radius-sm); background:var(--color-cyan-soft); border:1px solid rgba(var(--accent-rgb),0.4); font-size:12.5px; font-weight:700; color:var(--color-white); cursor:pointer; }
 
 /* Inbox tab */
 .inbox-header{ display:flex; align-items:center; justify-content:space-between; margin:8px 0 16px; }
@@ -860,6 +841,75 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .discover-row .txt{ font-size:14.5px; font-weight:500; }
 .discover-footer{ font-size:12.5px; display:flex; align-items:center; justify-content:center; gap:6px; }
 .orb-status-chip .i{ width:18px; height:18px; }
+
+/* ===== Redesign v1, step 2: page header, day-grouped agenda, bottom sheets, create button ============ */
+.page-head{ margin:4px 0 14px; }
+.page-title{ margin:0; font-size:24px; font-weight:700; line-height:1.25; color:var(--color-white); }
+.page-sub{ margin:2px 0 0; font-size:14px; color:var(--color-text-dim); }
+.day-head{ display:flex; align-items:center; gap:10px; margin:20px 0 8px; font-size:13px; color:var(--color-text-dim); }
+.day-head:first-of-type{ margin-top:6px; }
+.day-head b{ color:var(--color-white); font-size:15px; font-weight:600; }
+.day-head::after{ content:''; flex:1; height:1px; background:var(--color-cyan-border); }
+.now-line{ display:flex; align-items:center; gap:8px; margin:2px 0 10px; font-size:12.5px; color:var(--color-cyan); }
+.now-line .mono{ font-family:var(--font-mono); direction:ltr; }
+.now-line::before{ content:''; width:7px; height:7px; border-radius:50%; background:var(--color-cyan); box-shadow:0 0 8px var(--color-cyan); }
+.now-line::after{ content:''; flex:1; height:1px; background:linear-gradient(to left, transparent, var(--color-cyan)); }
+.row-item{ display:grid; grid-template-columns:60px 1fr 44px; align-items:center; column-gap:8px; min-height:68px; padding:8px 8px 8px 2px; background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-md); margin-bottom:8px; cursor:pointer; }
+.row-item:active{ background:var(--color-cyan-soft); }
+.row-time{ font-family:var(--font-mono); font-size:17px; direction:ltr; text-align:center; line-height:1.2; color:var(--color-white); }
+.row-time small{ display:block; font-size:12px; color:var(--color-text-dim); }
+.allday-chip{ font-family:var(--font-ui); font-size:12px; font-weight:500; display:inline-block; padding:2px 8px; border:1px solid rgba(var(--accent-rgb),.4); border-radius:999px; color:var(--color-cyan); }
+.row-title{ font-size:16px; font-weight:500; line-height:1.35; color:var(--color-white); unicode-bidi:plaintext; word-break:break-word; }
+.row-meta{ font-size:13.5px; color:var(--color-text-dim); margin-top:2px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.row-meta .i{ width:15px; height:15px; }
+.row-more{ width:44px; height:44px; display:grid; place-items:center; color:var(--color-text-dim); background:none; border:0; border-radius:50%; cursor:pointer; }
+.tag-chip{ font-size:12px; padding:0 8px; border:1px solid rgba(var(--accent-rgb),.4); border-radius:999px; color:var(--color-cyan); line-height:20px; display:inline-flex; align-items:center; gap:4px; }
+.tag-chip .i{ width:12px; height:12px; }
+.empty-card{ background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-xl); padding:18px; display:grid; gap:10px; margin-bottom:10px; }
+.empty-card .pi{ width:38px; height:38px; border:1px solid rgba(var(--accent-rgb),.4); border-radius:50%; display:grid; place-items:center; color:var(--color-cyan); }
+.empty-card h3{ margin:0; font-size:17px; font-weight:600; color:var(--color-white); }
+.empty-card p{ margin:0; font-size:14.5px; color:var(--color-text-dim); line-height:1.6; }
+.row-btns{ display:flex; flex-wrap:wrap; gap:8px; }
+.ds-btn{ min-height:44px; padding:0 16px; border-radius:var(--radius-md); border:1px solid rgba(var(--accent-rgb),.4); color:var(--color-cyan); display:inline-flex; align-items:center; justify-content:center; gap:8px; font-size:14.5px; font-weight:500; background:transparent; cursor:pointer; }
+.ds-btn.pri{ background:var(--color-cyan); color:var(--color-bg); border-color:var(--color-cyan); font-weight:600; }
+.ds-btn.danger{ color:var(--color-red); border-color:rgba(255,59,59,.5); }
+.ds-btn.block{ width:100%; }
+.try-chip{ display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:8px 14px; border:1px dashed rgba(var(--accent-rgb),.4); border-radius:999px; background:transparent; color:var(--color-white); font-size:14px; cursor:pointer; text-align:start; }
+.try-chip .i{ color:var(--color-cyan); width:18px; height:18px; }
+.event-row .t{ width:auto; min-width:92px; font-size:13px; font-weight:500; color:var(--color-cyan); }
+.event-row .s{ font-size:14.5px; }
+.event-row .s .i{ width:16px; height:16px; vertical-align:-3px; margin-inline-end:6px; color:var(--color-cyan); }
+/* the one create button of a tab */
+.fab{ display:none; position:absolute; inset-inline-end:16px; bottom:calc(var(--dock-h) + 14px); z-index:55; height:52px; padding:0 20px 0 18px; border-radius:26px; background:var(--color-cyan); color:var(--color-bg); align-items:center; gap:8px; font-family:var(--font-ui); font-weight:600; font-size:15.5px; border:0; cursor:pointer; box-shadow:0 0 26px rgba(var(--accent-rgb),.45); }
+.fab.show{ display:flex; }
+#device-screen[data-fab="1"] .app-body{ padding-bottom:calc(var(--dock-h) + 92px + env(safe-area-inset-bottom)); }
+@media (hover:none) and (pointer:coarse){ .fab{ position:fixed; } }
+/* bottom sheets */
+.bsheet-overlay{ position:absolute; inset:0; z-index:130; background:rgba(2,8,19,.8); display:none; align-items:flex-end; }
+.bsheet-overlay.show{ display:flex; }
+.bsheet{ width:100%; max-height:90%; overflow-y:auto; background:var(--surface-solid); border-top:1px solid rgba(var(--accent-rgb),.45); border-radius:8px 8px 0 0; padding:10px 16px calc(18px + env(safe-area-inset-bottom)); box-shadow:0 -10px 50px rgba(var(--accent-rgb),.12); animation:jm-sheetup .28s ease-out both; }
+.bsheet-grab{ width:40px; height:4px; border-radius:2px; background:rgba(var(--accent-rgb),.4); margin:0 auto 12px; }
+.bsheet-title{ font-size:20px; font-weight:600; margin-bottom:12px; color:var(--color-white); }
+.ds-seg{ display:grid; grid-auto-flow:column; grid-auto-columns:1fr; border:var(--border-default); border-radius:24px; padding:3px; gap:3px; background:rgba(var(--accent-rgb),.04); }
+.ds-seg button{ height:40px; border:0; border-radius:19px; background:none; color:var(--color-text-dim); font-size:14.5px; font-weight:500; cursor:pointer; }
+.ds-seg button.on{ background:var(--color-cyan-soft); color:var(--color-cyan); box-shadow:inset 0 0 0 1px rgba(var(--accent-rgb),.4); }
+.ds-lbl{ font-size:13px; color:var(--color-text-dim); margin:14px 0 6px; display:block; }
+.ds-inp{ width:100%; height:48px; border:1px solid rgba(var(--accent-rgb),.4); border-radius:var(--radius-md); padding:0 14px; color:var(--color-white); font-size:16px; background:rgba(var(--accent-rgb),.03); }
+.ds-inp:focus{ outline:none; border-color:var(--color-cyan); box-shadow:0 0 10px rgba(var(--accent-rgb),.25); }
+.ds-inp.time{ direction:ltr; text-align:center; font-family:var(--font-mono); width:120px; }
+.ds-pills{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.ds-pill{ min-height:44px; padding:0 14px; border:1px solid var(--color-cyan-border); border-radius:999px; display:inline-flex; align-items:center; font-size:14.5px; color:var(--color-text-dim); background:none; cursor:pointer; }
+.ds-pill.on{ border-color:rgba(var(--accent-rgb),.6); background:var(--color-cyan-soft); color:var(--color-cyan); }
+#add-day-pills{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
+#add-day-pills::-webkit-scrollbar{ display:none; }
+#add-day-pills .ds-pill{ flex:none; }
+.ds-more summary{ min-height:44px; display:flex; align-items:center; color:var(--color-cyan); font-size:14.5px; cursor:pointer; }
+.ds-note{ display:flex; gap:10px; align-items:flex-start; margin:16px 0 12px; padding:10px 12px; border-radius:var(--radius-md); background:rgba(0,255,136,.06); border:1px solid rgba(0,255,136,.28); font-size:13.5px; color:var(--color-white); line-height:1.55; }
+.ds-note .i{ color:var(--color-green); margin-top:2px; width:18px; height:18px; }
+.sheet-actions{ display:grid; grid-template-columns:1fr 2fr; gap:8px; margin-top:14px; }
+.act-row{ display:grid; grid-template-columns:28px 1fr; align-items:center; gap:12px; width:100%; min-height:56px; padding:0 8px; background:none; border:0; border-bottom:1px solid var(--color-cyan-border); color:var(--color-white); font-size:16px; text-align:start; cursor:pointer; }
+.act-row .i{ color:var(--color-cyan); }
+.act-row.danger, .act-row.danger .i{ color:var(--color-red); }
 </style>
 </head>
 <body>
@@ -1028,42 +1078,11 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 
           <!-- AGENDA -->
           <div class="tab-panel" id="tab-agenda">
-            <div class="agenda-tabs-row">
-              <div class="pill-tab active" id="agenda-tab-today" onclick="setAgendaView('today')">היום</div>
-              <div class="pill-tab" id="agenda-tab-week" onclick="setAgendaView('week')">השבוע</div>
-              <div class="pill-spacer"></div>
-              <div class="pill-action" onclick="openEventForm()">+ פגישה</div>
+            <div class="page-head">
+              <h1 class="page-title">היומן שלי</h1>
+              <p class="page-sub" id="agenda-sub"></p>
             </div>
-            <div id="agenda-today-view">
-              <div id="agenda-events-list"><div class="events-empty">טוען…</div></div>
-            </div>
-            <div id="agenda-week-view" style="display:none;">
-              <div class="hud-panel" style="margin-top:0;">
-                <div class="hud-panel-title"><span>◂ סדר השבוע</span></div>
-                <div id="agenda-week-text" class="events-empty">טוען…</div>
-              </div>
-            </div>
-
-            <div class="hud-panel">
-              <div class="hud-panel-title" style="margin-bottom:5px;"><span>◂ ✉️ סיכום שבועי</span></div>
-              <div style="font-size:12.5px; color:var(--color-cyan); margin-bottom:10px; line-height:1.6;">נשלח אוטומטית כל יום ראשון בבוקר. אפשר לשלוח תצוגה מקדימה עכשיו.</div>
-              <div class="action-pill-btn" onclick="sendWeeklySummaryNow()">שלח עכשיו</div>
-            </div>
-
-            <div class="hud-panel">
-              <div class="hud-panel-title" style="margin-bottom:8px;"><span>◂ ⏰ תזכורת חדשה</span></div>
-              <div class="reminder-row">
-                <input class="input-field" id="reminder-text-input" placeholder="למה להזכיר?">
-                <input class="input-field" id="reminder-time-input" value="09:00">
-              </div>
-              <div style="font-size:11.5px; color:var(--color-text-dim); margin:6px 0 10px;">לתזכורת קבועה (כל שבוע) — תגיד/תכתוב לג'רוויס למשל "כל יום רביעי ב-15:00 תזכיר לי לצאת עם הכלבה".</div>
-              <div class="submit-block" id="reminder-submit-btn" onclick="submitReminder()">קבע תזכורת · תישלח במייל</div>
-            </div>
-
-            <div class="hud-panel">
-              <div class="hud-panel-title" style="margin-bottom:5px;"><span>◂ 📋 התזכורות שלי</span></div>
-              <div id="reminders-list"><div class="events-empty">טוען…</div></div>
-            </div>
+            <div id="agenda-list"><div class="events-empty">טוען…</div></div>
           </div>
 
           <!-- INBOX -->
@@ -1167,11 +1186,17 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
             <button class="mic-btn show" id="push-enable-btn" onclick="enablePushNotifications()">🔔 הפעל התראות בדפדפן</button>
             <button class="mic-btn show" id="push-test-btn" onclick="sendTestPush()">🧪 שלח הודעת בדיקה עכשיו</button>
 
+            <div class="settings-sub">◂ סיכום שבועי</div>
+            <div class="voice-info-block">נשלח למייל אוטומטית כל יום ראשון בבוקר, עם מה שמחכה לך בשבוע הקרוב. אפשר לשלוח תצוגה מקדימה עכשיו.</div>
+            <button class="mic-btn show" onclick="sendWeeklySummaryNow()">שלח סיכום עכשיו</button>
+
             <button class="reset-btn" onclick="resetMemory()">🧹 איפוס זיכרון שיחה</button>
             <button class="danger-btn" onclick="disconnectGoogle()">⏻ התנתקות</button>
           </div>
 
         </div>
+
+        <button class="fab" id="fab" onclick="fabTap()"><svg class="i" aria-hidden="true"><use href="#i-plus"/></svg><span id="fab-label">הוסף</span></button>
 
         <div class="dock" id="dock">
           <div class="reply-bubble" id="reply-bubble" role="status" aria-live="polite">
@@ -1186,21 +1211,56 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
           <div class="bottom-nav" id="bottom-nav"></div>
         </div>
 
-        <!-- Event form sheet -->
-        <div class="sheet-overlay cyan" id="event-form-sheet">
-          <div class="sheet-header"><span class="title" id="event-form-title">פגישה חדשה</span><button class="sheet-close" onclick="closeEventForm()"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></div>
-          <div class="sheet-fields">
-            <div><div class="field-label">כותרת</div><input class="input-field" id="event-title" placeholder="שיחה עם..."></div>
-            <div class="sheet-row-3">
-              <div><div class="field-label">יום</div><input class="input-field" id="event-date" placeholder="מחר"></div>
-              <div><div class="field-label">שעה</div><input class="input-field" id="event-time" style="direction:ltr; text-align:center;" placeholder="15:00"></div>
-              <div><div class="field-label">משך</div><input class="input-field" id="event-dur" placeholder="30 דק׳"></div>
+        <!-- Add sheet: a meeting, a reminder, or a new time for an existing meeting -->
+        <div class="bsheet-overlay" id="add-sheet" onclick="if(event.target===this)closeAddSheet()">
+          <div class="bsheet" role="dialog" aria-modal="true" aria-labelledby="add-sheet-title">
+            <div class="bsheet-grab"></div>
+            <div class="bsheet-title" id="add-sheet-title">הוסף ליומן</div>
+            <div class="ds-seg" id="add-seg">
+              <button type="button" class="on" data-mode="event" onclick="setAddMode('event')">פגישה</button>
+              <button type="button" data-mode="reminder" onclick="setAddMode('reminder')">תזכורת</button>
             </div>
-            <div><div class="field-label">מיקום</div><input class="input-field" id="event-location" placeholder="Zoom / חדר ישיבות"></div>
-            <div><div class="field-label">תיאור</div><textarea class="input-field" id="event-desc" style="min-height:60px;" placeholder="פרטים נוספים…"></textarea></div>
+            <div id="add-what">
+              <label class="ds-lbl" id="add-what-label" for="add-title">מה?</label>
+              <input class="ds-inp" id="add-title" placeholder="למשל: פגישה עם דנה" autocomplete="off">
+            </div>
+            <label class="ds-lbl">מתי?</label>
+            <div class="ds-pills" id="add-day-pills"></div>
+            <div class="ds-pills" style="margin-top:8px;">
+              <input class="ds-inp time" type="time" id="add-time" value="10:00" aria-label="שעה">
+            </div>
+            <div id="add-dur-block">
+              <label class="ds-lbl">כמה זמן?</label>
+              <div class="ds-pills" id="add-dur-pills">
+                <button type="button" class="ds-pill" data-v="30 דק׳" onclick="setAddDuration('30 דק׳')">30 דק׳</button>
+                <button type="button" class="ds-pill" data-v="שעה" onclick="setAddDuration('שעה')">שעה</button>
+                <button type="button" class="ds-pill" data-v="שעתיים" onclick="setAddDuration('שעתיים')">שעתיים</button>
+              </div>
+            </div>
+            <details class="ds-more" id="add-more">
+              <summary>עוד פרטים</summary>
+              <label class="ds-lbl" for="add-location">מיקום</label>
+              <input class="ds-inp" id="add-location" placeholder="Zoom / חדר ישיבות" autocomplete="off">
+              <label class="ds-lbl" for="add-desc">הערות</label>
+              <input class="ds-inp" id="add-desc" placeholder="פרטים נוספים…" autocomplete="off">
+            </details>
+            <div class="ds-note"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg><span id="add-note-text"></span></div>
+            <button type="button" class="try-chip" id="add-try" style="display:none;" onclick="tryRecurringReminder()"><svg class="i" aria-hidden="true"><use href="#i-mic"/></svg><span>“כל יום רביעי ב-15:00 תזכיר לי לצאת עם הכלבה”</span></button>
+            <div class="sheet-actions">
+              <button type="button" class="ds-btn" onclick="closeAddSheet()">ביטול</button>
+              <button type="button" class="ds-btn pri" id="add-submit" onclick="submitAddSheet()">המשך לאישור</button>
+            </div>
           </div>
-          <div class="sheet-spacer"></div>
-          <div class="sheet-submit" onclick="submitEventForm()">שלח לאישור</div>
+        </div>
+
+        <!-- Action sheet: the one place a row's actions live -->
+        <div class="bsheet-overlay" id="action-sheet" onclick="if(event.target===this)closeActionSheet()">
+          <div class="bsheet" role="dialog" aria-modal="true" aria-labelledby="action-sheet-title">
+            <div class="bsheet-grab"></div>
+            <div class="bsheet-title" id="action-sheet-title"></div>
+            <div id="action-sheet-list"></div>
+            <button type="button" class="ds-btn block" style="margin-top:12px;" onclick="closeActionSheet()">סגור</button>
+          </div>
         </div>
 
         <!-- Compose sheet -->
@@ -1536,12 +1596,25 @@ function renderNav(){
         nav.appendChild(btn);
     });
 }
+// One create button per content tab, always in the same corner; the tab decides what it creates.
+const FAB_DEFS = {
+    agenda: { label: 'הוסף', run: () => openAddSheet('event') },
+};
+function updateFab(){
+    const def = FAB_DEFS[currentTab];
+    $('fab').classList.toggle('show', !!def);
+    $('device-screen').dataset.fab = def ? '1' : '0';
+    if (def) $('fab-label').textContent = def.label;
+}
+function fabTap(){ const def = FAB_DEFS[currentTab]; if (def) def.run(); }
+function fillCommand(text){ const i = $('cmd-input'); i.value = text; i.focus(); }
 function setTab(key){
     currentTab = key;
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('show'));
     $(`tab-${key}`).classList.add('show');
     // Content tabs get a calm, opaque surface (CSS keys off this); Home keeps the full HUD.
     $('device-screen').dataset.tab = key;
+    updateFab();
     if (key === 'home') hideReplyBubble();
     $('app-body').scrollTop = 0;
     renderNav();
@@ -4151,12 +4224,10 @@ function runVoiceCommand(text){
    then POST /api/speak for audio (the model's own days_ahead choice isn't
    trustworthy enough for a one-click "show me the week" per the old file).
    ================================================================================ */
-async function loadWeekAgenda(fromQuickAction){
-    // Only the deliberate Home quick-action tap counts as an "activity" for
-    // History — just viewing the Agenda tab's own week toggle is page
-    // navigation, not a command, same reasoning as tab switches not logging.
-    if (fromQuickAction) { voiceState = 'processing'; renderOrb(); logCommandStart('מה יש לי השבוע?', 'get_calendar_events'); }
-    else { $('agenda-week-text').innerText = 'טוען…'; }
+async function loadWeekAgenda(){
+    // Only the Home quick-action chip uses this now: the Agenda tab lists every day itself, so the old
+    // "week" toggle (a text dump that also started speaking the week aloud on every open) is gone.
+    voiceState = 'processing'; renderOrb(); logCommandStart('מה יש לי השבוע?', 'get_calendar_events');
     try {
         const res = await fetchWithTimeout('/api/agenda/week');
         const data = await res.json();
@@ -4164,71 +4235,19 @@ async function loadWeekAgenda(fromQuickAction){
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: data.text }),
         });
         const speakData = await speakRes.json();
-        if (fromQuickAction) {
-            finishCommand(data.text, speakData.audio);
-            logCommandSettle('executed');
-        } else {
-            $('agenda-week-text').innerText = data.text;
-            if (speakData.audio) playJarvisAudio(speakData.audio);
-        }
+        finishCommand(data.text, speakData.audio);
+        logCommandSettle('executed');
     } catch (err) {
-        if (fromQuickAction) { voiceState = 'idle'; renderOrb(); logCommandSettle('cancelled'); }
-        else { $('agenda-week-text').innerText = 'לא הצלחתי להתחבר לשרת.'; }
+        voiceState = 'idle'; renderOrb(); logCommandSettle('cancelled');
         showToast('לא הצלחתי לטעון את סדר השבוע.', true);
     }
 }
 
-/* ================================================================================
-   Agenda tab — today/week toggle, upcoming events list, "+ פגישה" form,
-   reschedule/cancel, weekly summary, reminders.
-   ================================================================================ */
-let agendaView = 'today';
-function setAgendaView(view){
-    agendaView = view;
-    $('agenda-tab-today').classList.toggle('active', view === 'today');
-    $('agenda-tab-week').classList.toggle('active', view === 'week');
-    $('agenda-today-view').style.display = view === 'today' ? '' : 'none';
-    $('agenda-week-view').style.display = view === 'week' ? '' : 'none';
-    if (view === 'week') loadWeekAgenda(false);
-}
-function loadAgendaTab(){ renderEventList($('agenda-events-list'), upcomingEventsCache, true); loadReminders(); }
 
 /* ================================================================================
-   Reminders list — set_reminder/set_recurring_reminder only ever reach the
-   user by email (see daily_briefing.py), so this is the only place to see
-   what's still pending without checking your inbox.
+   Reminders — kept only for the edit/delete plumbing below; the agenda shows them
+   inline, filed by day, next to the events.
    ================================================================================ */
-async function loadReminders(){
-    const container = $('reminders-list');
-    try {
-        const res = await fetchWithTimeout('/api/reminders');
-        const data = await res.json();
-        renderReminders(data.reminders || []);
-    } catch (e) {
-        container.innerHTML = '<div class="events-empty">לא הצלחתי לטעון תזכורות</div>';
-    }
-}
-function renderReminders(reminders){
-    const container = $('reminders-list');
-    container.innerHTML = '';
-    if (!reminders.length) {
-        container.innerHTML = '<div class="events-empty">אין תזכורות פעילות</div>';
-        return;
-    }
-    reminders.forEach(r => {
-        const row = el('div','event-row');
-        const t = el('span','t'); t.textContent = (r.recurring ? '🔁 ' : '') + r.label;
-        // Same emoji the notification itself will carry — makes the list read
-        // like the reminders you actually get, not a separate abstract list.
-        const s = el('span','s'); s.textContent = (r.emoji ? r.emoji + ' ' : '') + r.text;
-        const editBtn = el('button','cancel-x'); editBtn.innerText = '✎'; editBtn.title = 'ערוך תזכורת';
-        editBtn.onclick = (e) => { e.stopPropagation(); openReminderEditSheet(r); };
-        const delBtn = el('button','cancel-x'); delBtn.innerText = '✕'; delBtn.title = 'מחק תזכורת';
-        delBtn.onclick = (e) => { e.stopPropagation(); deleteReminderRow(r.id); };
-        row.append(t, s, editBtn, delBtn);
-        container.appendChild(row);
-    });
-}
 let reminderEditId = null;
 function toDatetimeLocalValue(epochSeconds){
     const d = new Date(epochSeconds * 1000);
@@ -4306,36 +4325,6 @@ let upcomingEventsCache = [];
 // On the app's stated #1 pillar (schedule management), that's a false
 // answer, not just a stuck spinner — worse than showing nothing at all.
 let upcomingEventsLoaded = false;
-function buildEventRow(ev, showCancel){
-    const row = el('div','event-row');
-    const t = el('span','t'); t.textContent = ev.time_label;
-    const s = el('span','s'); s.textContent = ev.summary;
-    row.append(t, s);
-    if (showCancel && ev.id) {
-        // openRescheduleForm() is defined further down but already exists
-        // and is fully wired to the real command flow — it just never had
-        // an on-screen entry point until now.
-        const reschedBtn = el('button','cancel-x resched'); reschedBtn.innerText = '🔄'; reschedBtn.title = 'שנה שעה';
-        reschedBtn.onclick = (e) => { e.stopPropagation(); openRescheduleForm(ev); };
-        row.appendChild(reschedBtn);
-        const btn = el('button','cancel-x'); btn.innerText = '✕'; btn.title = 'בטל';
-        btn.onclick = (e) => { e.stopPropagation(); cancelEvent(ev.id, ev.summary); };
-        row.appendChild(btn);
-    }
-    return row;
-}
-function renderEventList(container, events, showCancel){
-    container.innerHTML = '';
-    if (!upcomingEventsLoaded) {
-        container.innerHTML = '<div class="events-empty">טוען…</div>';
-        return;
-    }
-    if (!events || events.length === 0) {
-        container.innerHTML = '<div class="events-empty">אין כלום בקרוב</div>';
-        return;
-    }
-    events.forEach(ev => container.appendChild(buildEventRow(ev, showCancel)));
-}
 let homeUpcomingExpanded = false;
 function toggleHomeUpcoming(){ homeUpcomingExpanded = !homeUpcomingExpanded; renderHomeUpcoming(); }
 
@@ -4352,31 +4341,337 @@ function toggleHomeUpcoming(){ homeUpcomingExpanded = !homeUpcomingExpanded; ren
 // wrong endpoint for the wrong item type.
 let homeRemindersCache = [];
 let homeTasksCache = [];
-function buildQuickItemRow(icon, label, text){
-    const row = el('div','event-row');
-    const t = el('span','t'); t.textContent = label;
-    const s = el('span','s'); s.textContent = `${icon} ${text}`;
+
+/* ================================================================================
+   Agenda — one list of everything that has a time, grouped by day.
+
+   The server sends the user's own "today" and real dates (not a pre-formatted label), so
+   "היום"/"מחר" and the now-line are measured in the USER's zone, not the browser's or the
+   server's. Reminders are filed by day next to the events; all-day events say so instead of
+   showing a made-up time (the old list printed a vacation as "Sun 03:00").
+   ================================================================================ */
+const HE_DAY_FULL = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];      // Date.getDay()
+const HE_DAY_SHORT = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+const HE_MON0 = ['שני','שלישי','רביעי','חמישי','שישי','שבת','ראשון'];          // reminders: 0 = Monday
+const HE_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+let upcomingToday = '';          // 'YYYY-MM-DD' in the user's zone, from the server
+let upcomingTz = '';             // IANA zone name, from the server
+let upcomingConfigured = true;   // false = no calendar connected (NOT the same as "nothing scheduled")
+
+function keyFromDate(d){ return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function dateFromKey(key){ const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d, 12); }   // noon: immune to DST edges
+function addDaysKey(key, n){ const d = dateFromKey(key); d.setDate(d.getDate() + n); return keyFromDate(d); }
+function todayKey(){ return upcomingToday || keyFromDate(new Date()); }
+function dayDiff(a, b){ return Math.round((dateFromKey(b) - dateFromKey(a)) / 86400000); }
+function timeOfIso(iso){ return iso ? iso.slice(11, 16) : ''; }        // the server already sent it in the user's zone
+function weekdayLabel(key){ const g = dateFromKey(key).getDay(); return g === 6 ? 'שבת' : 'יום ' + HE_DAY_SHORT[g]; }
+function weekdayLong(key){ const g = dateFromKey(key).getDay(); return g === 6 ? 'שבת' : 'יום ' + HE_DAY_FULL[g]; }
+function longDate(key){ const d = dateFromKey(key); return `${weekdayLong(key)}, ${d.getDate()} ב${HE_MONTHS[d.getMonth()]}`; }
+function dayLabels(key){
+    const diff = dayDiff(todayKey(), key), d = dateFromKey(key);
+    if (diff === 0) return ['היום', weekdayLabel(key)];
+    if (diff === 1) return ['מחר', weekdayLabel(key)];
+    return [weekdayLabel(key), `${d.getDate()}.${d.getMonth() + 1}`];
+}
+function nowHHMM(){
+    try { return new Intl.DateTimeFormat('en-GB', { timeZone: upcomingTz || undefined, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()); }
+    catch (e) { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
+}
+
+/* Everything with a time, filed by day: [{ day, items: [...] }], today always present. */
+function agendaGroups(){
+    const today = todayKey(), horizon = addDaysKey(today, 7);
+    const byDay = new Map();
+    const put = (day, item) => { if (!byDay.has(day)) byDay.set(day, []); byDay.get(day).push(item); };
+    for (const ev of upcomingEventsCache) {
+        const start = ev.day || today, end = ev.end_day || start;
+        if (ev.all_day) {
+            const total = dayDiff(start, end) + 1;
+            // a multi-day event (a holiday) belongs on every day it covers, not only its first
+            for (let d = start < today ? today : start; d <= end && d <= horizon; d = addDaysKey(d, 1)) {
+                put(d, { kind: 'event', ev, allDay: true, sort: '', part: total > 1 ? [dayDiff(start, d) + 1, total] : null });
+            }
+        } else {
+            const from = timeOfIso(ev.start_iso);
+            put(start < today ? today : start, { kind: 'event', ev, allDay: false, from, to: timeOfIso(ev.end_iso), sort: from || '00:00' });
+        }
+    }
+    for (const r of homeRemindersCache) {
+        put(r.day && r.day > today ? r.day : today, { kind: 'reminder', r, allDay: false, from: r.time || '', sort: r.time || '00:00' });
+    }
+    if (!byDay.has(today)) byDay.set(today, []);
+    return [...byDay.keys()].sort().map(day => ({
+        day, items: byDay.get(day).sort((a, b) => (Number(b.allDay) - Number(a.allDay)) || a.sort.localeCompare(b.sort)),
+    }));
+}
+
+function buildAgendaRow(it){
+    const row = el('div', 'row-item');
+    const t = el('div', 'row-time');
+    if (it.allDay) t.innerHTML = '<span class="allday-chip">כל היום</span>';
+    else {
+        t.textContent = it.from;
+        if (it.kind === 'event' && it.to) { const s = el('small'); s.textContent = it.to; t.appendChild(s); }
+    }
+    const main = el('div');
+    const ttl = el('div', 'row-title');
+    ttl.textContent = it.kind === 'event' ? it.ev.summary : ((it.r.emoji ? it.r.emoji + ' ' : '') + it.r.text);
+    main.appendChild(ttl);
+    const meta = el('div', 'row-meta');
+    if (it.kind === 'event') {
+        if (it.ev.location) { const s = el('span'); s.innerHTML = icon('pin', 's') + ' '; s.appendChild(document.createTextNode(it.ev.location)); meta.appendChild(s); }
+        if (it.part) { const s = el('span'); s.textContent = `יום ${it.part[0]} מתוך ${it.part[1]}`; meta.appendChild(s); }
+    } else {
+        const tag = el('span', 'tag-chip'); tag.innerHTML = icon('bell') + 'תזכורת'; meta.appendChild(tag);
+        if (it.r.recurring && it.r.weekday != null) { const rep = el('span', 'tag-chip'); rep.innerHTML = icon('repeat') + 'כל ' + HE_MON0[it.r.weekday]; meta.appendChild(rep); }
+    }
+    if (meta.childNodes.length) main.appendChild(meta);
+    const more = el('button', 'row-more'); more.type = 'button';
+    more.setAttribute('aria-label', 'עוד פעולות'); more.innerHTML = icon('dots');
+    row.append(t, main, more);
+    row.onclick = () => openItemActions(it);
+    return row;
+}
+function buildNowLine(hhmm){
+    const n = el('div', 'now-line');
+    n.innerHTML = '<span class="mono"></span><span>עכשיו</span>';
+    n.firstChild.textContent = hhmm;
+    return n;
+}
+function buildEmptyCard(iconName, title, text, withActions){
+    const c = el('div', 'empty-card');
+    c.innerHTML = `<div class="pi">${icon(iconName)}</div><h3></h3><p></p>`;
+    c.querySelector('h3').textContent = title; c.querySelector('p').textContent = text;
+    if (withActions) {
+        const btns = el('div', 'row-btns');
+        btns.innerHTML = `<button type="button" class="ds-btn" onclick="openAddSheet('event')">${icon('plus', 's')}פגישה</button>` +
+                         `<button type="button" class="ds-btn" onclick="openAddSheet('reminder')">${icon('plus', 's')}תזכורת</button>`;
+        c.appendChild(btns);
+        const t = el('button', 'try-chip'); t.type = 'button';
+        t.innerHTML = icon('mic') + '<span>“קבע פגישה מחר ב-10”</span>';
+        t.onclick = () => fillCommand('קבע פגישה מחר ב-10');
+        c.appendChild(t);
+    }
+    return c;
+}
+function renderAgenda(){
+    const box = $('agenda-list');
+    if (!box) return;
+    $('agenda-sub').textContent = longDate(todayKey());
+    box.innerHTML = '';
+    if (!upcomingEventsLoaded) { box.innerHTML = '<div class="events-empty">טוען…</div>'; return; }
+    if (!upcomingConfigured) {
+        // "not connected" must never read as "nothing scheduled" — that would be a false answer on the app's #1 job
+        const c = buildEmptyCard('cal', 'היומן לא מחובר', 'כדי לראות את האירועים שלך, התחבר שוב עם Google.', false);
+        const b = el('div', 'row-btns');
+        b.innerHTML = '<button type="button" class="ds-btn pri" onclick="switchGoogleAccount()">התחבר עם Google</button>';
+        c.appendChild(b);
+        box.appendChild(c);
+    }
+    const groups = agendaGroups(), today = todayKey();
+    const anything = groups.some(g => g.items.length);
+    groups.forEach(g => {
+        const [main, sub] = dayLabels(g.day);
+        const head = el('div', 'day-head');
+        head.innerHTML = '<b></b><span></span>';
+        head.firstChild.textContent = main; head.lastChild.textContent = sub;
+        box.appendChild(head);
+        if (g.day !== today) { g.items.forEach(it => box.appendChild(buildAgendaRow(it))); return; }
+        if (!g.items.length) {
+            box.appendChild(upcomingConfigured
+                ? buildEmptyCard('cal', anything ? 'היום פנוי' : 'אין כלום ב-7 הימים הקרובים',
+                                 anything ? 'אין אירועים או תזכורות להיום. רוצה להוסיף משהו?' : 'היומן ריק. רוצה להוסיף משהו?', true)
+                : document.createDocumentFragment());
+            return;
+        }
+        const now = nowHHMM(); let placed = false;
+        g.items.forEach(it => {
+            if (!placed && !it.allDay && it.sort > now) { box.appendChild(buildNowLine(now)); placed = true; }
+            box.appendChild(buildAgendaRow(it));
+        });
+        if (!placed) box.appendChild(buildNowLine(now));
+    });
+}
+function loadAgendaTab(){ renderAgenda(); pollUpcomingEvents(); }
+
+async function loadReminders(){
+    try {
+        const res = await fetchWithTimeout('/api/reminders');
+        const data = await res.json();
+        homeRemindersCache = data.reminders || [];
+        renderAgenda(); renderHomeUpcoming();
+    } catch (e) { showToast('לא הצלחתי לטעון תזכורות.', true); }
+}
+
+/* ---- one action menu per row (replaces two unlabeled icon buttons on every event) ---- */
+function openActionSheet(title, actions){
+    $('action-sheet-title').textContent = title;
+    const list = $('action-sheet-list'); list.innerHTML = '';
+    actions.forEach(a => {
+        const b = el('button', 'act-row' + (a.danger ? ' danger' : '')); b.type = 'button';
+        b.innerHTML = icon(a.icon); b.appendChild(document.createTextNode(a.label));
+        b.onclick = () => { closeActionSheet(); a.run(); };
+        list.appendChild(b);
+    });
+    $('action-sheet').classList.add('show');
+}
+function closeActionSheet(){ $('action-sheet').classList.remove('show'); }
+function openItemActions(it){
+    if (it.kind === 'event') {
+        if (!it.ev.id) return;
+        openActionSheet(it.ev.summary, [
+            { icon: 'clock', label: 'שנה שעה', run: () => openAddSheet('reschedule', it.ev) },
+            { icon: 'trash', label: 'בטל אירוע', danger: true, run: () => cancelEvent(it.ev.id, it.ev.summary) },
+        ]);
+    } else {
+        openActionSheet(it.r.text, [
+            { icon: 'edit', label: 'ערוך תזכורת', run: () => openReminderEditSheet(it.r) },
+            { icon: 'trash', label: 'מחק תזכורת', danger: true, run: () => deleteReminderRow(it.r.id) },
+        ]);
+    }
+}
+
+/* ---- the add sheet: a meeting, a reminder, or a new time for an existing meeting ---- */
+let addMode = 'event', addRef = null, addDayKey = '', addDayText = 'מחר', addDurText = '30 דק׳';
+function dayChoices(){
+    const t = todayKey();
+    return Array.from({ length: 7 }, (_, i) => {
+        const key = addDaysKey(t, i), d = dateFromKey(key);
+        return { key, main: i === 0 ? 'היום' : i === 1 ? 'מחר' : weekdayLabel(key),
+                 text: i === 0 ? 'היום' : i === 1 ? 'מחר' : `${weekdayLong(key)} ${d.getDate()}.${d.getMonth() + 1}` };
+    });
+}
+function renderAddDayPills(){
+    const box = $('add-day-pills'); box.innerHTML = '';
+    dayChoices().forEach(c => {
+        const b = el('button', 'ds-pill' + (c.key === addDayKey ? ' on' : '')); b.type = 'button';
+        b.textContent = c.main;
+        b.onclick = () => { addDayKey = c.key; addDayText = c.text; renderAddDayPills(); };
+        box.appendChild(b);
+    });
+    const on = box.querySelector('.on');
+    if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+function setAddDuration(text){
+    addDurText = text;
+    document.querySelectorAll('#add-dur-pills .ds-pill').forEach(p => p.classList.toggle('on', p.dataset.v === text));
+}
+function pickAddDay(key){
+    const c = dayChoices().find(x => x.key === key);
+    if (c) { addDayKey = c.key; addDayText = c.text; }
+    else { addDayKey = ''; addDayText = key ? `${weekdayLong(key)} ${dateFromKey(key).getDate()}.${dateFromKey(key).getMonth() + 1}` : ''; }
+    renderAddDayPills();
+}
+function nextFullHour(){ const [h] = nowHHMM().split(':').map(Number); return `${String((h + 1) % 24).padStart(2, '0')}:00`; }
+function setAddMode(mode, fresh){
+    addMode = mode;
+    const isEvent = mode === 'event', isRem = mode === 'reminder', isResched = mode === 'reschedule';
+    document.querySelectorAll('#add-seg button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+    $('add-seg').style.display = isResched ? 'none' : '';
+    $('add-sheet-title').textContent = isResched ? 'שינוי שעת פגישה' : 'הוסף ליומן';
+    $('add-what').style.display = isResched ? 'none' : '';
+    $('add-what-label').textContent = isRem ? 'מה להזכיר?' : 'מה?';
+    $('add-title').placeholder = isRem ? 'למשל: להתקשר לדנה' : 'למשל: פגישה עם דנה';
+    $('add-dur-block').style.display = isEvent ? '' : 'none';
+    $('add-more').style.display = isEvent ? '' : 'none';
+    $('add-try').style.display = isRem ? '' : 'none';
+    $('add-note-text').textContent = isRem
+        ? 'תקבל אותה כהתראה או במייל. לתזכורת שחוזרת כל שבוע, אמור או הקלד למשל:'
+        : isResched ? 'JARVIS ישנה את השעה ויבקש את אישורך לפני שהוא נוגע ביומן.'
+                    : 'JARVIS יכין את האירוע ויבקש את אישורך לפני שהוא נכנס ליומן.';
+    $('add-submit').textContent = isRem ? 'קבע תזכורת' : 'המשך לאישור';
+    if (isRem) {
+        const morning = nowHHMM() < '09:00';
+        $('add-time').value = '09:00';
+        pickAddDay(morning ? todayKey() : addDaysKey(todayKey(), 1));
+    } else if (isEvent) {
+        $('add-time').value = '10:00';
+        pickAddDay(addDaysKey(todayKey(), 1));
+    }
+}
+function openAddSheet(mode, ref){
+    addRef = ref || null;
+    $('add-title').value = ''; $('add-location').value = ''; $('add-desc').value = '';
+    $('add-more').open = false;
+    setAddDuration('30 דק׳');
+    setAddMode(mode || 'event', true);
+    if (mode === 'reschedule' && ref) {
+        $('add-time').value = timeOfIso(ref.start_iso) || '10:00';
+        pickAddDay(ref.day || addDaysKey(todayKey(), 1));
+    }
+    $('add-sheet').classList.add('show');
+    if (mode !== 'reschedule') setTimeout(() => $('add-title').focus(), 320);
+}
+function closeAddSheet(){ $('add-sheet').classList.remove('show'); }
+function tryRecurringReminder(){ closeAddSheet(); fillCommand('כל יום רביעי ב-15:00 תזכיר לי לצאת עם הכלבה'); }
+function submitAddSheet(){
+    const title = $('add-title').value.trim();
+    const time = $('add-time').value.trim();
+    const day = addDayText || 'מחר';
+    if (addMode === 'reminder') {
+        if (!title) { showToast('מה להזכיר?', true); $('add-title').focus(); return; }
+        closeAddSheet();
+        submitReminder(title, day, time || '09:00');
+        return;
+    }
+    let text;
+    if (addMode === 'reschedule' && addRef) {
+        text = `שנה את האירוע "${addRef.summary}" ל-${day}${time ? ' בשעה ' + time : ''}`;
+    } else {
+        const loc = $('add-location').value.trim(), desc = $('add-desc').value.trim();
+        text = `קבע פגישה "${title || 'פגישה חדשה'}" ${day}${time ? ' בשעה ' + time : ''}${addDurText ? ' למשך ' + addDurText : ''}${loc ? ' במיקום ' + loc : ''}${desc ? ': ' + desc : ''}`;
+    }
+    closeAddSheet();
+    submitBackgroundCommand(text, addMode === 'reschedule' ? 'update_calendar_event' : 'create_calendar_event');
+}
+async function submitReminder(text, dayText, time){
+    logCommandStart(`תזכורת: ${text} · ${dayText} ${time}`, 'set_reminder');
+    try {
+        const data = await postCommand(`תזכיר לי "${text}" ${dayText} בשעה ${time}`);
+        logCommandSettle('executed');
+        showToast(data.response || 'התזכורת נקבעה.');
+        loadReminders();
+    } catch (err) {
+        logCommandSettle('cancelled');
+        showToast(err.name === 'AbortError' ? 'לקח יותר מדי זמן — נסה שוב, אדוני.' : 'לא הצלחתי להתחבר לשרת.', true);
+    }
+}
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if ($('add-sheet').classList.contains('show')) closeAddSheet();
+    else if ($('action-sheet').classList.contains('show')) closeActionSheet();
+});
+
+/* ---- Home: the next few things, read-only (actions live in the Agenda) ---- */
+function homeWhen(day, timeText, allDay){ const [main] = dayLabels(day); return allDay ? `${main} · כל היום` : `${main} ${timeText}`; }
+function buildHomeRow(when, iconName, text){
+    const row = el('div', 'event-row');
+    const t = el('span', 't'); t.textContent = when;
+    const s = el('span', 's');
+    if (iconName) s.insertAdjacentHTML('afterbegin', icon(iconName, 's'));
+    s.appendChild(document.createTextNode(text));
     row.append(t, s);
     return row;
 }
 function renderHomeUpcoming(){
-    const combined = [
-        ...upcomingEventsCache.map(ev => ({ kind: 'event', data: ev })),
-        ...homeRemindersCache.map(r => ({ kind: 'reminder', data: r })),
-        ...homeTasksCache.map(t => ({ kind: 'task', data: t })),
-    ];
-    const shown = homeUpcomingExpanded ? combined : combined.slice(0, 3);
     const container = $('home-upcoming-list');
     container.innerHTML = '';
+    const flat = [];
+    agendaGroups().forEach(g => g.items.forEach(it => flat.push({ day: g.day, it })));
+    const tasks = homeTasksCache.map(t => ({ task: t }));
+    const combined = [...flat, ...tasks];
+    const shown = homeUpcomingExpanded ? combined : combined.slice(0, 3);
     if (!upcomingEventsLoaded) {
         container.innerHTML = '<div class="events-empty">טוען…</div>';
+    } else if (!upcomingConfigured && combined.length === 0) {
+        container.innerHTML = '<div class="events-empty">היומן לא מחובר — התחבר שוב בהגדרות.</div>';
     } else if (combined.length === 0) {
-        container.innerHTML = '<div class="events-empty">אין כלום בקרוב</div>';
+        container.innerHTML = '<div class="events-empty">אין כלום בקרוב — יום רגוע.</div>';
     } else {
-        shown.forEach(item => {
-            if (item.kind === 'event') container.appendChild(buildEventRow(item.data, true));
-            else if (item.kind === 'reminder') container.appendChild(buildQuickItemRow('⏰', item.data.label, item.data.text));
-            else container.appendChild(buildQuickItemRow('📝', 'משימה', item.data.text));
+        shown.forEach(x => {
+            if (x.task) container.appendChild(buildHomeRow('משימה', 'task', x.task.text));
+            else if (x.it.kind === 'event') container.appendChild(buildHomeRow(homeWhen(x.day, x.it.from, x.it.allDay), null, x.it.ev.summary));
+            else container.appendChild(buildHomeRow(homeWhen(x.day, x.it.from, false), 'bell', x.it.r.text));
         });
     }
     const toggle = $('home-upcoming-toggle');
@@ -4395,14 +4690,16 @@ async function pollUpcomingEvents(){
             fetchWithTimeout('/api/tasks'),
         ]);
         const data = await evRes.json();
+        upcomingConfigured = !!data.configured;
         upcomingEventsCache = (data.configured && data.events) ? data.events : [];
+        upcomingToday = data.today || ''; upcomingTz = data.tz || '';
         upcomingEventsLoaded = true;
         const remData = await remRes.json();
         homeRemindersCache = remData.reminders || [];
         const taskData = await taskRes.json();
         homeTasksCache = (taskData.tasks || []).filter(t => !t.done_this_period);
         renderHomeUpcoming();
-        if (currentTab === 'agenda') loadAgendaTab();
+        if (currentTab === 'agenda') renderAgenda();
     } catch (e) { /* keep whatever was last shown */ }
 }
 async function cancelEvent(eventId, summary){
@@ -4429,37 +4726,6 @@ setInterval(pollUpcomingEvents, 60000);
    normal way, via SSE -> showConfirmModal. ---- */
 let eventFormMode = 'create';
 let eventFormRef = null;
-function openEventForm(){
-    eventFormMode = 'create'; eventFormRef = null;
-    $('event-form-title').innerText = 'פגישה חדשה';
-    $('event-title').value = ''; $('event-date').value = 'מחר'; $('event-time').value = '15:00';
-    $('event-dur').value = '30 דק׳'; $('event-location').value = ''; $('event-desc').value = '';
-    $('event-form-sheet').classList.add('show');
-}
-function openRescheduleForm(ev){
-    eventFormMode = 'reschedule'; eventFormRef = ev;
-    $('event-form-title').innerText = 'שינוי שעת פגישה';
-    $('event-title').value = ev.summary; $('event-date').value = ''; $('event-time').value = ev.time_label;
-    $('event-dur').value = ''; $('event-location').value = ''; $('event-desc').value = '';
-    $('event-form-sheet').classList.add('show');
-}
-function closeEventForm(){ $('event-form-sheet').classList.remove('show'); }
-function submitEventForm(){
-    const title = $('event-title').value.trim() || 'פגישה חדשה';
-    const date = $('event-date').value.trim() || 'מחר';
-    const time = $('event-time').value.trim() || '';
-    const dur = $('event-dur').value.trim();
-    const loc = $('event-location').value.trim();
-    const desc = $('event-desc').value.trim();
-    let text;
-    if (eventFormMode === 'reschedule' && eventFormRef) {
-        text = `שנה את האירוע "${eventFormRef.summary}" ל-${date} בשעה ${time}`.trim();
-    } else {
-        text = `קבע פגישה "${title}" ${date}${time ? ' בשעה ' + time : ''}${dur ? ' למשך ' + dur : ''}${loc ? ' במיקום ' + loc : ''}${desc ? ': ' + desc : ''}`;
-    }
-    closeEventForm();
-    submitBackgroundCommand(text, eventFormMode === 'reschedule' ? 'update_calendar_event' : 'create_calendar_event');
-}
 /* Fire-and-forget through the normal command endpoint, logging the attempt
    immediately as 'pending' — the actual result surfaces via the SSE-pushed
    confirmation_required event (or a plain response), same as any other
@@ -4480,22 +4746,6 @@ async function submitBackgroundCommand(text, toolLabel){
 /* ---- Reminder: set_reminder is a real tool too, but executes immediately
    (no confirm-to-act step — see app.py's comment on set_reminder), so this
    just routes through the normal command flow and reports the response. ---- */
-async function submitReminder(){
-    const text = $('reminder-text-input').value.trim();
-    const time = $('reminder-time-input').value.trim() || '09:00';
-    if (!text) return;
-    $('reminder-text-input').value = '';
-    logCommandStart(`תזכורת: ${text} בשעה ${time}`, 'set_reminder');
-    try {
-        const data = await postCommand(`תזכיר לי "${text}" בשעה ${time}`);
-        logCommandSettle('executed');
-        showToast(data.response || 'התזכורת נקבעה.');
-        loadReminders();
-    } catch (err) {
-        logCommandSettle('cancelled');
-        showToast(err.name === 'AbortError' ? 'לקח יותר מדי זמן — נסה שוב, אדוני.' : 'לא הצלחתי להתחבר לשרת.', true);
-    }
-}
 async function sendWeeklySummaryNow(){
     showToast('שולח סיכום שבועי…');
     logCommandStart('שלח אימייל סיכום שבועי עכשיו', 'send_email');
@@ -6311,23 +6561,29 @@ async function speakWakeGreeting(){
     }
 }
 function summarizeUpcomingForGreeting(){
-    const eventCount = upcomingEventsCache.length;
+    const today = todayKey();
+    const onToday = ev => (ev.day || today) <= today && (ev.end_day || ev.day || today) >= today;
+    const todays = upcomingEventsCache.filter(onToday);
     const openTasks = homeTasksCache.length; // already excludes done-this-period tasks, see pollUpcomingEvents()
-    if (eventCount === 0 && openTasks === 0) return "Nothing on your schedule today, sir — a clear day.";
-    const parts = [];
-    if (eventCount > 0) {
-        const first = upcomingEventsCache[0];
-        parts.push(eventCount === 1
-            ? `You have one event today: ${first.summary} at ${first.time_label}`
-            : `You have ${eventCount} events today, the nearest being ${first.summary} at ${first.time_label}`);
+    const what = ev => ev.all_day ? `${ev.summary}, all day` : `${ev.summary} at ${timeOfIso(ev.start_iso)}`;
+    const sentences = [];
+    if (todays.length) {
+        const timed = todays.filter(e => !e.all_day).sort((a, b) => timeOfIso(a.start_iso).localeCompare(timeOfIso(b.start_iso)));
+        const first = timed[0] || todays[0];
+        sentences.push(todays.length === 1 ? `You have one event today: ${what(first)}.`
+                                           : `You have ${todays.length} events today, the nearest being ${what(first)}.`);
+    } else {
+        sentences.push('Nothing on your calendar today.');
+        const next = upcomingEventsCache.find(ev => (ev.day || today) > today);
+        if (next) {
+            const diff = dayDiff(today, next.day);
+            const when = diff === 1 ? 'tomorrow' : 'on ' + dateFromKey(next.day).toLocaleDateString('en-GB', { weekday: 'long' });
+            sentences.push(`Next up: ${what(next)}, ${when}.`);
+        }
     }
-    if (openTasks > 0) {
-        const taskPhrase = openTasks === 1 ? `one open task: ${homeTasksCache[0].text}` : `${openTasks} open tasks`;
-        // "and ..." only reads correctly tacked onto the events sentence above --
-        // on its own (no events today) it needs to stand as its own sentence.
-        parts.push(parts.length > 0 ? `and ${taskPhrase}` : `You have ${taskPhrase}`);
-    }
-    return parts.join(', ') + '.';
+    if (openTasks > 0) sentences.push(openTasks === 1 ? `You have one open task: ${homeTasksCache[0].text}.` : `You have ${openTasks} open tasks.`);
+    if (!todays.length && !upcomingEventsCache.length && openTasks === 0) return 'Nothing on your schedule today, sir — a clear day.';
+    return sentences.join(' ');
 }
 
 /* ================================================================================
