@@ -70,6 +70,24 @@ SCOPES = [
 CONFIGURED = bool(GOOGLE_LIBS_AVAILABLE and GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 
 
+def _http_status(e) -> str:
+    """Best-effort numeric HTTP status out of an HttpError, appended to the
+    generic failure sentences below. Without this, every refusal (event
+    doesn't exist under this id/calendar, not the organizer, already
+    deleted, malformed request, ...) reads as the identical "refused the
+    request" sentence -- reported live by a user whose cancel kept
+    failing silently (masked at the time by the separate false-success
+    bug fixed alongside this) with no way for either of us to tell which
+    of those it actually was. 404 vs 403 vs 410 vs 400 point at very
+    different causes."""
+    try:
+        status = e.resp.status
+        reason = (e.reason or "").strip()
+        return f"{status}: {reason}" if reason else str(status)
+    except Exception:
+        return "?"
+
+
 def _client_config():
     return {
         "installed": {
@@ -255,7 +273,7 @@ def create_calendar_event(user_id: str, summary: str, start_iso: str, end_iso: s
         return f"Created '{summary}' on your Google Calendar, sir."
     except HttpError as e:
         logger.error(f"Google Calendar create failed: {e}")
-        return "I couldn't create that event on Google Calendar, sir — the request was refused. Please try again shortly."
+        return f"I couldn't create that event on Google Calendar, sir — the request was refused (error {_http_status(e)}). Please try again shortly."
     except Exception as e:
         logger.error(f"Google Calendar create failed (network/transport error): {e}")
         return "I couldn't reach Google Calendar to create that event, sir — check the internet connection and try again."
@@ -282,7 +300,7 @@ def update_calendar_event(user_id: str, event_id: str, start_iso: str = "", end_
         return "Updated that event on your Google Calendar, sir."
     except HttpError as e:
         logger.error(f"Google Calendar update failed: {e}")
-        return "I couldn't update that event, sir — Google Calendar refused the request. Please try again shortly."
+        return f"I couldn't update that event, sir — Google Calendar refused the request (error {_http_status(e)}). Please try again shortly."
     except Exception as e:
         logger.error(f"Google Calendar update failed (network/transport error): {e}")
         return "I couldn't reach Google Calendar to update that event, sir — check the internet connection and try again."
@@ -297,7 +315,7 @@ def delete_calendar_event(user_id: str, event_id: str) -> str:
         return "Cancelled that event on your Google Calendar, sir."
     except HttpError as e:
         logger.error(f"Google Calendar delete failed: {e}")
-        return "I couldn't cancel that event, sir — Google Calendar refused the request. Please try again shortly."
+        return f"I couldn't cancel that event, sir — Google Calendar refused the request (error {_http_status(e)}). Please try again shortly."
     except Exception as e:
         logger.error(f"Google Calendar delete failed (network/transport error): {e}")
         return "I couldn't reach Google Calendar to cancel that event, sir — check the internet connection and try again."
@@ -373,7 +391,7 @@ def send_email(user_id: str, to: str, subject: str, body: str, attachments: list
         return f"Sent the email to {to}, sir."
     except HttpError as e:
         logger.error(f"Gmail send failed: {e}")
-        return "I couldn't send that email, sir — Gmail refused the request. Please try again shortly."
+        return f"I couldn't send that email, sir — Gmail refused the request (error {_http_status(e)}). Please try again shortly."
     except Exception as e:
         logger.error(f"Gmail send failed (network/transport error): {e}")
         return "I couldn't reach Gmail to send that email, sir — check the internet connection and try again."

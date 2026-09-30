@@ -381,6 +381,10 @@ def request_create_calendar_event(user_id: str, summary: str, start_iso: str, en
         meta={"kind": "calendar_event", "provider": target, "user_id": user_id},
         cancelled_message=f"❌ ביטלתי — '{summary}' לא נוצרה.",
         approved_message=f"✅ יצרתי את '{summary}'.",
+        # Both providers' create_calendar_event share this exact prefix on success
+        # (checked directly, not assumed) -- see request_confirmation's docstring
+        # for why this guard exists at all.
+        success_prefix="Created '",
     )
     # `kind` + `details` let the HUD render a proper card instead of a text
     # blob — see resolveConfirmation()/renderConfirmationModal() in
@@ -419,6 +423,7 @@ def request_delete_calendar_event(user_id: str, event_id: str, summary: str = ""
         # reads backwards here.
         cancelled_message=f"❌ ביטלתי את הביטול — '{summary or event_id}' נשארה בלוח שלך.",
         approved_message=f"✅ ביטלתי את '{summary or event_id}'.",
+        success_prefix="Cancelled that event",  # google_service.delete_calendar_event's exact success prefix
     )
     return {
         "status": "confirmation_required", "token": token, "message": description_text,
@@ -510,6 +515,9 @@ def request_update_calendar_event(user_id: str, summary_hint: str = "",
         meta={"kind": "calendar_event_update", "user_id": user_id},
         cancelled_message=f"❌ ביטלתי — '{event['summary']}' לא שונתה.",
         approved_message=f"✅ עדכנתי את '{event['summary']}'.",
+        success_prefix="Updated that event",  # google_service.update_calendar_event's exact success prefix
+        # (its own "Nothing to update, sir" no-op case correctly falls through to the honest
+        # message too, since it doesn't share this prefix either)
     )
     return {
         "status": "confirmation_required", "token": token, "message": description_text,
@@ -609,6 +617,7 @@ def request_send_email(user_id: str, to: str, subject: str, body: str, provider:
         meta={"kind": "email", "provider": target, "user_id": user_id, "attachments": attachments},
         cancelled_message="❌ ביטלתי — הדוא״ל לא נשלח.",
         approved_message=f"✅ שלחתי את הדוא״ל ל-{to}.",
+        success_prefix="Sent the email to",  # both providers' send_email share this exact prefix on success
     )
     return {
         "status": "confirmation_required", "token": token, "message": description_text,

@@ -194,7 +194,8 @@ _LOCK = threading.Lock()
 
 
 def request_confirmation(description: str, callback, *cb_args, meta: dict = None,
-                          cancelled_message: str = None, approved_message: str = None, **cb_kwargs) -> str:
+                          cancelled_message: str = None, approved_message: str = None,
+                          success_prefix: str = None, **cb_kwargs) -> str:
     """Register a destructive action. Returns a token to show the user.
     `callback(*cb_args, **cb_kwargs)` runs only on approval.
 
@@ -211,7 +212,22 @@ def request_confirmation(description: str, callback, *cb_args, meta: dict = None
     denying a delete proposal means the event was kept, not cancelled).
 
     `approved_message`, if given, is what resolve_confirmation() returns on
-    approval instead of the generic "Done: {description}" fallback.
+    approval instead of the generic "Done: {description}" fallback --
+    UNLESS `success_prefix` is also given and the callback's own result
+    doesn't start with it, in which case the callback's own result (the
+    honest one) is returned instead. Give `success_prefix` whenever
+    `callback` is one of google_service.py's/microsoft_service.py's write
+    functions (create/update/delete_calendar_event, send_email) -- every one
+    of them catches its own HttpError/RequestException internally and
+    returns an English sentence on failure rather than raising, so without
+    `success_prefix` here `approved_message` gets shown UNCONDITIONALLY the
+    instant the callback returns at all, success or not. Found live by the
+    user: cancelling a calendar event whose real Google API call had failed
+    still showed "✅ I cancelled it" because nothing here had ever looked at
+    what delete_calendar_event() actually returned. A callback that only
+    ever raises on failure (never returns an error sentence, e.g.
+    file_tools.py's _do_delete/_do_kill) doesn't need `success_prefix` --
+    the `except` branch below already covers it correctly either way.
     """
     token = secrets.token_hex(16)  # 128 bits — token_hex(4) (32 bits) was cheaply guessable
     with _LOCK:
@@ -223,6 +239,7 @@ def request_confirmation(description: str, callback, *cb_args, meta: dict = None
             "created": time.time(),
             "meta": meta or {},
             "cancelled_message": cancelled_message,
+            "success_prefix": success_prefix,
             "approved_message": approved_message,
         }
     logger.info(f"Confirmation requested [{token}]: {description}")
@@ -309,8 +326,14 @@ def resolve_confirmation(token: str, approve: bool) -> str:
         return entry.get("cancelled_message") or f"Cancelled: {entry['description']}"
     try:
         result = entry["callback"](*entry["args"], **entry["kwargs"])
-        if entry.get("approved_message"):
-            return entry["approved_message"]
+        approved_message = entry.get("approved_message")
+        success_prefix = entry.get("success_prefix")
+        # approved_message is only trusted when there's nothing to check it against (no
+        # success_prefix given -- a callback that only ever raises on failure) or the callback's
+        # own result actually confirms success. Otherwise the callback's own (honest, possibly a
+        # failure sentence) result is what the user sees -- see request_confirmation()'s docstring.
+        if approved_message and (not success_prefix or (isinstance(result, str) and result.startswith(success_prefix))):
+            return approved_message
         return result if isinstance(result, str) else f"Done: {entry['description']}"
     except Exception as e:
         # Full detail goes to the log; the spoken reply stays clean — this
