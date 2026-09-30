@@ -72,6 +72,36 @@ await page.evaluate(() => showConfirmModal({ type: 'confirmation_required', kind
 check('calendar confirmation sheet still renders', (await page.locator('#confirm-detail-title').innerText()) === 'Smoke event');
 check('calendar confirmation keeps its title', (await page.locator('#confirm-kind-label').innerText()) === 'הצעת אירוע ביומן');
 
+// The seal used to be a static checkmark regardless of which button was pressed -- found by the
+// user testing live: reject "דחייה" on a real event and the in-flight overlay still showed a
+// checkmark and "יוצר אירוע ביומן…" ("Creating the event...") for a split second, reading as "yes,
+// done" right after saying no. Default (nothing decided yet) must still be the approve styling;
+// resolveConfirmation(false) must flip it before the network call, not after.
+const sealDefault = await page.evaluate(() => ({
+  icon: document.getElementById('confirm-seal-icon').getAttribute('href'),
+  reject: document.getElementById('confirm-seal-ring').classList.contains('reject'),
+  label: document.getElementById('confirming-label').innerText,
+}));
+check('seal defaults to the approve checkmark + "creating" label when the sheet first opens (nothing decided yet)',
+  sealDefault.icon === '#i-check' && !sealDefault.reject && sealDefault.label === 'יוצר אירוע ביומן…', sealDefault);
+await page.evaluate(() => { resolveConfirmation(false); });   // fires the sync prefix (the seal update) without awaiting the fetch
+const sealAfterReject = await page.evaluate(() => ({
+  icon: document.getElementById('confirm-seal-icon').getAttribute('href'),
+  reject: document.getElementById('confirm-seal-ring').classList.contains('reject'),
+  label: document.getElementById('confirming-label').innerText,
+}));
+check('rejecting flips the seal to a red X and a "cancelling" label -- the fix for the bug above',
+  sealAfterReject.icon === '#i-x' && sealAfterReject.reject && sealAfterReject.label === 'מבטל את הצעת האירוע…', sealAfterReject);
+await page.evaluate(() => { pendingConfirmToken = null; hideConfirmModal(); });
+await page.evaluate(() => showConfirmModal({ type: 'confirmation_required', kind: 'calendar_event', message: 'x', token: 'tok2',
+  details: { summary: 'Smoke event 2', start_iso: '2026-10-01T10:00:00+03:00', end_iso: '2026-10-01T11:00:00+03:00', provider: 'google' } }));
+const sealReset = await page.evaluate(() => ({
+  icon: document.getElementById('confirm-seal-icon').getAttribute('href'),
+  reject: document.getElementById('confirm-seal-ring').classList.contains('reject'),
+}));
+check('...and a NEW confirmation resets back to the approve styling (the reject look does not leak into the next one)',
+  sealReset.icon === '#i-check' && !sealReset.reject, sealReset);
+
 // Escape on the approval sheet must send the SAME "no" the reject button does -- not just hide it --
 // since it gates a real calendar/email write (found missing by a review agent). Spying on the real
 // function rather than completing a full server round-trip on a fake token, same rigor the rest of

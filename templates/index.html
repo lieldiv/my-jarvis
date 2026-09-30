@@ -626,6 +626,11 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .confirming-overlay{ position:absolute; inset:0; border-radius:12px; background:rgba(1,6,14,0.9); display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; }
 .confirming-overlay.show{ display:flex; }
 .seal-ring{ width:56px; height:56px; border-radius:50%; background:rgb(var(--accent-rgb)); color:var(--color-bg); font-size:24px; font-weight:800; display:flex; align-items:center; justify-content:center; box-shadow:0 0 40px rgb(var(--accent-rgb)); animation:jm-sealpop .5s ease both; }
+/* Reject case: a checkmark in the theme's own accent colour reads as "yes, done" no matter what --
+   found by the user testing live, on a real rejection, exactly that confusion. Red + an X (the same
+   colour/icon the "דחייה" button itself already uses) instead, so the seal agrees with the button
+   that was just pressed rather than looking like the opposite of it. */
+.seal-ring.reject{ background:var(--color-red); box-shadow:0 0 40px var(--color-red); }
 .confirming-label{ font-family:var(--font-display); font-size:12px; letter-spacing:var(--tracking-wide); color:rgb(var(--accent-rgb)); }
 
 @media (hover:none) and (pointer:coarse){
@@ -1487,7 +1492,7 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
               <div id="confirm-read-fields"></div>
               <div class="confirm-edit-fields" id="confirm-edit-fields"></div>
               <div class="confirming-overlay" id="confirming-overlay">
-                <div class="seal-ring"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg></div>
+                <div class="seal-ring" id="confirm-seal-ring"><svg class="i" aria-hidden="true"><use href="#i-check" id="confirm-seal-icon"/></svg></div>
                 <div class="confirming-label" id="confirming-label"></div>
               </div>
             </div>
@@ -5461,6 +5466,23 @@ const CONFIRMING_LABELS = {
     calendar_event: 'יוצר אירוע ביומן…', calendar_event_update: 'מעדכן שעה…', calendar_event_delete: 'מבטל פגישה…',
     email: 'שולח מייל…', web_search: 'פותח מפות…', phone_app: 'פותח ניווט…', web_page: 'פותח דף…',
 };
+// The "דחייה" case for each kind -- worded as its own outcome, not just "cancelling" (which would be
+// genuinely ambiguous for calendar_event_delete: rejecting a PROPOSED cancellation means the meeting
+// stays, so "מבטל…" there would read as "cancelling the meeting" -- the opposite of what happened).
+const REJECTING_LABELS = {
+    calendar_event: 'מבטל את הצעת האירוע…', calendar_event_update: 'משאיר את השעה כפי שהייתה…', calendar_event_delete: 'משאיר את הפגישה ביומן…',
+    email: 'מבטל את שליחת המייל…', web_search: 'לא פותח…', phone_app: 'לא פותח…', web_page: 'לא פותח…',
+};
+// Sets the seal to match what's actually happening: a checkmark in the theme's own colour for
+// approve, a red X for reject -- the seal used to be a static checkmark regardless of which button
+// was pressed, which read as "yes, done" even right after the user hit "דחייה". Called fresh when a
+// new confirmation opens (approve styling, nothing has happened yet) and again the instant
+// resolveConfirmation actually knows which one the user picked.
+function setConfirmingSeal(kind, approve){
+    $('confirming-label').innerText = (approve ? CONFIRMING_LABELS : REJECTING_LABELS)[kind] || '';
+    $('confirm-seal-ring').classList.toggle('reject', !approve);
+    $('confirm-seal-icon').setAttribute('href', approve ? '#i-check' : '#i-x');
+}
 // Fallback tool label for showConfirmModal's History entry, only used when
 // no in-flight command was tracking one already (see inFlightLogId).
 const CONFIRM_TOOL_NAMES = {
@@ -5606,7 +5628,7 @@ function showConfirmModal(evt){
     // real fields to edit, so hide the button rather than open a blank panel.
     $('confirm-edit-toggle-btn').style.display = (evt.details && (evt.kind === 'calendar_event' || evt.kind === 'email')) ? '' : 'none';
     $('confirming-overlay').classList.remove('show');
-    $('confirming-label').innerText = CONFIRMING_LABELS[evt.kind] || '';
+    setConfirmingSeal(evt.kind, true);   // default/reset state: nothing decided yet, so the approve styling
     renderConfirmReadFields(evt);
     $('confirm-read-fields').style.display = '';
     $('confirm-edit-fields').classList.remove('show');
@@ -5793,6 +5815,7 @@ async function resolveConfirmation(approve){
     }
     if (!pendingConfirmToken) return;
     const logId = pendingConfirmEvt ? pendingConfirmEvt.logId : null;
+    if (pendingConfirmEvt) setConfirmingSeal(pendingConfirmEvt.kind, approve);   // match what's ACTUALLY happening, not just the kind
     $('confirming-overlay').classList.add('show');
     const token = pendingConfirmToken;
     try {
