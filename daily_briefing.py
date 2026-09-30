@@ -48,6 +48,12 @@ WEEKLY_SUMMARY_WEEKDAY = int(os.environ.get("JARVIS_WEEKLY_SUMMARY_WEEKDAY", "6"
 WEEKLY_SUMMARY_HOUR = int(os.environ.get("JARVIS_WEEKLY_SUMMARY_HOUR", "8"))
 WEEKLY_SUMMARY_MINUTE = int(os.environ.get("JARVIS_WEEKLY_SUMMARY_MINUTE", "0"))
 
+# Same env var name app.py reads independently (this module can't import
+# app.py — app.py imports THIS module, see the top of this file — so each
+# side just reads its own copy of the same setting).
+ADMIN_ALERT_EMAIL = os.environ.get("JARVIS_ADMIN_EMAIL", "lieldiv28@gmail.com").strip()
+CAPABILITY_GAP_DIGEST_LIMIT = 20  # per email; also caps how many rows one cycle marks notified
+
 _CHECK_INTERVAL_SECONDS = 60
 
 
@@ -123,6 +129,42 @@ def _check_due_reminders():
             users.mark_reminder_delivered(reminder["id"])
 
 
+def _check_capability_gaps():
+    """The other half of app.py's report_capability_gap tool: that tool only
+    ever writes a local row (users.log_capability_gap) from the live,
+    untrusted request path. THIS is the only place that turns unread rows
+    into an actual email — on this module's own per-minute timer, batched,
+    through the ADMIN's own connected Gmail via _send_user_email, exactly
+    like a reminder or the weekly summary below. If the admin has never
+    signed into this server themselves, there's no stored token to send
+    through — skip quietly (matches _send_user_email's own "not connected"
+    behavior) rather than erroring every minute forever."""
+    gaps = users.get_unnotified_capability_gaps(limit=CAPABILITY_GAP_DIGEST_LIMIT)
+    if not gaps:
+        return
+    admin = users.get_user_by_email(ADMIN_ALERT_EMAIL)
+    if not admin or not google_service.is_connected(admin["id"]):
+        logger.info(f"Capability-gap digest skipped — {ADMIN_ALERT_EMAIL} isn't connected on this server.")
+        return
+
+    lines = []
+    for g in gaps:
+        reporter = users.get_user(g["user_id"]) or {}
+        when = datetime.fromtimestamp(g["created_at"], productivity_service.LOCAL_TZ).strftime("%Y-%m-%d %H:%M")
+        lines.append(
+            f"- {when} — {reporter.get('email', g['user_id'])}\n"
+            f"  Asked for: {g['user_request']}\n"
+            f"  Why not: {g['reason']}\n"
+            f"  Raw message: {(g['raw_text'] or '')[:300]}"
+        )
+    body = f"{len(gaps)} request(s) JARVIS couldn't help with:\n\n" + "\n\n".join(lines)
+    try:
+        _send_user_email(admin["id"], "JARVIS: things I couldn't do — digest", body)
+        users.mark_capability_gaps_notified([g["id"] for g in gaps])
+    except Exception as e:
+        logger.error(f"Capability-gap digest failed: {e}")  # left unmarked — picked up again next cycle
+
+
 def _next_weekly_fire(after: datetime) -> datetime:
     candidate = after.replace(hour=WEEKLY_SUMMARY_HOUR, minute=WEEKLY_SUMMARY_MINUTE, second=0, microsecond=0)
     days_ahead = (WEEKLY_SUMMARY_WEEKDAY - candidate.weekday()) % 7
@@ -154,6 +196,11 @@ def _scheduler_loop():
             _check_due_reminders()
         except Exception as e:
             logger.error(f"Reminder check failed: {e}")
+
+        try:
+            _check_capability_gaps()
+        except Exception as e:
+            logger.error(f"Capability-gap digest check failed: {e}")
 
         if next_weekly_fire is not None:
             now = datetime.now(productivity_service.LOCAL_TZ)

@@ -20,6 +20,7 @@ size, right-to-left, in Hebrew.
 | `unit_events.py` | calendar data: all-day events, real dates, timezone (the old "Sun 03:00" bug) |
 | `unit_inbox.py` | a mailbox / calendar that does not answer is reported as *not connected*, never as *empty* |
 | `unit_web_page.py` | the `open_web_page` tool: URL building, refusal of unsafe targets, prompt wording |
+| `unit_capability_gap.py` | `report_capability_gap`: the live tool call only ever logs locally (never touches email/credentials), the digest only marks a row notified once it actually sent, end to end through the real `run_llm` loop |
 | `test_step1_foundation.mjs` | one opaque dock, icon sprite, calm content surfaces, reply bubble, no emoji chrome |
 | `test_step2_agenda.mjs` | the day-grouped Agenda, add sheet, row actions, Home card, all-day handling |
 | `test_step3_guide.mjs` | help screen, first-run coach, tour, microphone notes |

@@ -199,6 +199,44 @@ reaches for the free one first for general market-mood questions;
 `get_current_info` stays for genuinely non-market current-events
 questions.
 
+## Why report_capability_gap exists (developer alerts, without weakening confirm-to-act)
+
+The owner wants an email when JARVIS genuinely can't help someone — across
+every user, for debugging before/after a demo. The obvious implementation
+(the live tool call sends the email itself, through the owner's own
+connected Gmail) was refused by the sandbox's own security check: it's an
+untrusted conversation triggering an immediate, uncapped, credentialed send
+from a real human's account with nobody confirming it in the moment — the
+exact pattern [productivity_service.py](productivity_service.py)'s "writes
+never fire directly" model exists to prevent, just aimed at the developer's
+inbox instead of the user's own calendar/mailbox.
+
+**The split that makes it safe:** `report_capability_gap` (in
+[app.py](app.py), alongside the other tool impls) only ever calls
+`users.log_capability_gap()` — one local database row, no network call, no
+credentials touched, nothing a conversation does here can by itself send
+anything anywhere. [daily_briefing.py](daily_briefing.py)'s existing
+per-minute scheduler — the SAME one that already emails reminders and the
+weekly summary — is the only code that turns unread rows into an actual
+email (`_check_capability_gaps`, batched up to
+`CAPABILITY_GAP_DIGEST_LIMIT`, via `_send_user_email`). That's not a new
+mechanism, it's the existing one: sender and recipient are the same
+account (`JARVIS_ADMIN_EMAIL`, default `lieldiv28@gmail.com`), exactly like a
+reminder emails the person who set it — nobody's credentials are used on
+someone else's behalf. **For this to actually send anything, that address
+has to have signed into the live server itself at least once** (there's no
+Google token to send through otherwise); until then the digest logs
+"skipped" every cycle and keeps the rows for later, it doesn't drop them.
+
+Rows are only marked notified once actually sent (checked directly in
+`e2e/redesign/unit_capability_gap.py`) — a failed send or a disconnected
+admin leaves them pending for the next cycle rather than losing them
+silently. `report_capability_gap` is deliberately NOT in `TERMINAL_TOOLS`:
+the model still gets a second round to give its own honest answer to the
+user, so a compound request ("check the weather, and also book me a
+haircut") doesn't lose the weather answer just because the haircut half
+logged a gap.
+
 ## Known gotchas
 
 - **Groq free-tier rate limit is tight** — a brand-new free account

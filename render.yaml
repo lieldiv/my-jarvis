@@ -36,6 +36,11 @@ services:
         value: "false"
       - key: JARVIS_WEEKLY_SUMMARY
         value: "true"        # emails each connected user their week ahead — see daily_briefing.py
+      - key: JARVIS_ADMIN_EMAIL
+        value: lieldiv28@gmail.com  # where report_capability_gap's digest goes (same scheduler,
+                                   # see daily_briefing.py) — this address must itself have signed
+                                   # into the live site at least once, or there's no Gmail token to
+                                   # send the digest through and it's silently skipped
       - key: JARVIS_DB_PATH
         value: users.db       # only used as a fallback if DATABASE_URL isn't set — see note above
       - key: DATABASE_URL

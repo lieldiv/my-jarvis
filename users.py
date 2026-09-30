@@ -179,6 +179,19 @@ def _init_db():
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS capability_gaps (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    user_request TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    raw_text TEXT,
+                    created_at REAL NOT NULL,
+                    notified_at REAL
+                )
+                """
+            )
             return
 
         conn.execute(
@@ -298,6 +311,29 @@ def _init_db():
             """
         )
 
+        # One row per time the model told a user it genuinely couldn't help
+        # (see app.py's report_capability_gap tool). Written ONLY from that
+        # live tool call -- a plain local insert, nothing else -- and read
+        # back later by daily_briefing.py's own scheduler, which is the ONLY
+        # code path that ever turns these into an actual email, batched and
+        # on its own timer, through the ADMIN's own connected Gmail (same
+        # mechanism as reminder/weekly-summary delivery below). That split
+        # matters: nothing a live, untrusted conversation does can by itself
+        # cause a real email to go out.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS capability_gaps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                user_request TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                raw_text TEXT,
+                created_at REAL NOT NULL,
+                notified_at REAL
+            )
+            """
+        )
+
 
 @contextmanager
 def _connect():
@@ -369,6 +405,25 @@ def get_user(user_id: str) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
             "SELECT id, email, name, google_token_json FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "email": row[1], "name": row[2], "google_token_json": row[3]}
+
+
+def get_user_by_email(email: str) -> dict | None:
+    """Case-insensitive lookup by the account's own email, for the rare
+    server-side job that needs a SPECIFIC person's stored Google connection
+    rather than whichever user is signed in right now -- daily_briefing.py's
+    capability-gap digest, which always goes out through the admin's own
+    consented Gmail regardless of which user's request triggered any given
+    entry. Most recently active row wins on the off chance more than one
+    exists."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, email, name, google_token_json FROM users "
+            "WHERE LOWER(email) = LOWER(?) ORDER BY last_login_at DESC LIMIT 1",
+            (email,),
         ).fetchone()
     if not row:
         return None
@@ -525,6 +580,41 @@ def delete_push_subscription(endpoint: str) -> None:
     scoping exists to prevent."""
     with _connect() as conn:
         conn.execute("DELETE FROM push_subscriptions WHERE endpoint = ?", (endpoint,))
+
+
+# ---------------------------------------------------------------------------
+# Capability gaps — a local log only. See the capability_gaps table comment
+# (sqlite branch of _init_db) for why the write side never touches email.
+# ---------------------------------------------------------------------------
+def log_capability_gap(user_id: str, user_request: str, reason: str, raw_text: str = "") -> int:
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO capability_gaps (user_id, user_request, reason, raw_text, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (user_id, user_request, reason, raw_text or None, time.time()),
+        )
+        return cur.lastrowid
+
+
+def get_unnotified_capability_gaps(limit: int = 20) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, user_id, user_request, reason, raw_text, created_at FROM capability_gaps"
+            " WHERE notified_at IS NULL ORDER BY created_at LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {"id": r[0], "user_id": r[1], "user_request": r[2], "reason": r[3], "raw_text": r[4], "created_at": r[5]}
+        for r in rows
+    ]
+
+
+def mark_capability_gaps_notified(ids: list[int]) -> None:
+    if not ids:
+        return
+    with _connect() as conn:
+        for gap_id in ids:  # small batches (limit=20 above) — a plain loop beats building a per-backend IN (...) list
+            conn.execute("UPDATE capability_gaps SET notified_at = ? WHERE id = ?", (time.time(), gap_id))
 
 
 def add_task(user_id: str, text: str, category: str | None = None, recurring_day: str | None = None) -> int:

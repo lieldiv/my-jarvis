@@ -584,6 +584,14 @@ MAX_SPEAK_CHARS = 2000
 # in run_llm() below rather than baked into the static SYSTEM_PROMPT.
 LOCAL_TZ = ZoneInfo(os.environ.get("JARVIS_TIMEZONE", "Asia/Jerusalem"))
 
+# report_capability_gap only ever logs locally (see users.log_capability_gap) —
+# it does NOT send this email itself. daily_briefing.py's own scheduler reads
+# the log back and emails a digest to this address through the ADMIN's own
+# connected Gmail, the same way it already emails reminders/weekly summaries.
+# Same env var name read independently in both files (daily_briefing.py can't
+# import app.py — see its own module docstring on the import direction).
+ADMIN_ALERT_EMAIL = os.environ.get("JARVIS_ADMIN_EMAIL", "lieldiv28@gmail.com").strip()
+
 # Kept as a plain string constant and served by the /sw.js route below
 # rather than a real static file, so there's exactly one place in the repo
 # a push-payload shape change needs to touch. Deliberately minimal: no
@@ -825,8 +833,14 @@ _SHARED_INSTRUCTIONS = (
     "information (news, stock moves, scores, anything that could have "
     "happened after your training), never for things you already know, "
     "and never as a first resort out of general uncertainty. Call the "
-    "right tool instead of guessing or saying you can't; if a command "
-    "doesn't match any tool, just respond conversationally."
+    "right tool instead of guessing. If a request is genuinely something "
+    "you have no way to do at all here — it doesn't match any tool and "
+    "there's no reasonable way to help, NOT simply a write action waiting "
+    "on the user's own approval, and NOT something you can already do a "
+    "different way — tell the user honestly that you can't, in your own "
+    "words, and also call report_capability_gap once so the developer "
+    "knows; don't mention that call to the user. For everything else, "
+    "just respond conversationally."
 )
 
 SYSTEM_PROMPT = _JARVIS_PERSONA + _SHARED_INSTRUCTIONS
@@ -1737,6 +1751,40 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "report_capability_gap",
+            "description": (
+                "Silently logs, for the developer, that a user asked for "
+                "something you have no way to do at all here. This only "
+                "writes a local note — it does not itself send anything "
+                "anywhere or say anything to the user. Call it ALONGSIDE "
+                "your own honest answer, never instead of one, and never "
+                "mention to the user that you called it. Only for a genuine "
+                "gap: no tool exists for it and there's no reasonable way to "
+                "help. Never call it for a write action that's simply "
+                "waiting on the user's own approval "
+                "(create_calendar_event/send_email already handle that "
+                "normally), or for something you can already do a different "
+                "way (open_web_page, get_current_info, etc.)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_request": {
+                        "type": "string",
+                        "description": "What the user actually asked for, in a short paraphrase.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "One sentence: why you can't do it.",
+                    },
+                },
+                "required": ["user_request", "reason"],
+            },
+        },
+    },
 ]
 
 # open_application/close_application/computer_use are always dead weight in
@@ -2615,6 +2663,39 @@ def _open_web_page(user_id, args, persona="jarvis"):
                f"{what}. Tap it.")
 
 
+# In-memory only: per signed-in user, resets on a restart/deploy. That's
+# deliberate and sufficient — this server runs a single gunicorn worker (see
+# Procfile) — and its only job is stopping one confused/looping conversation
+# from writing the same row a hundred times; it isn't a security control
+# (the write below is a plain local log entry, nothing more — see the next
+# paragraph) or a guarantee against the table growing.
+_GAP_LOG_COOLDOWN_S = 60
+_last_gap_logged_at: dict = {}
+
+
+def _report_capability_gap(user_id: str, user_text: str, args: dict) -> str:
+    """Writes ONE local row (users.log_capability_gap) and does nothing
+    else — no network call, no credentials touched, nothing leaves this
+    process. daily_briefing.py's scheduler is the only code that ever turns
+    these into an actual email, on its own timer, batched, through the
+    ADMIN's own connected Gmail — the same already-shipped mechanism it
+    already uses for reminders/weekly summaries. That split is the whole
+    point: nothing a live, untrusted conversation does here can, by itself,
+    cause a real email to go out."""
+    now = time.time()
+    if now - _last_gap_logged_at.get(user_id, 0) < _GAP_LOG_COOLDOWN_S:
+        return "(already logged recently)"
+    _last_gap_logged_at[user_id] = now
+    user_request = str(args.get("user_request") or "").strip()[:500] or user_text[:500]
+    reason = str(args.get("reason") or "").strip()[:500]
+    try:
+        users.log_capability_gap(user_id, user_request, reason, user_text[:500])
+    except Exception as e:
+        logger.error(f"Capability-gap log failed: {e}")
+        return "(could not log it)"
+    return "(logged for the developer)"
+
+
 # Every tool dispatch entry is now built fresh per request, closing over
 # that request's signed-in user_id — including the ones below that don't
 # touch calendar/mail data. They used to live in a shared, static dict, but
@@ -2631,7 +2712,7 @@ _STATIC_TOOL_IMPL = {
 }
 
 
-def _build_tool_impl(user_id: str, shortcuts: list = None, persona: str = "jarvis") -> dict:
+def _build_tool_impl(user_id: str, shortcuts: list = None, persona: str = "jarvis", user_text: str = "") -> dict:
     impl = dict(_STATIC_TOOL_IMPL)
     impl.update({
         "get_daily_agenda": lambda args: productivity_service.get_daily_agenda_text(user_id),
@@ -2660,6 +2741,7 @@ def _build_tool_impl(user_id: str, shortcuts: list = None, persona: str = "jarvi
         "add_task": lambda args: productivity_service.request_add_task(user_id, args.get("text", ""), args.get("recurring_day")),
         "mark_task_complete": lambda args: _mark_task_complete(user_id, args),
         "delete_task": lambda args: productivity_service.request_delete_task(user_id, args.get("task_id", 0)),
+        "report_capability_gap": lambda args: _report_capability_gap(user_id, user_text, args),
     })
     return impl
 
@@ -2729,7 +2811,7 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
             shortcuts: list = None) -> str:
     shortcuts = shortcuts or []
     history = _history_for(user_id)
-    tool_impl = _build_tool_impl(user_id, shortcuts, persona)
+    tool_impl = _build_tool_impl(user_id, shortcuts, persona, user_text)
 
     messages = [
         {"role": "system", "content": PERSONAS.get(persona, SYSTEM_PROMPT)},
