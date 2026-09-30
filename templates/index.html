@@ -811,6 +811,11 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .hdr-btn{ width:44px; height:44px; flex:none; border-radius:50%; display:grid; place-items:center; padding:0; background:none; border:1px solid transparent; color:var(--color-text-dim); cursor:pointer; }
 .hdr-btn:active{ background:var(--color-cyan-soft); }
 .warn-block{ margin-top:20px; padding:13px 14px; background:rgba(255,200,0,0.06); border:var(--border-alert); border-radius:var(--radius-sm); font-size:14px; font-weight:500; color:var(--color-gold); line-height:1.6; }
+/* .capture-warn had no rule of its own at all (found while replacing its one remaining emoji) --
+   same look as .warn-block, its only sibling warning box, rather than rendering as unstyled text
+   the one time this narrow iOS-PWA-only path actually fires. */
+.capture-warn{ margin-top:20px; padding:13px 14px; background:rgba(255,200,0,0.06); border:var(--border-alert); border-radius:var(--radius-sm); font-size:14px; font-weight:500; color:var(--color-gold); line-height:1.6; }
+.capture-warn .url{ display:inline-block; font-family:var(--font-mono); direction:ltr; unicode-bidi:plaintext; word-break:break-all; margin:4px 0; }
 .mic-note{ margin-top:10px; max-width:300px; text-align:center; font-size:13.5px; color:var(--color-gold); line-height:1.5; }
 .coach{ position:absolute; inset-inline:12px; bottom:calc(var(--dock-h) + 12px); z-index:56; background:var(--surface-solid); border:1px solid rgba(var(--accent-rgb),.5); border-radius:var(--radius-xl); padding:14px 14px 12px; box-shadow:0 0 30px rgba(var(--accent-rgb),.12), 0 -8px 24px rgba(2,8,19,.6); }
 @media (hover:none) and (pointer:coarse){ .coach{ position:fixed; } }
@@ -4781,6 +4786,9 @@ document.addEventListener('keydown', e => {
     else if ($('reminder-edit-sheet').classList.contains('show')) closeReminderEditSheet();
     else if ($('tool-panel-sheet').classList.contains('show')) closeToolPanel();
     else if ($('switch-account-sheet').classList.contains('show')) closeSwitchAccountModal();
+    // Inline per-row elements, not a full-screen sheet, so they're last in the chain -- but still
+    // "an open-able thing Escape didn't close" otherwise, per a review agent's note.
+    else { const open = document.querySelectorAll('.mail-reply-box.show'); if (open.length) open.forEach(b => b.classList.remove('show')); }
 });
 
 /* One row per thing that matters today, each a way into its tab. The rows say what IS there (the next thing,
@@ -6262,7 +6270,7 @@ function renderCaptureWarning(){
     if (!(IS_IOS && IS_STANDALONE && captureFailedHere)) return;
     const w = el('div', 'capture-warn');
     w.innerHTML =
-        '⚠ <b>ההקלטה לא עובדת מהאייקון במסך הבית.</b><br/>' +
+        icon('warn', 's') + ' <b>ההקלטה לא עובדת מהאייקון במסך הבית.</b><br/>' +
         'שלוש שיטות הקלטה שונות נכשלו כאן, ואפל מגבילה גישה למיקרופון ' +
         'באפליקציה שנוספה למסך הבית.<br/>' +
         '<b>פתח את הכתובת הזו ב-Safari:</b>' +

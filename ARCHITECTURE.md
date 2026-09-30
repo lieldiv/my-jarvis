@@ -39,7 +39,6 @@ graph TD
     subgraph ToolModules["Tool modules"]
         FileTools["file_tools.py"]
         Vision["vision_action.py"]
-        SelfHeal["self_healing.py"]
         Tavily["tavily_service.py"]
         Stocks["stocks_service.py"]
         TTS["tts.py"]
@@ -78,7 +77,7 @@ graph TD
     LLMLoop --> Stocks
     LLMLoop -.->|"JARVIS_DESKTOP_TOOLS=true only"| FileTools
     LLMLoop -.->|"JARVIS_DESKTOP_TOOLS=true only"| Vision
-    LLMLoop -.->|"JARVIS_DESKTOP_TOOLS=true only"| SelfHeal
+    LLMLoop -- "report_capability_gap: local log only, never a network call" --> Users
 
     %% ===== Service layer =====
     Productivity --> GoogleSvc
@@ -98,7 +97,6 @@ graph TD
     Vision --> GuardFns
     Vision --> Cursor
     Vision -- "own Groq calls" --> Groq
-    SelfHeal --> GuardFns
     Cursor -.-> WinOS
     FileTools -.->|"kill_process"| WinOS
     Tavily --> Cert
@@ -113,7 +111,7 @@ graph TD
     %% ===== Background thread =====
     Sched --> GoogleSvc
     Sched --> Productivity
-    Sched --> Users
+    Sched -- "capability-gap digest: reads unnotified rows, sends via the ADMIN's own connection" --> Users
 ```
 
 ## Notes on what the diagram is actually saying
@@ -135,11 +133,23 @@ graph TD
   and imported by `productivity_service.py`, but this fork's sign-in flow is
   Google-only, so it's never actually reached today.
 - **Desktop-control tools are present but gated** — `file_tools.py` (beyond its
-  sandboxed workspace functions), `vision_action.py`, and `self_healing.py` are
-  unconditionally imported, but `app.py`'s `ACTIVE_TOOLS` only exposes them to the
-  LLM when `JARVIS_DESKTOP_TOOLS=true`. `render.yaml` sets it `false` for this
-  cloud deployment, since there's no Windows desktop on the other end of a Render
-  dyno to control.
+  sandboxed workspace functions) and `vision_action.py` are unconditionally
+  imported, but `app.py`'s `ACTIVE_TOOLS` only exposes them to the LLM when
+  `JARVIS_DESKTOP_TOOLS=true`. `render.yaml` sets it `false` for this cloud
+  deployment, since there's no Windows desktop on the other end of a Render
+  dyno to control. (`self_healing.py`, shown as a tool module in an earlier
+  version of this diagram, no longer exists — an OWASP audit found it ran
+  LLM-generated Python with every secret this app holds and no sandbox
+  boundary, and it was removed outright rather than patched; see
+  `security_report.md` and `CLAUDE.md`'s "Why report_capability_gap exists"
+  section's sibling note on that removal.)
+- **`report_capability_gap` never itself sends anything** — the live,
+  untrusted request path (`LLMLoop`) only ever writes one local row via
+  `users.py`; `daily_briefing.py`'s existing scheduler thread (`Sched`,
+  already shown below sending reminders/the weekly summary) is the only
+  code that turns unread rows into a real email, on its own timer, through
+  the admin's own connected Gmail. See `CLAUDE.md`'s "Why report_capability_gap
+  exists" section for why that split exists.
 - **`cert_bootstrap.py` isn't part of the data flow** — it's a side-effect-only
   import (patches `certifi`/`SSL_CERT_FILE` for the process) that every module
   making its own HTTPS calls (`google_service`, `microsoft_service`,

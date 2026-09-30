@@ -9,7 +9,7 @@ import logging
 import os
 import shutil
 
-import psutil  # add to requirements.txt: psutil
+import psutil
 
 from guardrails import (
     resolve_safe_path, ensure_workspace, ensure_user_workspace, SandboxViolation,
