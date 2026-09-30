@@ -71,7 +71,29 @@ await page.evaluate(() => showConfirmModal({ type: 'confirmation_required', kind
   details: { summary: 'Smoke event', start_iso: '2026-10-01T10:00:00+03:00', end_iso: '2026-10-01T11:00:00+03:00', provider: 'google' } }));
 check('calendar confirmation sheet still renders', (await page.locator('#confirm-detail-title').innerText()) === 'Smoke event');
 check('calendar confirmation keeps its title', (await page.locator('#confirm-kind-label').innerText()) === 'הצעת אירוע ביומן');
+
+// Escape on the approval sheet must send the SAME "no" the reject button does -- not just hide it --
+// since it gates a real calendar/email write (found missing by a review agent). Spying on the real
+// function rather than completing a full server round-trip on a fake token, same rigor the rest of
+// this file already uses for this sheet (it never resolves a real confirm either, just renders it).
+const rejectCall = await page.evaluate(() => {
+  return new Promise(resolve => {
+    const original = window.resolveConfirmation;
+    window.resolveConfirmation = (approve) => { window.resolveConfirmation = original; resolve(approve); };
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    setTimeout(() => resolve('TIMEOUT'), 2000);
+  });
+});
+check('Escape on the approval sheet calls resolveConfirmation(false) -- the exact same "no" the reject button sends', rejectCall === false, rejectCall);
 await page.evaluate(() => { hideConfirmModal(); pendingConfirmToken = null; });
+
+// Escape now also closes the other sheets a review agent found it silently skipped
+await page.evaluate(() => { openComposeModal(); });
+await page.keyboard.press('Escape');
+check('Escape closes the compose sheet', !(await page.evaluate(() => document.getElementById('compose-sheet').classList.contains('show'))));
+await page.evaluate(() => { $('switch-account-sheet').classList.add('show'); });
+await page.keyboard.press('Escape');
+check('Escape closes the switch-account sheet', !(await page.evaluate(() => document.getElementById('switch-account-sheet').classList.contains('show'))));
 
 check('no JS errors across the whole run', errors.length === 0, errors.join(' | '));
 await browser.close();

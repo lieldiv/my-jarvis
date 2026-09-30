@@ -12,8 +12,9 @@
 # unaffected — falls back to a local sqlite3 file as always.
 #
 # Before the first deploy:
-#   1. Comment out pyautogui/pygetwindow/Pillow/pywhatkit in requirements.txt
-#      (see the note there) — they won't install on Render's Linux build.
+#   1. Comment out pyautogui/pygetwindow/Pillow in requirements.txt (see the
+#      note there) — they won't install on Render's Linux build. (pywhatkit
+#      isn't a dependency of this fork at all any more — nothing to do there.)
 #   2. Create a "Web application" type OAuth client in Google Cloud Console
 #      (see google_service.py's docstring) with redirect URI:
 #      https://<your-service-name>.onrender.com/auth/google/callback

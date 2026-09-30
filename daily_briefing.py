@@ -57,13 +57,25 @@ CAPABILITY_GAP_DIGEST_LIMIT = 20  # per email; also caps how many rows one cycle
 _CHECK_INTERVAL_SECONDS = 60
 
 
-def _send_user_email(user_id: str, subject: str, body: str) -> None:
+def _send_user_email(user_id: str, subject: str, body: str) -> bool:
+    """Returns whether the send actually succeeded. google_service.send_email()
+    never raises -- it catches every Gmail-API/network failure itself and
+    returns an English error SENTENCE instead (see its own docstring) -- so a
+    bare `try/except` around a call to this function can never observe a
+    failed send; only this return value can. Most callers here (reminders,
+    the weekly summary) deliberately ignore it and mark their own work done
+    regardless, on purpose -- see _check_due_reminders' comment on why a
+    broken reminder retried forever isn't better than one that silently
+    didn't arrive once. _check_capability_gaps is the one caller that must
+    NOT ignore it (found by a review agent, reproduced directly: a mocked
+    Gmail failure still left a row marked "notified")."""
     user = users.get_user(user_id)
     if not user or not google_service.is_connected(user_id):
         logger.info(f"Skipping email to user {user_id} — not connected.")
-        return
+        return False
     result = google_service.send_email(user_id, user["email"], subject, body)
     logger.info(f"Email '{subject}' to user {user_id}: {result}")
+    return result.startswith("Sent the email")
 
 
 def _reminder_notification(reminder: dict) -> tuple:
@@ -159,10 +171,14 @@ def _check_capability_gaps():
         )
     body = f"{len(gaps)} request(s) JARVIS couldn't help with:\n\n" + "\n\n".join(lines)
     try:
-        _send_user_email(admin["id"], "JARVIS: things I couldn't do — digest", body)
-        users.mark_capability_gaps_notified([g["id"] for g in gaps])
+        sent = _send_user_email(admin["id"], "JARVIS: things I couldn't do — digest", body)
     except Exception as e:
-        logger.error(f"Capability-gap digest failed: {e}")  # left unmarked — picked up again next cycle
+        sent = False
+        logger.error(f"Capability-gap digest raised: {e}")
+    if sent:
+        users.mark_capability_gaps_notified([g["id"] for g in gaps])
+    else:
+        logger.warning("Capability-gap digest did not send — rows left unmarked, retried next cycle.")
 
 
 def _next_weekly_fire(after: datetime) -> datetime:

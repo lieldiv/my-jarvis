@@ -68,14 +68,27 @@ body = sent[0][3]
 check("...the digest names the actual reporting user and their request", "someone@example.com" in body and "order pizza on Wolt" in body, body[:300])
 check("...every previously-unnotified row is now marked notified", users.get_unnotified_capability_gaps(limit=999) == [], users.get_unnotified_capability_gaps(limit=999))
 
-# a send that raises must NOT mark rows notified (retried next cycle, same as the "not connected" case)
+# a send that RAISES must not mark rows notified (retried next cycle, same as the "not connected" case)
 users.log_capability_gap("reporter-1", "translate this PDF", "no translation tool", "raw")
 def _boom(*a, **k): raise RuntimeError("Gmail API down")
 db.google_service.send_email = _boom
 pending_before2 = len(users.get_unnotified_capability_gaps(limit=999))
 db._check_capability_gaps()
-check("a failed send raises and leaves the row unmarked (picked up again next cycle, not lost)",
+check("a send that RAISES leaves the row unmarked (picked up again next cycle, not lost)",
       len(users.get_unnotified_capability_gaps(limit=999)) == pending_before2, "row silently lost on a failed send")
+
+# the REAL failure contract: google_service.send_email never raises -- it catches everything itself and
+# returns an error SENTENCE (see its own code). A review agent found this exact case used to slip through
+# and get marked notified anyway, because the old code only ever checked for a raised exception.
+db.google_service.send_email = lambda uid, to, subject, body: "I couldn't send that email, sir — Gmail refused the request. Please try again shortly."
+pending_before3 = len(users.get_unnotified_capability_gaps(limit=999))
+ok = db._send_user_email("admin-1", "x", "y")
+check("_send_user_email reports failure (not just logs it) when send_email returns an error sentence", ok is False, ok)
+db._check_capability_gaps()
+check("...so a NON-raising Gmail failure also leaves the row unmarked, not falsely marked 'notified'",
+      len(users.get_unnotified_capability_gaps(limit=999)) == pending_before3, "row falsely marked notified on a silent (non-raising) send failure")
+db.google_service.send_email = lambda uid, to, subject, body: "Sent the email to x, sir."
+check("_send_user_email reports success on the real success sentence", db._send_user_email("admin-1", "x", "y") is True)
 
 # ---------------------------------------------------------------------------- end to end through run_llm itself
 # Not just the dispatch table in isolation: the real loop in run_llm, with a scripted two-round

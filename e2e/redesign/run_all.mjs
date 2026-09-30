@@ -21,6 +21,7 @@ const suites = [
   [PY, 'unit_web_page.py'],
   [PY, 'unit_inbox.py'],
   [PY, 'unit_capability_gap.py'],
+  [PY, 'unit_tool_loop.py'],
   ['node', 'test_step1_foundation.mjs'],
   ['node', 'test_step2_agenda.mjs'],
   ['node', 'test_step3_guide.mjs'],

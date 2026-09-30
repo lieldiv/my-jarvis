@@ -521,16 +521,16 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .sheet-submit{ text-align:center; padding:15px; border-radius:var(--radius-sm); background:var(--color-cyan); color:var(--color-bg); font-size:14.5px; font-weight:700; cursor:pointer; font-family:var(--font-display); }
 .sheet-submit.gold{ background:var(--color-gold); color:#1a1400; }
 .file-chip-list{ display:flex; gap:8px; flex-wrap:wrap; }
-.file-chip{ display:flex; align-items:center; gap:6px; padding:7px 11px; border-radius:var(--radius-pill); background:rgba(255,200,0,0.1); border:1px solid rgba(255,200,0,0.4); font-size:12px; color:var(--color-gold); }
+.file-chip{ display:flex; align-items:center; gap:6px; padding:7px 11px; border-radius:var(--radius-pill); background:var(--color-cyan-soft); border:1px solid rgba(var(--accent-rgb),0.4); font-size:12px; color:var(--color-cyan); }
 .file-chip button{ background:none; border:none; cursor:pointer; color:var(--color-red); font-size:13px; padding:0; }
 .file-add-chip{
     display:inline-flex; align-items:center; gap:6px; padding:8px 15px;
-    border-radius:var(--radius-pill); border:1px dashed rgba(255,200,0,0.55);
-    background:rgba(255,200,0,0.07); font-size:12.5px; font-weight:600; color:var(--color-gold);
+    border-radius:var(--radius-pill); border:1px dashed rgba(var(--accent-rgb),0.55);
+    background:rgba(var(--accent-rgb),0.07); font-size:12.5px; font-weight:600; color:var(--color-cyan);
     cursor:pointer; transition:transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
 }
-.file-add-chip:hover{ background:rgba(255,200,0,0.16); border-color:var(--color-gold); border-style:solid; box-shadow:0 0 16px rgba(255,200,0,0.25); transform:translateY(-1px); }
-.file-add-chip:active{ transform:translateY(0) scale(.96); box-shadow:0 0 8px rgba(255,200,0,0.3); }
+.file-add-chip:hover{ background:rgba(var(--accent-rgb),0.16); border-color:var(--color-cyan); border-style:solid; box-shadow:0 0 16px rgba(var(--accent-rgb),0.25); transform:translateY(-1px); }
+.file-add-chip:active{ transform:translateY(0) scale(.96); box-shadow:0 0 8px rgba(var(--accent-rgb),0.3); }
 
 .tool-sub{ display:none; }
 .tool-sub.show{ display:block; }
@@ -1378,11 +1378,11 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
         </div>
 
         <!-- Compose sheet -->
-        <div class="sheet-overlay gold" id="compose-sheet">
+        <div class="sheet-overlay cyan" id="compose-sheet">
           <div class="sheet-header"><span class="title" id="compose-title">מייל חדש</span><button class="sheet-close" onclick="closeComposeModal()"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></div>
           <div class="sheet-fields" id="compose-stage-draft">
-            <div><div class="field-label">אל</div><input class="input-field gold" id="compose-to" style="direction:ltr; text-align:right;" placeholder="marcus@company.com"></div>
-            <div><div class="field-label">מה תרצה להגיד?</div><input class="input-field gold" id="compose-instructions" placeholder="נושא ותוכן ההודעה בקצרה…"></div>
+            <div><div class="field-label">אל</div><input class="input-field" id="compose-to" style="direction:ltr; text-align:right;" placeholder="marcus@company.com"></div>
+            <div><div class="field-label">מה תרצה להגיד?</div><input class="input-field" id="compose-instructions" placeholder="נושא ותוכן ההודעה בקצרה…"></div>
             <div>
               <div class="field-label">קבצים מצורפים (עד 3)</div>
               <input type="file" id="compose-file-input" multiple style="display:none;" onchange="handleComposeFilesChosen(this.files)">
@@ -1391,12 +1391,12 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
             </div>
           </div>
           <div class="sheet-fields" id="compose-stage-send" style="display:none;">
-            <div><div class="field-label" id="compose-subject-label">נושא</div><input class="input-field gold" id="compose-subject"></div>
-            <div><div class="field-label">הודעה</div><textarea class="input-field gold" id="compose-body" style="min-height:100px;"></textarea></div>
+            <div><div class="field-label" id="compose-subject-label">נושא</div><input class="input-field" id="compose-subject"></div>
+            <div><div class="field-label">הודעה</div><textarea class="input-field" id="compose-body" style="min-height:100px;"></textarea></div>
           </div>
           <div class="sheet-spacer"></div>
-          <div class="sheet-submit gold" id="compose-draft-btn" onclick="draftComposeEmail()"><svg class="i s" aria-hidden="true"><use href="#i-edit"/></svg> נסח</div>
-          <div class="sheet-submit gold" id="compose-send-btn" style="display:none;" onclick="sendComposeEmail()"><svg class="i s" aria-hidden="true"><use href="#i-send"/></svg> שלח</div>
+          <div class="sheet-submit" id="compose-draft-btn" onclick="draftComposeEmail()"><svg class="i s" aria-hidden="true"><use href="#i-edit"/></svg> נסח</div>
+          <div class="sheet-submit" id="compose-send-btn" style="display:none;" onclick="sendComposeEmail()"><svg class="i s" aria-hidden="true"><use href="#i-send"/></svg> שלח</div>
         </div>
 
         <!-- Reminder edit sheet -->
@@ -4766,11 +4766,21 @@ async function submitReminder(text, dayText, time){
 }
 document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if ($('tour').classList.contains('show')) endTour();
+    // The approval sheet first and on its own branch, deliberately: it gates a real calendar/email
+    // write, so Escape has to be the SAME "no" the reject button already sends the server -- not a
+    // visual-only dismiss that would leave that token dangling unresolved. A phone has no physical
+    // Escape key, but a connected keyboard (or a future desktop session) shouldn't get a dead end
+    // on the highest-stakes screen in the app -- found missing by a review agent.
+    if ($('confirm-overlay').classList.contains('show')) resolveConfirmation(false);
+    else if ($('tour').classList.contains('show')) endTour();
     else if ($('add-sheet').classList.contains('show')) closeAddSheet();
     else if ($('task-sheet').classList.contains('show')) closeTaskSheet();
     else if ($('action-sheet').classList.contains('show')) closeActionSheet();
     else if ($('help-screen').classList.contains('show')) closeHelp();
+    else if ($('compose-sheet').classList.contains('show')) closeComposeModal();
+    else if ($('reminder-edit-sheet').classList.contains('show')) closeReminderEditSheet();
+    else if ($('tool-panel-sheet').classList.contains('show')) closeToolPanel();
+    else if ($('switch-account-sheet').classList.contains('show')) closeSwitchAccountModal();
 });
 
 /* One row per thing that matters today, each a way into its tab. The rows say what IS there (the next thing,

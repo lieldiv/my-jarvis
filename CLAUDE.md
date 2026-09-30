@@ -72,11 +72,20 @@ device for a cloud server to control:
   Threads=16 because each open browser tab holds one `/api/stream` (SSE)
   connection open indefinitely; 2 threads meant two simultaneous tabs
   exhausted the pool and hung every other request including sign-in.
-- **Free tier, deliberately** (user chose $0 over persistence): no disk, so
-  `users.db` — accounts, Google tokens, **and reminders** — is wiped on every
-  restart/spin-down (~15 min idle). A reminder set for later can silently
-  vanish if the server recycles before it fires. Real persistence needs a
-  durable store (Render's free Postgres is the not-yet-taken next step).
+- **Free tier, deliberately** (user chose $0 over persistence) — Render's
+  free web service has no disk, so a plain `users.db` sqlite file would be
+  wiped on every restart/spin-down (~15 min idle), silently losing accounts,
+  Google tokens, and any reminder set for later. **This is already handled,
+  not a future step**: `users.py` connects to a free Neon Postgres project
+  via `DATABASE_URL` when that env var is set (see its own module docstring
+  for why Postgres over Turso/libsql), and only falls back to the
+  ephemeral local sqlite file when it isn't. The one thing this can't tell
+  you from the repo: whether `DATABASE_URL` is actually *set* on the live
+  Render service right now (`render.yaml` declares it `sync: false` — a
+  real secret, set once in Render's dashboard, invisible from here). If
+  reminders/tasks ever seem to reset after an idle period, that env var not
+  being set is the first thing to check, before assuming the persistence
+  code itself is broken.
 - Two separate Google OAuth clients exist in the same Cloud project: a
   "Desktop app" one (used by `free 400 שקל`, loopback-only) and a "Web
   application" one (`GOOGLE_CLIENT_ID`/`SECRET` here, registered redirect URI

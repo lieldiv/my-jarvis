@@ -816,7 +816,16 @@ _SHARED_INSTRUCTIONS = (
     "action on the user's real calendar/mailbox; use it whenever they ask "
     "to be reminded of something later. Its text follows the same rule as "
     "calendar/email content above — the reminder's wording matches the "
-    "language the user described it in.\n\n"
+    "language the user described it in. add_task is a different tool for a "
+    "similar-sounding request — pick between them by whether a TIME was "
+    "given: 'remind me to call Dana at 5' or 'remind me tomorrow morning to "
+    "submit the report' is set_reminder/set_recurring_reminder (it fires a "
+    "notification at that moment); 'add buy milk to my list' or 'I need to "
+    "submit the report by Friday' with no specific time is add_task (a "
+    "to-do item the user checks off themselves, nothing fires on its own). "
+    "When truly ambiguous, default to add_task — a task with no deadline "
+    "attached is a safer guess than a reminder that silently never fires "
+    "because no real time was given.\n\n"
     "Beyond that, you are a general-purpose agent for whatever the user "
     "needs." + _DESKTOP_CONTROL_GUIDANCE +
     " Also available: get_weather and calculate. open_web_page is how you "
@@ -2444,6 +2453,12 @@ TERMINAL_TOOLS = {
     "create_calendar_event", "update_calendar_event", "send_email",
     "set_reminder", "set_recurring_reminder", "update_reminder",
     "add_task", "mark_task_complete", "delete_task",
+    # Added after a review agent found these always return a complete,
+    # ready-to-speak sentence too (verified again here, individually) but
+    # were paying for a wasted extra Groq round-trip every single call —
+    # real money against the free-tier rate limit this file's own comment
+    # above already worries about.
+    "calculate", "get_market_summary", "write_workspace_file", "delete_workspace_path",
 }
 
 
@@ -2779,18 +2794,34 @@ _MARKDOWN_BULLET_RE = re.compile(r"^\s*[\*\-•]\s+", re.MULTILINE)
 _CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 
 
+# The shape gpt-oss actually leaks when it narrates a tool call as prose instead of making a real
+# one: a JSON object combining `name` and `arguments` the way it mentally models a tool call, not
+# just Groq's own wire format (which keeps them as separate fields). Matches with or without a
+# fence around it.
+_LEAKED_TOOL_CALL_JSON_RE = re.compile(r'\{\s*"name"\s*:\s*"[A-Za-z_][A-Za-z0-9_]*"\s*,\s*"arguments"\s*:')
+
+
 def _looks_like_leaked_tool_call(text: str) -> bool:
     """gpt-oss occasionally narrates a tool call as prose instead of
-    actually invoking it — a fenced ```json {...}``` block describing the
-    args it WOULD pass, with tool_calls coming back empty. Confirmed
+    actually invoking it, with tool_calls coming back empty. Confirmed
     directly: asked to set a reminder, it wrote out a code block with
     remind_at_iso misspelled as "remindatiso" instead of making a real
     call — nothing was created, and the raw JSON was shown to the user
     verbatim since _strip_markdown doesn't touch code fences. Not a fixed
     token-budget problem like the truncation issue above; this is the
     model choosing the wrong output shape, so it's handled by giving it
-    one corrective nudge rather than assuming a token bump alone fixes it."""
-    return bool(text) and text.count("```") >= 2 and "{" in text
+    one corrective nudge rather than assuming a token bump alone fixes it.
+
+    Originally only checked for a fenced ```json {...}``` block — a review
+    agent found (and reproduced) that an UNFENCED leak of the identical
+    JSON shape sailed straight through as the final answer, verbatim, since
+    nothing else in this file strips a bare JSON object out of plain text.
+    The regex check below catches that case too."""
+    if not text:
+        return False
+    if text.count("```") >= 2 and "{" in text:
+        return True
+    return bool(_LEAKED_TOOL_CALL_JSON_RE.search(text))
 
 
 def _strip_markdown(text: str) -> str:
@@ -2858,6 +2889,19 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
             # first (both reminders were created; the response only ever
             # mentioned one). Collected into a list and joined instead, so
             # every terminal tool's own reply survives.
+            #
+            # That join is only safe to use as the FINAL answer when every
+            # call in this round was terminal. A round that mixes a terminal
+            # call with a non-terminal one (e.g. update_calendar_event +
+            # report_capability_gap in one turn) used to short-circuit the
+            # instant ANY call was terminal — silently discarding the
+            # non-terminal call's own result, which was computed and sent to
+            # Groq as a tool message but never made it into what the user
+            # heard. Found by a review agent, reproduced directly (a
+            # get_tasks + add_task round returned only add_task's sentence).
+            # The len() check below is the fix: a mixed round now falls
+            # through to the next loop iteration instead of breaking, so the
+            # model gets a real round to speak both halves.
             terminal_results = []
             for call in msg.tool_calls:
                 fn_name = call.function.name
@@ -2888,7 +2932,7 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
                 if fn_name in TERMINAL_TOOLS:
                     terminal_results.append(result)
 
-            if terminal_results:
+            if terminal_results and len(terminal_results) == len(msg.tool_calls):
                 final_text = " ".join(terminal_results)
                 break
 
