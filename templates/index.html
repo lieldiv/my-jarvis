@@ -5727,6 +5727,18 @@ function handleConfirmationReply(text){
     resolveConfirmation(approve);
 }
 async function resolveConfirmation(approve){
+    // Re-entrancy guard: #confirming-overlay is already the exact "a resolution is in
+    // flight" signal this function itself sets (below) and hideConfirmModal() clears --
+    // reused here rather than a new flag. Without this, a second call while the server
+    // round-trip for the first is still pending (a fast double-click on the buttons, or
+    // -- since Escape now also calls this -- an Escape press right after tapping approve)
+    // sends a second POST for the same token. The server safely executes the action only
+    // once (guardrails pops the token under a lock), but whichever response lands LAST
+    // decided the activity-log/toast outcome -- so a real, successful calendar/email write
+    // could get reported back to the user as cancelled. Found by a review agent on the
+    // app's own central confirm-to-act flow; this closes both the old double-click path
+    // and the new Escape one at the root rather than patching each caller separately.
+    if ($('confirming-overlay').classList.contains('show')) return;
     // Link kinds are handled first and return early, before anything async,
     // so the open still sits inside the approve button's own click task.
     if (pendingConfirmEvt && LINK_CONFIRM_KINDS.has(pendingConfirmEvt.kind)) {

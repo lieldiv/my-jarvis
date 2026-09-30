@@ -1,0 +1,106 @@
+name: Tests
+
+# Informational safety net only -- NOT a deploy gate. Render auto-deploys on
+# every push to main independently of this workflow (see render.yaml); this
+# just runs the suites that already live in e2e/ so a broken build shows up
+# here too, instead of only when a human remembers to run
+# `npm run test:redesign` locally before pushing. Nothing here can block or
+# delay the Render deploy -- they're two unrelated triggers reacting to the
+# same push, and this repo has no branch protection wiring them together.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# If a second push lands on the same branch before this run finishes, drop
+# the stale run instead of letting runs pile up -- cheap insurance during a
+# burst of small fixes.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Every value below is a hardcoded placeholder, never a real credential.
+      # This job needs ZERO GitHub Secrets. app.py refuses to even import
+      # without GROQ_API_KEY set -- SystemExit at module load (see app.py,
+      # the "GROQ_API_KEY is not set" check) -- because there's no committed
+      # .env for its load_dotenv() call to find in CI. That's fine: the real
+      # LLM is never reached from this job. The Playwright suites intercept
+      # /api/command and /api/speak at the network level (page.route(...) in
+      # e2e/redesign/test_*.mjs) before any request leaves the browser, and
+      # the Python unit suites call the tool functions directly. This mirrors
+      # e2e/serve.py's own "e2e-not-called" placeholder value exactly.
+      GROQ_API_KEY: e2e-not-called
+      FLASK_SECRET_KEY: e2e-fixed-secret-so-the-cookie-verifies
+      JARVIS_DESKTOP_TOOLS: "false"
+      JARVIS_WEEKLY_SUMMARY: "false"
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Pinned to match the version this code is actually written for --
+          # see users.py's own "running on Python 3.9" comment. Nothing in
+          # this repo (no runtime.txt / .python-version) pins Render's
+          # interpreter explicitly, so this is the closest available match to
+          # production, not an arbitrary "latest".
+          python-version: "3.9"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install e2e dependencies + Chromium
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Start the e2e server in the background
+        working-directory: e2e
+        run: |
+          nohup python serve.py > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5099/health >/dev/null 2>&1; then
+              echo "Server is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server never became healthy within 30s -- log follows:"
+          cat server.log
+          exit 1
+
+      - name: Run the redesign suite (Python units + Playwright, per e2e/redesign/README.md)
+        working-directory: e2e
+        run: npm run test:redesign
+
+      - name: Upload failure artifacts (screenshots + server log)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure-artifacts
+          path: |
+            e2e/shots
+            e2e/server.log
+          retention-days: 7
+          if-no-files-found: ignore

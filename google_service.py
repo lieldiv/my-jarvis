@@ -65,7 +65,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 CONFIGURED = bool(GOOGLE_LIBS_AVAILABLE and GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)

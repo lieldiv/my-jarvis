@@ -335,9 +335,19 @@ then `npm run test:redesign` (see its README for what a green run does and does 
 
 ```
 pip install -r requirements.txt
-python google_login.py      # Desktop-type OAuth client only; Render uses the Web-type client + env vars instead
 python app.py
 ```
+Sign in the same way production does — open http://127.0.0.1:5000 and click
+"Continue with Google". There's no separate local-login script any more:
+`google_login.py` was removed (found stale by a review agent) — it assumed
+the old single-tenant, cache-one-token-file CLI flow, which hasn't matched
+`get_credentials(user_id, interactive=...)`'s real per-user signature since
+this fork went multi-user; `interactive` is kept only for call-signature
+parity and does nothing (see that function's own docstring — sign-in is
+web-redirect-only now). For local sign-in to actually work, the registered
+"Web application" OAuth client needs `http://127.0.0.1:5000/auth/google/callback`
+added as an accepted redirect URI — Google allows more than one per client,
+so this sits alongside the live Render one rather than replacing it.
 See [README.md](README.md) for the full Google Cloud Console + Render
 walkthrough. The user is non-technical with terminals/dashboards and needs
 very explicit, field-by-field, screenshot-driven guidance through any of

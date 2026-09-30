@@ -46,24 +46,37 @@ final2 = jarvis.run_llm("add two tasks", "u1")
 check("an ALL-terminal round still short-circuits in one Groq call (fast path preserved)", len(calls_seen) == 1, len(calls_seen))
 check("...joining both terminal replies, like before", final2 == "Added 'a' to your tasks, sir. Added 'b' to your tasks, sir.", final2)
 
-# control: a round where EVERY call is non-terminal already worked before this fix and must still work
+# control: a round where EVERY call is non-terminal already worked before this fix and must still work.
+# Deliberately NOT get_weather+calculate here -- this same commit moved calculate INTO
+# TERMINAL_TOOLS, which a review agent caught: that pairing silently became a MIXED round
+# (duplicating the compound-fix test above) rather than a genuine all-non-terminal one. A
+# fresh user ("u2") keeps this self-contained rather than depending on "u1"'s task list
+# built up by the earlier tests above.
+users.upsert_user("u2", "someone-else@example.com", "Someone Else")
 calls_seen.clear()
 def _fake_complete2(messages):
     calls_seen.append(1)
     if len(calls_seen) == 1:
-        return _msg(None, [_call("c5", "get_weather", {"location": "Tel Aviv"}), _call("c6", "calculate", {"expression": "2+2"})])
-    return _msg("It's sunny in Tel Aviv, and 2+2 is 4, sir.", None)
+        return _msg(None, [_call("c5", "get_weather", {"location": "Tel Aviv"}), _call("c6", "get_tasks", {})])
+    return _msg("It's sunny in Tel Aviv, and you have no tasks, sir.", None)
 jarvis._complete_with_retry = _fake_complete2
 jarvis._STATIC_TOOL_IMPL["get_weather"] = lambda args: "Sunny in Tel Aviv, sir."
-final3 = jarvis.run_llm("weather in Tel Aviv, and what's 2+2", "u1")
+check("'get_tasks' is genuinely non-terminal (the control below actually tests what it claims)", "get_tasks" not in jarvis.TERMINAL_TOOLS)
+final3 = jarvis.run_llm("weather in Tel Aviv, and what are my tasks", "u2")
 check("an all-non-terminal round still reaches round 2 and synthesizes both (unchanged by the fix)",
-      len(calls_seen) == 2 and final3 == "It's sunny in Tel Aviv, and 2+2 is 4, sir.", (calls_seen, final3))
+      len(calls_seen) == 2 and final3 == "It's sunny in Tel Aviv, and you have no tasks, sir.", (calls_seen, final3))
 
 # ---------------------------------------------------------------------------- leaked-JSON detection, broadened
 leaked_fenced = '```json\n{"name": "set_reminder", "arguments": {"text": "x"}}\n```'
 leaked_bare = '{"name": "set_reminder", "arguments": {"text": "x"}}'
 check("fenced leak still detected (unchanged)", jarvis._looks_like_leaked_tool_call(leaked_fenced))
 check("UNFENCED leak is now also detected (was the gap a review agent found and reproduced)", jarvis._looks_like_leaked_tool_call(leaked_bare))
+# A second review agent found the unfenced check itself was too strict -- single quotes and reversed
+# key order both slipped past the original double-quotes-name-then-arguments-only regex.
+leaked_single_quotes = "{'name': 'set_reminder', 'arguments': {'text': 'x'}}"
+leaked_reversed = '{"arguments": {"text": "x"}, "name": "set_reminder"}'
+check("a SINGLE-QUOTED unfenced leak is detected (was a real gap)", jarvis._looks_like_leaked_tool_call(leaked_single_quotes))
+check("a REORDERED (arguments-before-name) unfenced leak is detected (was a real gap)", jarvis._looks_like_leaked_tool_call(leaked_reversed))
 check("ordinary prose containing a brace is NOT a false positive", not jarvis._looks_like_leaked_tool_call("the set is {1, 2, 3}, sir."))
 check("empty/None text is handled", not jarvis._looks_like_leaked_tool_call("") and not jarvis._looks_like_leaked_tool_call(None))
 

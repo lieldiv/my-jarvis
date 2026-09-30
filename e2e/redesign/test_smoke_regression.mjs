@@ -85,6 +85,26 @@ const rejectCall = await page.evaluate(() => {
   });
 });
 check('Escape on the approval sheet calls resolveConfirmation(false) -- the exact same "no" the reject button sends', rejectCall === false, rejectCall);
+
+// The re-entrancy guard a review agent asked for: a second resolveConfirmation() call while one is
+// already in flight (a double-click, or -- now that Escape reaches this function too -- Escape
+// racing an approve click) must be ignored, not send a second POST for the same token. Simulated by
+// setting #confirming-overlay (the function's own "in flight" signal) to show before calling it.
+const reentrantFetchCalls = await page.evaluate(() => {
+  return new Promise(resolve => {
+    document.getElementById('confirming-overlay').classList.add('show');
+    let fetchCalls = 0;
+    const original = window.fetchWithTimeout;
+    window.fetchWithTimeout = (...args) => { fetchCalls++; return original(...args); };
+    resolveConfirmation(true);
+    setTimeout(() => {
+      window.fetchWithTimeout = original;
+      document.getElementById('confirming-overlay').classList.remove('show');
+      resolve(fetchCalls);
+    }, 300);
+  });
+});
+check('resolveConfirmation ignores a re-entrant call while one is already in flight (no second POST for the same token)', reentrantFetchCalls === 0, reentrantFetchCalls);
 await page.evaluate(() => { hideConfirmModal(); pendingConfirmToken = null; });
 
 // Escape now also closes the other sheets a review agent found it silently skipped

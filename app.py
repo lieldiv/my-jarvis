@@ -2795,10 +2795,19 @@ _CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 
 
 # The shape gpt-oss actually leaks when it narrates a tool call as prose instead of making a real
-# one: a JSON object combining `name` and `arguments` the way it mentally models a tool call, not
-# just Groq's own wire format (which keeps them as separate fields). Matches with or without a
-# fence around it.
-_LEAKED_TOOL_CALL_JSON_RE = re.compile(r'\{\s*"name"\s*:\s*"[A-Za-z_][A-Za-z0-9_]*"\s*,\s*"arguments"\s*:')
+# one: a JSON-ish object combining a `name` key and an `arguments` key, the way it mentally models
+# a tool call, not just Groq's own wire format (which keeps them as separate fields). Two separate
+# patterns rather than one strict sequential one, so quote style (" or ', gpt-oss has produced
+# both) and key order don't matter -- a review agent found and reproduced that the original
+# double-quotes-name-then-arguments-only version missed a single-quoted or reordered leak entirely.
+# Trade-off, stated plainly: requiring both patterns anywhere in the text (not adjacent, not
+# ordered) is deliberately loose, so a genuine answer that happens to quote back a JSON payload
+# shaped like a function call would also trigger the corrective nudge below -- an extra Groq round
+# trip, not a wrong answer shown to the user. The original fenced-only check already accepted the
+# same shape of false positive (any fenced block with a brace); this just extends an already-
+# accepted heuristic to unfenced text too, rather than introducing a new risk.
+_LEAKED_NAME_KEY_RE = re.compile(r'''["']name["']\s*:\s*["'][A-Za-z_][A-Za-z0-9_]*["']''')
+_LEAKED_ARGUMENTS_KEY_RE = re.compile(r'''["']arguments["']\s*:\s*\{''')
 
 
 def _looks_like_leaked_tool_call(text: str) -> bool:
@@ -2816,12 +2825,15 @@ def _looks_like_leaked_tool_call(text: str) -> bool:
     agent found (and reproduced) that an UNFENCED leak of the identical
     JSON shape sailed straight through as the final answer, verbatim, since
     nothing else in this file strips a bare JSON object out of plain text.
-    The regex check below catches that case too."""
+    A second review agent then found the unfenced check itself was too
+    strict (double quotes only, name-before-arguments only) and reproduced
+    a single-quoted / reordered leak slipping past it — the two-pattern
+    check below doesn't care about quote style or order."""
     if not text:
         return False
     if text.count("```") >= 2 and "{" in text:
         return True
-    return bool(_LEAKED_TOOL_CALL_JSON_RE.search(text))
+    return bool(_LEAKED_NAME_KEY_RE.search(text) and _LEAKED_ARGUMENTS_KEY_RE.search(text))
 
 
 def _strip_markdown(text: str) -> str:
@@ -2932,7 +2944,9 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
                 if fn_name in TERMINAL_TOOLS:
                     terminal_results.append(result)
 
-            if terminal_results and len(terminal_results) == len(msg.tool_calls):
+            # msg.tool_calls is non-empty here (the empty case already returned above), so
+            # length-equality alone already implies terminal_results is non-empty too.
+            if len(terminal_results) == len(msg.tool_calls):
                 final_text = " ".join(terminal_results)
                 break
 
@@ -2994,9 +3008,11 @@ def health():
 
 # --- Google sign-in gate ----------------------------------------------------
 # First-visit HUD gate: the browser tab itself drives the OAuth redirect
-# (rather than google_login.py's separate popup window) so a brand-new user
-# can connect Calendar/Gmail/Drive without touching a terminal. Nothing else
-# in the HUD is usable until google_service reports a cached, valid token.
+# (rather than the old single-tenant google_login.py's separate popup
+# window, removed once this fork went multi-user and per-user-scoped) so a
+# brand-new user can connect Calendar/Gmail without touching a terminal.
+# Nothing else in the HUD is usable until google_service reports a cached,
+# valid token.
 @app.route("/api/auth/google/status")
 def google_auth_status():
     user_id = session.get("user_id")

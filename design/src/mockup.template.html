@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#020813">
+<title>עיצוב מחדש ל-JARVIS</title>
+<style>
+@font-face{font-family:'Rubik';font-style:normal;font-weight:400 700;font-display:swap;src:url(data:font/woff2;base64,{{RUBIK_HE}}) format('woff2');unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:'Rubik';font-style:normal;font-weight:400 700;font-display:swap;src:url(data:font/woff2;base64,{{RUBIK_LAT}}) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Orbitron';font-style:normal;font-weight:500 900;font-display:swap;src:url(data:font/woff2;base64,{{ORB_LAT}}) format('woff2')}
+@font-face{font-family:'Share Tech Mono';font-style:normal;font-weight:400;font-display:swap;src:url(data:font/woff2;base64,{{STM_LAT}}) format('woff2')}
+
+:root{
+  --bg:#020813; --panel:#061a30; --panel-2:#0a2440;
+  --line:rgba(0,243,255,.18); --line-2:rgba(0,243,255,.4);
+  --cyan:#00f3ff; --cyan-soft:rgba(0,243,255,.12);
+  --text:#e4f3fa; --text-2:#9dc0d3; --text-3:#7399ae;
+  --gold:#ffc800; --green:#00ff88; --red:#ff5a5a;
+  --f-ui:'Rubik',system-ui,sans-serif;
+  --f-disp:'Orbitron','Rubik',sans-serif;
+  --f-mono:'Share Tech Mono','Rubik',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+html{background:var(--bg);color:var(--text);font-family:var(--f-ui);-webkit-text-size-adjust:100%}
+body{background:var(--bg);line-height:1.6;font-size:16px;min-height:100vh}
+button{font:inherit;color:inherit;cursor:pointer}
+.mono{font-family:var(--f-mono);direction:ltr;unicode-bidi:isolate}
+.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.i.s{width:16px;height:16px}
+
+/* ---------- page chrome ---------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+.hero{padding:56px 0 34px}
+.eyebrow{font:500 13px var(--f-mono);color:var(--cyan);letter-spacing:.16em;direction:ltr;text-align:right}
+h1{font-weight:700;font-size:clamp(30px,5vw,50px);line-height:1.18;margin:14px 0 16px;text-wrap:balance;max-width:22ch}
+.lede{font-size:18px;color:var(--text-2);max-width:64ch}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border:1px solid var(--line-2);border-radius:999px;font-size:14px;color:var(--text-2)}
+.chip b{color:var(--text);font-weight:600}
+section.blk{padding:46px 0;border-top:1px solid var(--line)}
+h2{font-size:27px;font-weight:600;line-height:1.3;margin-bottom:8px;text-wrap:balance}
+.sub{color:var(--text-2);max-width:66ch;margin-bottom:28px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+.card h3{font-size:17px;font-weight:600;margin-bottom:6px}
+.card p{color:var(--text-2);font-size:15px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:14px}
+.sev{display:inline-block;font-size:12px;padding:1px 9px;border-radius:999px;border:1px solid var(--line-2);color:var(--cyan);margin-inline-start:8px;vertical-align:middle;font-weight:500}
+.sev.hi{color:var(--gold);border-color:rgba(255,200,0,.5)}
+.pi{width:36px;height:36px;border:1px solid var(--line-2);border-radius:50%;display:grid;place-items:center;color:var(--cyan);margin-bottom:12px}
+
+/* before / after */
+.cmp{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:40px 36px;justify-items:center;align-items:start;margin:8px 0 44px}
+.cmpf{display:grid;gap:16px;justify-items:center;width:100%}
+.cmpf .cap{max-width:360px}
+.shot{position:relative;width:100%;max-width:340px}
+.shot img{display:block;width:100%;height:auto;border:1px solid var(--line-2);border-radius:8px}
+.mk{position:absolute;width:26px;height:26px;border-radius:50%;background:var(--gold);color:#020813;font:700 13px var(--f-ui);display:grid;place-items:center;transform:translate(-50%,-50%);box-shadow:0 0 0 3px rgba(2,8,19,.8)}
+.cap{font-size:13.5px;color:var(--text-3);text-align:center}
+.finds{list-style:none;display:grid;gap:12px;counter-reset:f}
+.finds.cols{grid-template-columns:repeat(auto-fit,minmax(min(100%,500px),1fr));align-items:start}
+.finds li{display:grid;grid-template-columns:30px 1fr;gap:12px;align-items:start;padding:14px 16px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.finds .n{width:26px;height:26px;border-radius:50%;background:var(--gold);color:#020813;font:700 13px var(--f-ui);display:grid;place-items:center;margin-top:2px}
+.finds b{display:block;font-weight:600;margin-bottom:2px}
+.finds p{color:var(--text-2);font-size:15px}
+.finds .fix{display:flex;gap:8px;align-items:flex-start;margin-top:8px;color:var(--text);font-size:15px}
+.finds .fix .i{color:var(--green);margin-top:3px;width:18px;height:18px}
+
+/* gallery */
+.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,356px),1fr));gap:48px 24px;justify-items:center}
+.gallery figure{display:grid;gap:16px;justify-items:center;width:100%;max-width:356px}
+.gallery figcaption{width:100%}
+.gallery figcaption h3{font-size:18px;font-weight:600;margin-bottom:6px}
+.gallery figcaption ul{list-style:none;display:grid;gap:6px;color:var(--text-2);font-size:14.5px}
+.gallery figcaption li{display:grid;grid-template-columns:14px 1fr;gap:8px}
+.gallery figcaption li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--cyan);margin-top:10px}
+.states{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.st{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;display:grid;gap:10px;align-content:start}
+.st .pi{margin:0}
+.st h3{font-size:17px;font-weight:600}
+.st p{color:var(--text-2);font-size:15px}
+.row-btns{display:flex;flex-wrap:wrap;gap:8px}
+.try{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 14px;border:1px dashed var(--line-2);border-radius:999px;background:transparent;color:var(--text);font-size:14.5px}
+.try .i{color:var(--cyan);width:18px;height:18px}
+.btn{min-height:44px;padding:0 16px;border-radius:4px;border:1px solid var(--line-2);color:var(--cyan);display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:14.5px;font-weight:500;background:transparent}
+.btn.pri{background:var(--cyan);color:#020813;border-color:var(--cyan);font-weight:600}
+.btn.danger{color:var(--red);border-color:rgba(255,90,90,.5)}
+.btn.block{width:100%}
+
+/* plan */
+.plan{list-style:none;display:grid;gap:12px;counter-reset:p}
+.plan>li{display:grid;grid-template-columns:44px 1fr;gap:14px;padding:18px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.plan .pn{width:36px;height:36px;border-radius:50%;border:1px solid var(--line-2);display:grid;place-items:center;font:600 16px var(--f-mono);color:var(--cyan)}
+.plan h3{font-size:18px;font-weight:600}
+.plan h3 span{color:var(--text-3);font-weight:400;font-size:14px;margin-inline-start:8px}
+.plan ul{margin:8px 0 0;padding-inline-start:20px;color:var(--text-2);font-size:15px;display:grid;gap:3px}
+.decide{margin-top:26px;border:1px solid rgba(255,200,0,.45);background:rgba(255,200,0,.05);border-radius:8px;padding:20px}
+.decide h3{font-size:18px;font-weight:600;color:var(--gold);margin-bottom:10px}
+.decide ol{padding-inline-start:22px;display:grid;gap:8px;color:var(--text)}
+.decide li span{color:var(--text-2)}
+.guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,470px),1fr));gap:14px;align-items:start}
+.guide dl>div{padding:13px 0;border-bottom:1px solid var(--line)}
+.guide dl>div:last-child{border-bottom:0;padding-bottom:0}
+.guide dt{font-weight:600;font-size:16px;display:flex;align-items:center;gap:10px}
+.guide dt .i{color:var(--cyan);width:20px;height:20px}
+.guide dd{color:var(--text-2);font-size:15px;margin-top:3px}
+.guide dd.ind{margin-inline-start:30px}
+.foot{padding:34px 0 60px;color:var(--text-3);font-size:14px;border-top:1px solid var(--line)}
+
+/* ---------- the phone ---------- */
+.phone{--z:.9;zoom:var(--z);width:390px;height:844px;position:relative;overflow:hidden;border-radius:40px;background:var(--bg);border:1px solid var(--line-2);box-shadow:0 0 0 7px #030d1a,0 0 0 8px var(--line),0 26px 80px rgba(0,0,0,.65),0 0 60px rgba(0,243,255,.07);isolation:isolate;text-align:start;flex:none}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg)}
+.screen::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,rgba(0,243,255,.055) 1px,transparent 1px),linear-gradient(to bottom,rgba(0,243,255,.055) 1px,transparent 1px);background-size:30px 30px;-webkit-mask-image:linear-gradient(to bottom,#000 0,#000 120px,transparent 300px);mask-image:linear-gradient(to bottom,#000 0,#000 120px,transparent 300px)}
+.screen::after{content:"";position:absolute;inset:0 0 auto 0;height:340px;pointer-events:none;background:radial-gradient(ellipse at 50% 0,rgba(0,110,190,.24),transparent 68%)}
+.screen>*{position:relative;z-index:1}
+.sbar{height:30px;flex:none;display:flex;justify-content:space-between;align-items:center;padding:6px 26px 0;font-size:13px;color:var(--text)}
+.batt{display:inline-block;width:22px;height:11px;border:1.5px solid var(--text-2);border-radius:3px;position:relative}
+.batt::after{content:"";position:absolute;inset:1.5px 6px 1.5px 1.5px;background:var(--text-2);border-radius:1px}
+.head{height:54px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 16px}
+.brand{display:flex;align-items:center;gap:10px}
+.wm{font:700 15px var(--f-disp);letter-spacing:.32em;color:var(--text);text-shadow:0 0 12px rgba(0,243,255,.55);direction:ltr}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.ic-btn{width:44px;height:44px;border-radius:50%;border:1px solid var(--line-2);background:transparent;color:var(--cyan);display:grid;place-items:center;padding:0;flex:none}
+.ic-btn.plain{border-color:transparent;color:var(--text-2)}
+.body{flex:1;min-height:0;padding:0 16px;overflow:hidden;position:relative}
+.ptitle{margin:4px 0 14px}
+.ptitle .t{font-size:24px;font-weight:700;line-height:1.2}
+.ptitle .s{font-size:14px;color:var(--text-2);margin-top:2px}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;border:1px solid var(--line);border-radius:24px;padding:3px;gap:3px;background:var(--panel)}
+.seg span{height:38px;display:grid;place-items:center;border-radius:19px;font-size:14.5px;color:var(--text-2);font-weight:500}
+.seg .on{background:var(--cyan-soft);color:var(--cyan);box-shadow:inset 0 0 0 1px var(--line-2)}
+.grp{display:flex;align-items:center;gap:10px;margin:16px 0 8px;font-size:13px;color:var(--text-2)}
+.grp b{color:var(--text);font-size:14.5px;font-weight:600}
+.grp::after{content:"";flex:1;height:1px;background:var(--line)}
+.now{display:flex;align-items:center;gap:8px;margin:2px 0 10px;font-size:12.5px;color:var(--cyan)}
+.now::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.now::after{content:"";flex:1;height:1px;background:linear-gradient(to left,transparent,var(--cyan))}
+.ev{display:grid;grid-template-columns:58px 1fr 44px;align-items:center;column-gap:8px;min-height:68px;padding:8px 8px 8px 2px;background:var(--panel);border:1px solid var(--line);border-radius:4px;margin-bottom:8px}
+.ev .tm{font:17px var(--f-mono);direction:ltr;text-align:center;line-height:1.2;color:var(--text)}
+.ev .tm small{display:block;font-size:12px;color:var(--text-3)}
+.ev .tm .allday{font:500 12px var(--f-ui);display:inline-block;padding:2px 8px;border:1px solid var(--line-2);border-radius:999px;color:var(--cyan)}
+.ev .ttl{font-size:16px;font-weight:500;line-height:1.35}
+.ev .meta{font-size:13.5px;color:var(--text-2);margin-top:2px;display:flex;gap:6px;align-items:center}
+.ev .more{width:44px;height:44px;display:grid;place-items:center;color:var(--text-2);background:none;border:0}
+.tag{font-size:12px;padding:0 8px;border:1px solid var(--line-2);border-radius:999px;color:var(--cyan);line-height:20px}
+.peek{display:flex;align-items:center;gap:12px;min-height:48px;padding:6px 14px;border:1px dashed var(--line-2);border-radius:4px;color:var(--text-2);font-size:14px;margin-top:6px}
+.peek b{color:var(--text);font-weight:500}
+.peek .i{color:var(--cyan)}
+.fab{position:absolute;inset-inline-end:16px;bottom:14px;height:52px;padding:0 20px 0 18px;border-radius:26px;background:var(--cyan);color:#020813;display:flex;align-items:center;gap:8px;font-weight:600;font-size:15.5px;border:0;box-shadow:0 0 26px rgba(0,243,255,.45)}
+.dock{flex:none;background:#030c19;border-top:1px solid var(--line-2);padding:8px 12px 10px;z-index:3}
+.cmd{display:flex;align-items:center;gap:8px;height:48px}
+.cmd .field{flex:1;height:44px;border:1px solid var(--line);border-radius:22px;padding:0 16px;display:flex;align-items:center;color:var(--text-3);font-size:15px;background:rgba(0,243,255,.03)}
+.cmd .send{background:var(--cyan);color:#020813;border-color:var(--cyan)}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);margin-top:2px}
+.tab{height:54px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--text-2);font-size:12px;position:relative}
+.tab.on{color:var(--cyan);font-weight:500}
+.tab.on::before{content:"";position:absolute;top:0;width:30px;height:2px;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.scrim{position:absolute;inset:0;background:rgba(2,8,19,.8);z-index:4}
+.sheet{position:absolute;inset-inline:0;bottom:0;z-index:5;background:var(--panel);border-top:1px solid var(--line-2);border-radius:8px 8px 0 0;padding:10px 16px 18px;box-shadow:0 -10px 50px rgba(0,243,255,.12)}
+.sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line-2);margin:0 auto 12px}
+.sheet h5{font-size:20px;font-weight:600;margin-bottom:12px}
+.lbl{font-size:13px;color:var(--text-2);margin:14px 0 6px}
+.inp{height:48px;border:1px solid var(--line-2);border-radius:4px;padding:0 14px;display:flex;align-items:center;color:var(--text);font-size:16px;background:rgba(0,243,255,.03)}
+.inp.ph{color:var(--text-3)}
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+.pill{min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:999px;display:inline-flex;align-items:center;font-size:14.5px;color:var(--text-2)}
+.pill.on{border-color:var(--line-2);background:var(--cyan-soft);color:var(--cyan)}
+.note{display:flex;gap:10px;align-items:flex-start;margin:16px 0 14px;padding:10px 12px;border-radius:4px;background:rgba(0,255,136,.06);border:1px solid rgba(0,255,136,.28);font-size:13.5px;color:var(--text)}
+.note .i{color:var(--green);margin-top:2px;width:18px;height:18px}
+.tk{display:grid;grid-template-columns:48px 1fr 44px;align-items:center;min-height:62px;background:var(--panel);border:1px solid var(--line);border-radius:4px;margin-bottom:8px;padding:0 4px}
+.chk{width:26px;height:26px;border-radius:50%;border:1.7px solid var(--cyan);margin:auto;display:grid;place-items:center}
+.tk .ttl{font-size:16px;font-weight:500}
+.tk .meta{margin-top:3px}
+.tk.done .chk{background:var(--green);border-color:var(--green);color:#020813}
+.tk.done .chk .i{width:16px;height:16px;stroke-width:2.6}
+.tk.done .ttl{color:var(--text-3);text-decoration:line-through}
+.prog{margin-top:16px;padding:14px 16px}
+.prog .h{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;color:var(--text-2)}
+.prog .h b{font:26px var(--f-mono);color:var(--cyan);direction:ltr}
+.bars{display:flex;align-items:flex-end;gap:8px;height:44px;margin-top:10px}
+.bars i{flex:1;background:var(--cyan-soft);border-radius:2px;min-height:4px;position:relative}
+.bars i.f{background:var(--cyan);box-shadow:0 0 8px rgba(0,243,255,.5)}
+.bars-l{display:flex;gap:8px;margin-top:4px;font-size:11.5px;color:var(--text-3)}
+.bars-l span{flex:1;text-align:center}
+.ml{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:14px;margin-bottom:10px}
+.ml .top{display:flex;align-items:center;gap:8px}
+.unread{width:8px;height:8px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);flex:none}
+.ml .from{font-weight:600;font-size:15.5px}
+.ml .when{margin-inline-start:auto;font-size:12.5px;color:var(--text-3)}
+.ml .subj{font-size:15px;margin-top:6px}
+.ml .snip{font-size:13.5px;color:var(--text-2);margin-top:2px;line-height:1.5}
+.ml .act{margin-top:10px}
+.coach{position:relative;background:var(--panel);border:1px solid var(--line-2);border-radius:8px;padding:14px 14px 12px;margin-bottom:6px;box-shadow:0 0 30px rgba(0,243,255,.08)}
+.coach .x{position:absolute;inset-block-start:2px;inset-inline-start:2px;width:44px;height:44px;display:grid;place-items:center;color:var(--text-3);background:none;border:0}
+.coach h6{font-size:16.5px;font-weight:600;margin-bottom:8px;padding-inline-start:38px}
+.coach ul{list-style:none;display:grid;gap:8px;font-size:14px;color:var(--text)}
+.coach li{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:start}
+.coach li .i{width:19px;height:19px;color:var(--cyan);margin-top:2px}
+.coach .bt{display:flex;gap:8px;margin-top:12px}
+.coach .btn{min-height:44px;font-size:14px;padding:0 14px}
+.orbwrap{display:grid;place-items:center;height:186px}
+.orb{width:128px;height:128px;border-radius:50%;position:relative;background:radial-gradient(circle at 50% 45%,#03101f 0,#020a15 62%,rgba(0,243,255,.16) 100%);box-shadow:0 0 30px rgba(0,243,255,.35),inset 0 0 26px rgba(0,243,255,.14);border:1.5px solid rgba(0,243,255,.85);display:grid;place-items:center}
+.orb::before{content:"";position:absolute;inset:-14px;border-radius:50%;border:1px dashed rgba(0,243,255,.32);animation:spin 26s linear infinite}
+.orb::after{content:"";position:absolute;inset:-26px;border-radius:50%;border:1.5px solid transparent;border-top-color:rgba(0,243,255,.75);border-right-color:rgba(0,243,255,.2);animation:spin 9s linear infinite reverse}
+.orb span{font:700 14px var(--f-disp);letter-spacing:.3em;text-indent:.3em;color:var(--text)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.orb::before,.orb::after{animation:none}}
+.hint{text-align:center;font-size:15px;color:var(--text);margin-top:2px}
+.micnote{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;color:var(--text-2);margin-top:2px}
+.micnote a{color:var(--cyan);text-decoration:underline;text-underline-offset:3px}
+.sum{margin-top:14px}
+.sumrow{display:grid;grid-template-columns:34px 1fr 24px;align-items:center;gap:10px;min-height:52px;padding:0 12px;border-bottom:1px solid var(--line);font-size:14.5px}
+.sumrow:last-child{border-bottom:0}
+.sumrow .i{color:var(--cyan)}
+.sumrow small{display:block;font-size:12.5px;color:var(--text-3)}
+.sumrow .go{color:var(--text-3);width:18px;height:18px}
+.sechead{display:flex;align-items:baseline;justify-content:space-between;margin:14px 0 6px;font-size:13px;color:var(--text-2)}
+.sechead b{color:var(--text);font-size:14.5px;font-weight:600}
+.tryrow{display:flex;gap:8px;overflow:hidden;margin-top:6px}
+.tryrow .try{flex:none;min-height:40px;font-size:13.5px;padding:6px 12px}
+.hero-h{background:var(--panel);border:1px solid var(--line-2);border-radius:8px;padding:16px;margin-bottom:12px;box-shadow:0 0 30px rgba(0,243,255,.08)}
+.hero-h h6{font-size:19px;font-weight:600;line-height:1.35}
+.hero-h p{font-size:14.5px;color:var(--text-2);margin-top:4px}
+.steps{list-style:none;counter-reset:s;display:grid;gap:8px;margin-top:12px}
+.steps li{counter-increment:s;display:grid;grid-template-columns:30px 1fr;gap:10px;align-items:start;font-size:14.5px}
+.steps li::before{content:counter(s);width:26px;height:26px;border-radius:50%;border:1px solid var(--line-2);display:grid;place-items:center;font:14px var(--f-mono);color:var(--cyan)}
+.cats{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:6px 0 10px;padding-bottom:2px}
+.cats::-webkit-scrollbar{display:none}
+.cat{flex:none;min-height:40px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--text-2);font-size:14px}
+.cat.on{border-color:var(--line-2);background:var(--cyan-soft);color:var(--cyan)}
+.phr{display:grid;gap:6px}
+.phr button{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:center;min-height:46px;padding:0 12px;text-align:start;background:var(--panel);border:1px solid var(--line);border-radius:4px;font-size:14.5px;color:var(--text)}
+.phr button .i{color:var(--cyan);width:18px;height:18px}
+.how{display:grid;gap:8px;margin-top:6px}
+.how div{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:start;font-size:14px;color:var(--text-2)}
+.how b{color:var(--text);font-weight:600;display:block}
+.how .i{color:var(--cyan);margin-top:2px}
+.grpcard{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:12px;overflow:hidden}
+.set{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:10px;min-height:54px;padding:0 14px;border-bottom:1px solid var(--line);font-size:15px}
+.set:last-child{border-bottom:0}
+.set .i{color:var(--cyan)}
+.set small{display:block;font-size:12.5px;color:var(--text-3)}
+.set .v{font-size:13px;color:var(--text-2);display:flex;align-items:center;gap:6px}
+.ok{color:var(--green)}
+.tog{width:46px;height:26px;border-radius:13px;border:1px solid var(--line-2);position:relative;background:var(--cyan-soft)}
+.tog::after{content:"";position:absolute;top:2px;inset-inline-start:2px;width:20px;height:20px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);transform:translateX(-20px)}
+.sw{display:flex;gap:10px;padding:0 14px 14px}
+.sw i{width:32px;height:32px;border-radius:50%;display:block}
+.sw i.on{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--text)}
+.gt{font-size:13px;color:var(--text-2);margin:14px 4px 6px}
+
+@media (max-width:430px){.phone{--z:.86}.hero{padding-top:36px}h2{font-size:23px}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.5 12 4l8 7.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></symbol>
+  <symbol id="i-task" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.7" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.2c-.8.4-1.2.9-1.2 1.9"/><circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16v-5a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s6-5.6 6-11a6 6 0 1 0-12 0c0 5.4 6 11 6 11z"/><circle cx="12" cy="10" r="2.2"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m14.5 6-6 6 6 6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3.2 3.2 3.2 14.8 0 18M12 3c-3.2 3.2-3.2 14.8 0 18"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.4 8-8 9-4.6-1-8-4-8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 3.5 20 7l-3 3.5M20 7H8a4 4 0 0 0-4 4M7 20.5 4 17l3-3.5M4 17h12a4 4 0 0 0 4-4"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1-4 4-6 8-6s7 2 8 6"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></symbol>
+  <symbol id="i-pal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10.5" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="10.5" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3M14 8l4 4-4 4M18 12H9"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+  <symbol id="i-msg" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-4 4v-4H4z"/></symbol>
+</svg>
+
+<header class="wrap hero">
+  <p class="eyebrow">JARVIS · REDESIGN · V1</p>
+  <h1>שיהיה ברור — גם בפעם הראשונה</h1>
+  <p class="lede">הבוחן ראה עמוד יומן "עמוס" וביקש חוויה שקלה לכולם. עברתי על כל חמשת המסכים כפי שהם באמת נראים בטלפון, מדדתי מה אפשר למדוד, ובניתי הצעה. שום דבר באפליקציה החיה עדיין לא השתנה.</p>
+  <div class="chips">
+    <span class="chip"><b>5</b> מסכים נסרקו</span>
+    <span class="chip"><b>7</b> מסכים בהצעה</span>
+    <span class="chip"><b>4</b> שלבי עבודה</span>
+    <span class="chip">נשאר בשפה של ה-HUD — רק רגוע וברור יותר</span>
+  </div>
+</header>
+
+<!-- ================= 1. before / after ================= -->
+<section class="blk"><div class="wrap">
+  <h2>מה הבוחן ראה — היומן, לפני ואחרי</h2>
+  <p class="sub">מימין: המסך מהטלפון שלך, עם סימון של מה שמפריע. משמאלו: אותו יום בהצעה. המספרים בסימון מתאימים לרשימה שמתחת.</p>
+
+  <div class="cmp">
+    <figure class="cmpf">
+      <div class="shot">
+        <img alt="מסך היומן הנוכחי, מהטלפון" src="data:image/jpeg;base64,{{BEFORE_IMG}}">
+        <span class="mk" style="left:100%;top:2.2%">1</span>
+        <span class="mk" style="left:100%;top:13.1%">3</span>
+        <span class="mk" style="left:100%;top:19.7%">2</span>
+        <span class="mk" style="left:0%;top:19.9%">4</span>
+        <span class="mk" style="left:100%;top:42.4%">5</span>
+        <span class="mk" style="left:0%;top:80.6%">6</span>
+        <span class="mk" style="left:100%;top:91.4%">7</span>
+      </div>
+      <figcaption class="cap">לפני — צילום מסך אמיתי מהטלפון</figcaption>
+    </figure>
+
+    <figure class="cmpf">
+      <div class="phone" role="img" aria-label="מסך היומן המוצע">
+        <div class="screen">
+          <div class="sbar"><span class="mono">18:47</span><span class="batt"></span></div>
+          <div class="head"><div class="brand"><span class="wm">JARVIS</span><span class="dot"></span></div><button class="ic-btn plain" aria-label="מדריך"><svg class="i"><use href="#i-help"/></svg></button></div>
+          <div class="body">
+            <div class="ptitle"><div class="t">היומן שלי</div><div class="s">שבת, 26 בספטמבר</div></div>
+            <div class="grp"><b>היום</b><span>שבת</span></div>
+            <div class="now"><span class="mono">18:47</span><span>עכשיו</span></div>
+            <div class="ev"><div class="tm">20:00<small>22:00</small></div><div><div class="ttl">ארוחת ערב משפחתית</div><div class="meta"><svg class="i s"><use href="#i-pin"/></svg>בית של סבתא</div></div><button class="more" aria-label="עוד פעולות"><svg class="i"><use href="#i-dots"/></svg></button></div>
+            <div class="ev"><div class="tm">22:30</div><div><div class="ttl">להכין תיק לנופש</div><div class="meta"><span class="tag">תזכורת</span></div></div><button class="more" aria-label="עוד פעולות"><svg class="i"><use href="#i-dots"/></svg></button></div>
+            <div class="grp"><b>מחר</b><span>יום א׳</span></div>
+            <div class="ev"><div class="tm"><span class="allday">כל היום</span></div><div><div class="ttl">נופש</div></div><button class="more" aria-label="עוד פעולות"><svg class="i"><use href="#i-dots"/></svg></button></div>
+            <div class="ev"><div class="tm">10:30<small>11:30</small></div><div><div class="ttl">פגישה עם נימרוד</div><div class="meta"><svg class="i s"><use href="#i-pin"/></svg>קפה גרג</div></div><button class="more" aria-label="עוד פעולות"><svg class="i"><use href="#i-dots"/></svg></button></div>
+            <div class="peek"><svg class="i"><use href="#i-cal"/></svg><span><b>יום ב׳:</b> רופא שיניים ב-16:00</span><svg class="i s" style="margin-inline-start:auto"><use href="#i-chev"/></svg></div>
+            <button class="fab"><svg class="i"><use href="#i-plus"/></svg>הוסף</button>
+          </div>
+          <div class="dock">
+            <div class="cmd"><button class="ic-btn" aria-label="מיקרופון"><svg class="i"><use href="#i-mic"/></svg></button><div class="field">שאל או פקד על JARVIS…</div><button class="ic-btn send" aria-label="שלח"><svg class="i"><use href="#i-send"/></svg></button></div>
+            <nav class="tabs"><a class="tab"><svg class="i"><use href="#i-home"/></svg>בית</a><a class="tab on"><svg class="i"><use href="#i-cal"/></svg>יומן</a><a class="tab"><svg class="i"><use href="#i-mail"/></svg>דואר</a><a class="tab"><svg class="i"><use href="#i-task"/></svg>משימות</a><a class="tab"><svg class="i"><use href="#i-gear"/></svg>הגדרות</a></nav>
+          </div>
+        </div>
+      </div>
+      <figcaption class="cap">אחרי — אותו יום, ועם אותו אירוע של יום שלם ("כל היום" במקום 03:00)</figcaption>
+    </figure>
+  </div>
+
+  <ol class="finds cols">
+    <li><span class="n">1</span><div><b>פס עליון בציאן זוהר</b>
+      <p>צבע ה-theme של האפליקציה (<bdi>#00f3ff</bdi>) צובע את שורת הסטטוס באנדרואיד, והיא הדבר הראשון שרואים.</p>
+      <div class="fix"><svg class="i"><use href="#i-check"/></svg><span>פס כהה בצבע הרקע.</span></div></div></li>
+    <li><span class="n">2</span><div><b>"<bdi>Sun 03:00</bdi>" — אירוע של יום שלם שמוצג כאילו הוא בשלוש בבוקר</b>
+      <p>גוגל שולחת לאירוע כזה תאריך בלי שעה, והשרת (שרץ ב-UTC) מתרגם אותו לחצות UTC, כלומר 03:00 אצלנו. וגם: שם היום באנגלית.</p>
+      <div class="fix"><svg class="i"><use href="#i-check"/></svg><span>"כל היום", ושמות ימים בעברית: "מחר · יום א׳".</span></div></div></li>
+    <li><span class="n">3</span><div><b>הלשונית "היום" מציגה בעצם את 7 הימים הקרובים</b>
+      <p>לכן אירוע של מחר מופיע תחתיה. אותה טעות נמצאת בברכת הפתיחה שהוספתי ("יש לך 4 אירועים היום").</p>
+      <div class="fix"><svg class="i"><use href="#i-check"/></svg><span>בלי לשוניות: רשימה אחת מקובצת לפי ימים (היום, מחר, יום ב׳…), עם קו "עכשיו".</span></div></div></li>
+    <li><span class="n">4</span><div><b>שני כפתורים בלי תווית בכל אירוע — 8 כפתורים בארבע שורות</b>
+      <p>אחד הוא אימוג'י שמוצג כריבוע כחול, השני ✕ אדום שנראה כמו שגיאה. מדדתי: 32×32 פיקסלים, מתחת ל-44 שההנחיות של האפליקציה עצמה דורשות.</p>
+      <div class="fix"><svg class="i"><use href="#i-check"/></svg><span>תפריט ⋯ אחד: "שנה שעה" / "בטל אירוע" (הביטול ממשיך לבקש אישור).</span></div></div></li>
+    <li><span class="n">5</span><div><b>שלושה נושאים שונים באותו משקל</b>
+      <p>אירועים (הדבר שבשבילו באת), מייל סיכום שבועי, וטופס תזכורת. האירועים הם הכי קטנים ורחוקים מהעין.</p>
+      <div class="fix"><svg class="i"><use href="#i-check"/></svg><span>העמוד הוא יומן בלבד. "הוסף" פותח טופס, הסיכום השבועי עובר להגדרות, והתזכורות נכנסות לציר הזמן.</span></div></div></li>
+    <li><span class="n">6</span><div><b>שורת הפקודה והניווט שקופים</b>
+      <p>הרקעים שלהם 85% ו-90% אטימות, ולכן "התזכורות שלי" נראית חתוכה מאחוריהם, ותוכן הדף "זולג" דרכם.</p>
+      <div class="fix"><svg class="i"><use href="#i-check"/></svg><span>דוק אחד אטום: שורת פקודה ומעליה ניווט.</span></div></div></li>
+    <li><span class="n">7</span><div><b>הטקסט קטן, רחוק ובניגודיות נמוכה</b>
+      <p>טקסט הגוף 13px, זמני האירועים 12px, ותוויות הניווט 10.5px בצבע עם ניגודיות של כ-3.5:1 (הסף לטקסט קטן הוא 4.5:1). ובעברית הרווחים והפיסוק נלקחים מפונט מונוספייס, כך שאותו משפט רחב ב-9% מאשר ב-Rubik (מדדתי).</p>
+      <div class="fix"><svg class="i"><use href="#i-check"/></svg><span>עברית ב-Rubik, 15px, ניגודיות גבוהה, וציאן רק למה שלוחצים עליו.</span></div></div></li>
+  </ol>
+</div></section>
+
+<!-- ================= 2. other findings ================= -->
+<section class="blk"><div class="wrap">
+  <h2>ומה עוד מצאתי בשאר המסכים</h2>
+  <p class="sub">אותם דפוסים חוזרים בכל האפליקציה, ולכן הפתרון הוא שפה אחת ולא תיקון של עמוד אחד.</p>
+  <div class="grid">
+    <div class="card"><h3>בית <span class="sev hi">גבוה</span></h3><p>בפעם הראשונה רואים כדור עם מסגרת אדומה ו"מיקרופון כבוי", בלי הסבר איך לתקן. ההצעות "מה אפשר להגיד" נמצאות אחרי שלושה בלוקים, מתחת לקיפול.</p></div>
+    <div class="card"><h3>משימות <span class="sev">בינוני</span></h3><p>סטטיסטיקה, גרף ובורר חזרתיות תופסים את המסך לפני הרשימה. יש שני שדות טקסט (משימה ופקודה) ואין ביניהם הבדל ברור. במצב ריק: "אין לך משימות, <bdi>sir</bdi>".</p></div>
+    <div class="card"><h3>דואר <span class="sev">בינוני</span></h3><p>אין ספירה ואין שעה. נושא ההודעה בציאן זוהר מתחרה בשם השולח. הפעולה היחידה ("השב") ארוזה כתגית.</p></div>
+    <div class="card"><h3>הגדרות <span class="sev hi">גבוה</span></h3><p>12 פריטים בעוצמה זהה: חשבון, אבחון, קיצורים, התראות, מראה. והערת מפתחים ("המערכת בשלב בדיקות") מוצגת לכל משתמש.</p></div>
+    <div class="card"><h3>בכל המסכים <span class="sev hi">גבוה</span></h3><p>אימוג'י כאייקונים (נראים שונה בכל טלפון, ופוגעים בכלל של ה-DESIGN.md עצמו). חלקיקים וקרני אור מאחורי טקסט. אין מסך עזרה ואין הסבר לפעם הראשונה.</p></div>
+    <div class="card"><h3>שפה <span class="sev">בינוני</span></h3><p>שמות ימים באנגלית ("<bdi>Sun</bdi>", "<bdi>Mon</bdi>") ומילת "<bdi>sir</bdi>" בתוך עברית. חשוב להסביר גם שהתשובות באנגלית בכוונה.</p></div>
+  </div>
+</div></section>
+
+<!-- ================= 3. direction ================= -->
+<section class="blk"><div class="wrap">
+  <h2>הכיוון: אותו HUD, רק שקט וברור</h2>
+  <p class="sub">ה-DESIGN.md כבר אומר את זה: המרקם העמוס שייך לרקע, והתוכן צריך להיות דליל וקל ללחיצה. בפועל התוכן קיבל את הצפיפות. ההצעה מחזירה כל דבר למקומו.</p>
+  <div class="grid">
+    <div class="card"><div class="pi"><svg class="i"><use href="#i-cal"/></svg></div><h3>עמוד אחד — מטרה אחת</h3><p>כל לשונית עונה על שאלה אחת. יומן: "מה קורה איתי?". מה שלא שייך לשאלה עובר להגדרות או לכפתור "הוסף".</p></div>
+    <div class="card"><div class="pi"><svg class="i"><use href="#i-eye"/></svg></div><h3>רקע רגוע, מסגרת HUD</h3><p>הזוהר, הכדור והקווים נשארים. אבל הטקסט יושב על משטח שקט: בלי חלקיקים מאחוריו, ושורת הפקודה והניווט אטומים.</p></div>
+    <div class="card"><div class="pi"><svg class="i"><use href="#i-book"/></svg></div><h3>קריא לפני יפה</h3><p>עברית ב-Rubik, 15px, בצבע טקסט רגוע. הציאן הזוהר רק למה שאפשר ללחוץ עליו ולמה שפעיל עכשיו.</p></div>
+    <div class="card"><div class="pi"><svg class="i"><use href="#i-plus"/></svg></div><h3>כל פעולה מסומנת ועקבית</h3><p>אייקוני קו אחידים עם מילים. מחיקה בתפריט ⋯. כל יעד מגע 44px. וכפתור "הוסף" אחד, באותו מקום בכל לשונית, שיוצר את מה שהיא מציגה.</p></div>
+    <div class="card"><div class="pi"><svg class="i"><use href="#i-help"/></svg></div><h3>מדריך בכל מקום</h3><p>מסך מדריך עם משפטים ללחיצה, כרטיס קצר בפעם הראשונה, ומצבים ריקים שמציעים משפט לנסות.</p></div>
+  </div>
+</div></section>
+
+<!-- ================= 4. screens ================= -->
+<section class="blk"><div class="wrap">
+  <h2>המסכים החדשים</h2>
+  <p class="sub">כל מסך בגודל טלפון אמיתי (390×844), בעברית מימין לשמאל. הנתונים להמחשה בלבד. בקובץ הזה אפשר ללחוץ על הקטגוריות במסך המדריך.</p>
+
+  <div class="gallery">
+
+    <!-- HOME -->
+    <figure>
+      <div class="phone" role="img" aria-label="מסך הבית בפעם הראשונה">
+        <div class="screen">
+          <div class="sbar"><span class="mono">18:47</span><span class="batt"></span></div>
+          <div class="head"><div class="brand"><span class="wm">JARVIS</span><span class="dot"></span></div><button class="ic-btn plain" aria-label="מדריך"><svg class="i"><use href="#i-help"/></svg></button></div>
+          <div class="body">
+            <div class="coach">
+              <button class="x" aria-label="סגור"><svg class="i s"><use href="#i-x"/></svg></button>
+              <h6>שלושה דברים שכדאי לדעת</h6>
+              <ul>
+                <li><svg class="i"><use href="#i-mic"/></svg><span>לחץ על הכדור ודבר בעברית, או הקלד למטה.</span></li>
+                <li><svg class="i"><use href="#i-globe"/></svg><span>JARVIS עונה באנגלית, גם כשמדברים אליו בעברית.</span></li>
+                <li><svg class="i"><use href="#i-shield"/></svg><span>שום דבר ביומן או במייל לא משתנה בלי אישור שלך.</span></li>
+              </ul>
+              <div class="bt"><button class="btn pri">סיור קצר · 30 שניות</button><button class="btn">הבנתי</button></div>
+            </div>
+            <div class="orbwrap"><div class="orb"><span>JARVIS</span></div></div>
+            <div class="hint">לחץ על הכדור ודבר</div>
+            <div class="micnote"><svg class="i s"><use href="#i-mic"/></svg><span>צריך לאשר מיקרופון. אפשר גם להקליד.</span><a>אשר</a></div>
+            <div class="sechead"><b>היום שלך</b><span>עכשיו 18:47</span></div>
+            <div class="card sum" style="padding:0;margin-top:0">
+              <div class="sumrow"><svg class="i"><use href="#i-clock"/></svg><span>20:00 · ארוחת ערב משפחתית<small>הבא ביומן</small></span><svg class="i go"><use href="#i-chev"/></svg></div>
+              <div class="sumrow"><svg class="i"><use href="#i-task"/></svg><span>3 משימות פתוחות</span><svg class="i go"><use href="#i-chev"/></svg></div>
+            </div>
+          </div>
+          <div class="dock">
+            <div class="cmd"><button class="ic-btn" aria-label="מיקרופון"><svg class="i"><use href="#i-mic"/></svg></button><div class="field">שאל או פקד על JARVIS…</div><button class="ic-btn send" aria-label="שלח"><svg class="i"><use href="#i-send"/></svg></button></div>
+            <nav class="tabs"><a class="tab on"><svg class="i"><use href="#i-home"/></svg>בית</a><a class="tab"><svg class="i"><use href="#i-cal"/></svg>יומן</a><a class="tab"><svg class="i"><use href="#i-mail"/></svg>דואר</a><a class="tab"><svg class="i"><use href="#i-task"/></svg>משימות</a><a class="tab"><svg class="i"><use href="#i-gear"/></svg>הגדרות</a></nav>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        <h3>בית — פעם ראשונה</h3>
+        <ul>
+          <li>כרטיס פתיחה של שלוש שורות, שנעלם אחרי "הבנתי". אחרי הפעם הראשונה הבית פשוט מתחיל בכדור.</li>
+          <li>מצב מיקרופון מוסבר במקום "כבוי" באדום, עם כפתור אישור וגיבוי: אפשר להקליד.</li>
+          <li>"היום שלך": האירוע הבא ומספר המשימות. הפאנל "עוד דברים שאני יודע לעשות" נשאר, אבל מתחת לזה ולא לפניו.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+    <!-- ADD SHEET -->
+    <figure>
+      <div class="phone" role="img" aria-label="טופס הוספה תחתון">
+        <div class="screen">
+          <div class="sbar"><span class="mono">18:47</span><span class="batt"></span></div>
+          <div class="head"><div class="brand"><span class="wm">JARVIS</span><span class="dot"></span></div><button class="ic-btn plain" aria-label="מדריך"><svg class="i"><use href="#i-help"/></svg></button></div>
+          <div class="body">
+            <div class="ptitle"><div class="t">היומן שלי</div><div class="s">שבת, 26 בספטמבר</div></div>
+            <div class="grp"><b>היום</b><span>שבת</span></div>
+            <div class="ev"><div class="tm">20:00<small>22:00</small></div><div><div class="ttl">ארוחת ערב משפחתית</div></div><span></span></div>
+          </div>
+          <div class="dock">
+            <div class="cmd"><button class="ic-btn"><svg class="i"><use href="#i-mic"/></svg></button><div class="field">שאל או פקד על JARVIS…</div><button class="ic-btn send"><svg class="i"><use href="#i-send"/></svg></button></div>
+            <nav class="tabs"><a class="tab"><svg class="i"><use href="#i-home"/></svg>בית</a><a class="tab on"><svg class="i"><use href="#i-cal"/></svg>יומן</a><a class="tab"><svg class="i"><use href="#i-mail"/></svg>דואר</a><a class="tab"><svg class="i"><use href="#i-task"/></svg>משימות</a><a class="tab"><svg class="i"><use href="#i-gear"/></svg>הגדרות</a></nav>
+          </div>
+          <div class="scrim"></div>
+          <div class="sheet">
+            <div class="grab"></div>
+            <h5>הוסף ליומן</h5>
+            <div class="seg"><span class="on">פגישה</span><span>תזכורת</span></div>
+            <div class="lbl">מה?</div>
+            <div class="inp">פגישה עם דנה</div>
+            <div class="lbl">מתי?</div>
+            <div class="pills"><span class="pill">היום</span><span class="pill on">מחר</span><span class="pill">יום ג׳</span><span class="pill mono" style="font-size:15px">10:00</span></div>
+            <div class="lbl">כמה זמן?</div>
+            <div class="pills"><span class="pill">30 דק׳</span><span class="pill on">שעה</span><span class="pill">שעתיים</span></div>
+            <div class="note"><svg class="i"><use href="#i-shield"/></svg><span>JARVIS יכין את האירוע ויבקש את אישורך לפני שהוא נכנס ליומן.</span></div>
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px"><button class="btn">ביטול</button><button class="btn pri">המשך לאישור</button></div>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        <h3>"הוסף" — טופס תחתון</h3>
+        <ul>
+          <li>הטפסים יוצאים מהעמוד. הם נפתחים רק כשצריך, בתחתית המסך, איפה שהאגודל.</li>
+          <li>בחירה בלחיצה (היום / מחר / שעה) במקום להקליד תאריך בטקסט חופשי.</li>
+          <li>ההסבר על האישור מופיע ברגע הנכון, ולא בפסקה בעמוד.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+    <!-- TASKS -->
+    <figure>
+      <div class="phone" role="img" aria-label="מסך המשימות המוצע">
+        <div class="screen">
+          <div class="sbar"><span class="mono">18:47</span><span class="batt"></span></div>
+          <div class="head"><div class="brand"><span class="wm">JARVIS</span><span class="dot"></span></div><button class="ic-btn plain" aria-label="מדריך"><svg class="i"><use href="#i-help"/></svg></button></div>
+          <div class="body">
+            <div class="ptitle"><div class="t">המשימות שלי</div><div class="s">3 פתוחות · 1 הושלמה היום</div></div>
+            <div class="tk"><div class="chk"></div><div><div class="ttl">להתאמן</div><div class="meta" style="display:flex;margin-top:3px"><span class="tag" style="display:inline-flex;gap:5px;align-items:center"><svg class="i s" style="width:13px;height:13px"><use href="#i-repeat"/></svg>כל א׳ וג׳</span></div></div><button class="more" style="background:none;border:0;color:var(--text-2);width:44px;height:44px;display:grid;place-items:center"><svg class="i"><use href="#i-dots"/></svg></button></div>
+            <div class="tk"><div class="chk"></div><div class="ttl">לקנות חלב</div><button class="more" style="background:none;border:0;color:var(--text-2);width:44px;height:44px;display:grid;place-items:center"><svg class="i"><use href="#i-dots"/></svg></button></div>
+            <div class="tk"><div class="chk"></div><div class="ttl">לשלם ארנונה</div><button class="more" style="background:none;border:0;color:var(--text-2);width:44px;height:44px;display:grid;place-items:center"><svg class="i"><use href="#i-dots"/></svg></button></div>
+            <div class="grp"><b>הושלמו</b><span>היום</span></div>
+            <div class="tk done"><div class="chk"><svg class="i"><use href="#i-check"/></svg></div><div class="ttl">לאסוף את הכביסה</div><span></span></div>
+            <div class="card prog">
+              <div class="h"><span>ההתקדמות שלי — השבוע</span><b>6</b></div>
+              <div class="bars"><i class="f" style="height:45%"></i><i style="height:8%"></i><i class="f" style="height:90%"></i><i class="f" style="height:45%"></i><i style="height:8%"></i><i class="f" style="height:90%"></i><i style="height:8%"></i></div>
+              <div class="bars-l"><span>א</span><span>ב</span><span>ג</span><span>ד</span><span>ה</span><span>ו</span><span>ש</span></div>
+            </div>
+            <button class="fab"><svg class="i"><use href="#i-plus"/></svg>משימה</button>
+          </div>
+          <div class="dock">
+            <div class="cmd"><button class="ic-btn"><svg class="i"><use href="#i-mic"/></svg></button><div class="field">שאל או פקד על JARVIS…</div><button class="ic-btn send"><svg class="i"><use href="#i-send"/></svg></button></div>
+            <nav class="tabs"><a class="tab"><svg class="i"><use href="#i-home"/></svg>בית</a><a class="tab"><svg class="i"><use href="#i-cal"/></svg>יומן</a><a class="tab"><svg class="i"><use href="#i-mail"/></svg>דואר</a><a class="tab on"><svg class="i"><use href="#i-task"/></svg>משימות</a><a class="tab"><svg class="i"><use href="#i-gear"/></svg>הגדרות</a></nav>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        <h3>משימות</h3>
+        <ul>
+          <li>הרשימה קודם. הסטטיסטיקה הפכה לכרטיס קטן בתחתית, ובורר החזרתיות עבר לטופס "משימה".</li>
+          <li>עיגול סימון של 44px, במקום תיבה קטנה. מחיקה בתפריט ⋯ ולא ✕ אדום על כל שורה.</li>
+          <li>אותו כפתור "הוסף" בפינה, באותו מקום כמו ביומן.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+    <!-- INBOX -->
+    <figure>
+      <div class="phone" role="img" aria-label="מסך הדואר המוצע">
+        <div class="screen">
+          <div class="sbar"><span class="mono">18:47</span><span class="batt"></span></div>
+          <div class="head"><div class="brand"><span class="wm">JARVIS</span><span class="dot"></span></div><button class="ic-btn plain" aria-label="מדריך"><svg class="i"><use href="#i-help"/></svg></button></div>
+          <div class="body">
+            <div class="ptitle"><div class="t">הדואר שלי</div><div class="s">2 הודעות חדשות · מחובר ל-<bdi>Gmail</bdi></div></div>
+            <div class="ml"><div class="top"><span class="unread"></span><span class="from">דנה כהן</span><span class="when">לפני שעתיים</span></div><div class="subj">סיכום הפגישה של אתמול</div><div class="snip">היי, מצרפת את הסיכום ואת המשימות שהחלטנו עליהן. תגידי לי אם משהו חסר…</div><div class="act"><button class="btn"><svg class="i s"><use href="#i-msg"/></svg>השב עם JARVIS</button></div></div>
+            <div class="ml"><div class="top"><span class="unread"></span><span class="from"><bdi>Google Cloud</bdi></span><span class="when">אתמול</span></div><div class="subj"><bdi>Your monthly billing summary</bdi></div><div class="snip"><bdi>Here is your billing summary for August. Total charges: $0.00</bdi></div><div class="act"><button class="btn"><svg class="i s"><use href="#i-msg"/></svg>השב עם JARVIS</button></div></div>
+            <button class="fab"><svg class="i"><use href="#i-plus"/></svg>מייל חדש</button>
+          </div>
+          <div class="dock">
+            <div class="cmd"><button class="ic-btn"><svg class="i"><use href="#i-mic"/></svg></button><div class="field">שאל או פקד על JARVIS…</div><button class="ic-btn send"><svg class="i"><use href="#i-send"/></svg></button></div>
+            <nav class="tabs"><a class="tab"><svg class="i"><use href="#i-home"/></svg>בית</a><a class="tab"><svg class="i"><use href="#i-cal"/></svg>יומן</a><a class="tab on"><svg class="i"><use href="#i-mail"/></svg>דואר</a><a class="tab"><svg class="i"><use href="#i-task"/></svg>משימות</a><a class="tab"><svg class="i"><use href="#i-gear"/></svg>הגדרות</a></nav>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        <h3>דואר</h3>
+        <ul>
+          <li>כותרת עם ספירה ומצב חיבור. בכל הודעה: מי, מתי, על מה, וקטע קצר.</li>
+          <li>שם השולח מודגש, והנושא בצבע טקסט רגיל. הציאן שמור לנקודת "לא נקרא" ולכפתורים.</li>
+          <li>"השב עם JARVIS" ככפתור ברור בגובה 44px.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+    <!-- HELP -->
+    <figure>
+      <div class="phone" role="img" aria-label="מסך המדריך">
+        <div class="screen">
+          <div class="sbar"><span class="mono">18:47</span><span class="batt"></span></div>
+          <div class="head"><div class="brand"><button class="ic-btn plain" aria-label="חזרה" style="transform:scaleX(-1)"><svg class="i"><use href="#i-chev"/></svg></button><span style="font-weight:600;font-size:18px">מדריך</span></div><span class="wm" style="font-size:12px;opacity:.7">JARVIS</span></div>
+          <div class="body">
+            <div class="hero-h">
+              <h6>הכל מתחיל בקול</h6>
+              <p>לחץ על הכדור ודבר בעברית, או הקלד בשורה התחתונה.</p>
+              <ol class="steps"><li><span>אשר גישה למיקרופון (פעם אחת).</span></li><li><span>לחץ על הכדור ואמור משפט אחד.</span></li><li><span>אם JARVIS מציע שינוי, אשר ב-✅ או דחה.</span></li></ol>
+            </div>
+            <div class="sechead"><b>מה אפשר להגיד?</b><span>לחץ על משפט כדי לנסות</span></div>
+            <div class="cats" id="cats">
+              <button class="cat on" data-c="cal">יומן</button><button class="cat" data-c="mail">דואר</button><button class="cat" data-c="task">משימות</button><button class="cat" data-c="info">מידע</button><button class="cat" data-c="web">דפים</button><button class="cat" data-c="nav">ניווט</button>
+            </div>
+            <div class="phr" data-c="cal"><button><svg class="i"><use href="#i-mic"/></svg>מה יש לי היום?</button><button><svg class="i"><use href="#i-mic"/></svg>קבע פגישה עם דנה מחר ב-10:00</button><button><svg class="i"><use href="#i-mic"/></svg>תזיז את הפגישה של מחר לשעה 11</button></div>
+            <div class="phr" data-c="mail" hidden><button><svg class="i"><use href="#i-mic"/></svg>יש לי מיילים חדשים?</button><button><svg class="i"><use href="#i-mic"/></svg>תקריא לי את המיילים האחרונים</button><button><svg class="i"><use href="#i-mic"/></svg>שלח מייל ל-dana@gmail.com שאני מאחר</button></div>
+            <div class="phr" data-c="task" hidden><button><svg class="i"><use href="#i-mic"/></svg>תוסיף משימה: לקנות חלב</button><button><svg class="i"><use href="#i-mic"/></svg>תזכיר לי בעוד שעה להתקשר לדנה</button><button><svg class="i"><use href="#i-mic"/></svg>כל יום רביעי ב-15:00 תזכיר לי לצאת עם הכלבה</button></div>
+            <div class="phr" data-c="info" hidden><button><svg class="i"><use href="#i-mic"/></svg>מה מזג האוויר בתל אביב?</button><button><svg class="i"><use href="#i-mic"/></svg>מה המניה של אפל?</button><button><svg class="i"><use href="#i-mic"/></svg>איך השוק היום?</button></div>
+            <div class="phr" data-c="web" hidden><button><svg class="i"><use href="#i-mic"/></svg>פתח לי את הדף בוויקיפדיה על קנדריק למאר</button><button><svg class="i"><use href="#i-mic"/></svg>תחפש לי טיסה מתל אביב לפריז ב-10 באוקטובר</button><button><svg class="i"><use href="#i-mic"/></svg>פתח את ynet</button></div>
+            <div class="phr" data-c="nav" hidden><button><svg class="i"><use href="#i-mic"/></svg>קח אותי לדיזנגוף סנטר</button><button><svg class="i"><use href="#i-mic"/></svg>איפה יש פיצה קרובה?</button></div>
+            <div class="sechead"><b>איך זה עובד</b></div>
+            <div class="how">
+              <div><svg class="i"><use href="#i-globe"/></svg><span><b>מדברים עברית, עונים באנגלית</b>זו בחירה מכוונת של המערכת.</span></div>
+              <div><svg class="i"><use href="#i-shield"/></svg><span><b>אישור לפני שינוי</b>יומן ומייל מחכים ללחיצה שלך.</span></div>
+            </div>
+          </div>
+          <div class="dock">
+            <div class="cmd"><button class="ic-btn"><svg class="i"><use href="#i-mic"/></svg></button><div class="field">שאל או פקד על JARVIS…</div><button class="ic-btn send"><svg class="i"><use href="#i-send"/></svg></button></div>
+            <nav class="tabs"><a class="tab"><svg class="i"><use href="#i-home"/></svg>בית</a><a class="tab"><svg class="i"><use href="#i-cal"/></svg>יומן</a><a class="tab"><svg class="i"><use href="#i-mail"/></svg>דואר</a><a class="tab"><svg class="i"><use href="#i-task"/></svg>משימות</a><a class="tab on"><svg class="i"><use href="#i-gear"/></svg>הגדרות</a></nav>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        <h3>מדריך — מסך חדש</h3>
+        <ul>
+          <li>נפתח מה-? בכותרת ומההגדרות. שלושה צעדים להתחלה, ואחריהם משפטים אמיתיים לפי קטגוריה. לחיצה על משפט שולחת אותו.</li>
+          <li>המשפטים לקוחים מהיכולות הקיימות של JARVIS, כולל פתיחת דפי אינטרנט. את פתיחת הדפים, הניווט והמקומות הקרובים בדקתי מול המודל האמיתי.</li>
+          <li>בהמשך המסך (בגלילה): "משהו לא עובד?" עם פתרונות למיקרופון, להתראות באייפון ולתשובות שגויות.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+    <!-- SETTINGS -->
+    <figure>
+      <div class="phone" role="img" aria-label="מסך ההגדרות המוצע">
+        <div class="screen">
+          <div class="sbar"><span class="mono">18:47</span><span class="batt"></span></div>
+          <div class="head"><div class="brand"><span class="wm">JARVIS</span><span class="dot"></span></div><button class="ic-btn plain" aria-label="מדריך"><svg class="i"><use href="#i-help"/></svg></button></div>
+          <div class="body">
+            <div class="ptitle"><div class="t">הגדרות</div></div>
+            <div class="grpcard">
+              <div class="set"><svg class="i"><use href="#i-user"/></svg><span>החשבון שלי<small><bdi>you@gmail.com</bdi></small></span><span class="v">החלף<svg class="i s"><use href="#i-chev"/></svg></span></div>
+              <div class="set"><svg class="i"><use href="#i-plug"/></svg><span>חיבורים<small><bdi>Google Calendar</bdi> · <bdi>Gmail</bdi></small></span><span class="v ok"><svg class="i s"><use href="#i-check"/></svg>מחובר</span></div>
+            </div>
+            <div class="gt">קול והתראות</div>
+            <div class="grpcard">
+              <div class="set"><svg class="i"><use href="#i-wave"/></svg><span>בדיקת מיקרופון<small>אם JARVIS לא שומע אותך</small></span><span class="v"><svg class="i s"><use href="#i-chev"/></svg></span></div>
+              <div class="set"><svg class="i"><use href="#i-mic"/></svg><span>עצירה אוטומטית בסוף משפט</span><span class="tog"></span></div>
+              <div class="set"><svg class="i"><use href="#i-bell"/></svg><span>התראות בדפדפן<small>תזכורות גם כשהאתר סגור</small></span><span class="tog"></span></div>
+            </div>
+            <div class="gt">מראה</div>
+            <div class="grpcard"><div class="set" style="border:0"><svg class="i"><use href="#i-pal"/></svg><span>צבע</span><span></span></div><div class="sw"><i style="background:#00f3ff" class="on"></i><i style="background:#00ff88"></i><i style="background:#ff8c00"></i><i style="background:#ff2d2d"></i><i style="background:#aa46ff"></i><i style="background:#ffc0cb"></i></div></div>
+            <div class="gt">מתקדם</div>
+            <div class="grpcard">
+              <div class="set"><svg class="i"><use href="#i-mail"/></svg><span>סיכום שבועי במייל<small>נשלח בימי ראשון בבוקר</small></span><span class="v">שלח עכשיו<svg class="i s"><use href="#i-chev"/></svg></span></div>
+              <div class="set"><svg class="i"><use href="#i-gear"/></svg><span>קיצורי דרך (<bdi>iPhone</bdi>)</span><span class="v"><svg class="i s"><use href="#i-chev"/></svg></span></div>
+              <div class="set"><svg class="i"><use href="#i-repeat"/></svg><span>איפוס זיכרון שיחה</span><span class="v"><svg class="i s"><use href="#i-chev"/></svg></span></div>
+            </div>
+            <div class="gt">עזרה</div>
+            <div class="grpcard">
+              <div class="set"><svg class="i"><use href="#i-book"/></svg><span>מדריך ושאלות נפוצות</span><span class="v"><svg class="i s"><use href="#i-chev"/></svg></span></div>
+            </div>
+          </div>
+          <div class="dock">
+            <div class="cmd"><button class="ic-btn"><svg class="i"><use href="#i-mic"/></svg></button><div class="field">שאל או פקד על JARVIS…</div><button class="ic-btn send"><svg class="i"><use href="#i-send"/></svg></button></div>
+            <nav class="tabs"><a class="tab"><svg class="i"><use href="#i-home"/></svg>בית</a><a class="tab"><svg class="i"><use href="#i-cal"/></svg>יומן</a><a class="tab"><svg class="i"><use href="#i-mail"/></svg>דואר</a><a class="tab"><svg class="i"><use href="#i-task"/></svg>משימות</a><a class="tab on"><svg class="i"><use href="#i-gear"/></svg>הגדרות</a></nav>
+          </div>
+        </div>
+      </div>
+      <figcaption>
+        <h3>הגדרות — מקובצות</h3>
+        <ul>
+          <li>קבוצות עם כותרת במקום רשימה אחת ארוכה: חשבון, קול והתראות, מראה, מתקדם, עזרה. בכל קבוצה שלוש שורות לכל היותר.</li>
+          <li>הסיכום השבועי, שהיה תקוע בעמוד היומן, עבר לכאן. "התנתקות" נשארת בתחתית, באדום.</li>
+          <li>הערת "המערכת בשלב בדיקות" יוצאת מהמסך: זה מידע למפתח ולא למשתמש.</li>
+        </ul>
+      </figcaption>
+    </figure>
+
+  </div>
+</div></section>
+
+<!-- ================= 5. empty states ================= -->
+<section class="blk"><div class="wrap">
+  <h2>מצבים ריקים — ההנחיה שנמצאת בדיוק איפה שצריך אותה</h2>
+  <p class="sub">כשאין מה להציג, זה הרגע שבו משתמש חדש הכי אבוד. כל מצב ריק אומר במשפט אחד מה קורה, ומציע משפט לנסות (לחיצה שולחת אותו).</p>
+  <div class="states">
+    <div class="st"><div class="pi"><svg class="i"><use href="#i-cal"/></svg></div><h3>יום פנוי</h3><p>אין אירועים ליום הזה. רוצה להוסיף משהו?</p><div class="row-btns"><button class="btn"><svg class="i s"><use href="#i-plus"/></svg>פגישה</button><button class="btn"><svg class="i s"><use href="#i-plus"/></svg>תזכורת</button></div><button class="try"><svg class="i"><use href="#i-mic"/></svg>"קבע פגישה מחר ב-10"</button></div>
+    <div class="st"><div class="pi"><svg class="i"><use href="#i-task"/></svg></div><h3>אין משימות פתוחות</h3><p>הכל סגור. משימה חדשה מתחילה במילה אחת.</p><div class="row-btns"><button class="btn"><svg class="i s"><use href="#i-plus"/></svg>משימה</button></div><button class="try"><svg class="i"><use href="#i-mic"/></svg>"תוסיף משימה: לקנות חלב"</button></div>
+    <div class="st"><div class="pi"><svg class="i"><use href="#i-mail"/></svg></div><h3>תיבת הדואר ריקה</h3><p>אין הודעות חדשות. מחובר ל-<bdi>Gmail</bdi>.</p><div class="row-btns"><button class="btn">רענן</button></div><button class="try"><svg class="i"><use href="#i-mic"/></svg>"שלח מייל לדנה שאני מאחר"</button></div>
+    <div class="st"><div class="pi"><svg class="i"><use href="#i-mic"/></svg></div><h3>צריך לאשר מיקרופון</h3><p>כדי לדבר צריך לאשר גישה. אפשר גם להקליד — הכל עובד בלי קול.</p><div class="row-btns"><button class="btn pri">אשר מיקרופון</button><button class="btn">למה זה נחוץ?</button></div></div>
+  </div>
+</div></section>
+
+<!-- ================= 5b. full guide ================= -->
+<section class="blk"><div class="wrap">
+  <h2>המדריך — התוכן המלא</h2>
+  <p class="sub">בטלפון רואים רק את ראש מסך המדריך. זה מה שיושב מתחתיו (בגלילה), כדי שיהיה ברור שההנחיות מפורטות באמת ולא רק סיסמאות.</p>
+  <div class="guide">
+    <div class="card">
+      <h3>מסך אחרי מסך</h3>
+      <dl>
+        <div><dt><svg class="i"><use href="#i-home"/></svg>בית</dt><dd class="ind">הכדור: לחץ ודבר. מתחתיו מה קורה היום, והצעות לנסות.</dd></div>
+        <div><dt><svg class="i"><use href="#i-cal"/></svg>יומן</dt><dd class="ind">כל מה שיש לך בזמן, מקובץ לפי ימים: אירועים ותזכורות. "הוסף" יוצר פגישה או תזכורת.</dd></div>
+        <div><dt><svg class="i"><use href="#i-mail"/></svg>דואר</dt><dd class="ind">ההודעות שלא נקראו. "השב עם JARVIS" מנסח תשובה, ולפני שליחה אתה מאשר.</dd></div>
+        <div><dt><svg class="i"><use href="#i-task"/></svg>משימות</dt><dd class="ind">מה עוד צריך לעשות. מסמנים בעיגול, או אומרים "תוסיף משימה…". משימה יכולה לחזור כל יום או בימים קבועים.</dd></div>
+        <div><dt><svg class="i"><use href="#i-gear"/></svg>הגדרות</dt><dd class="ind">חשבון וחיבורים, קול והתראות, צבע, והמדריך הזה.</dd></div>
+      </dl>
+    </div>
+    <div class="card">
+      <h3>משהו לא עובד?</h3>
+      <dl>
+        <div><dt>JARVIS לא שומע אותי</dt><dd>בדוק שהאתר מורשה להשתמש במיקרופון (סמל המנעול בדפדפן). ב-הגדרות ← בדיקת מיקרופון אפשר לשמוע את עצמך. ובכל מקרה אפשר להקליד בשורה התחתונה.</dd></div>
+        <div><dt>אין לי התראות בטלפון</dt><dd>באנדרואיד: הגדרות ← התראות בדפדפן, ואשר. באייפון: קודם מוסיפים את האתר למסך הבית (שיתוף ← הוסף למסך הבית) ורק משם מפעילים, כי בטאב רגיל של ספארי אפל לא מאפשרת התראות.</dd></div>
+        <div><dt>JARVIS ענה משהו לא נכון</dt><dd>נסח שוב במשפט אחד וברור. אם הוא ממשיך להתבלבל: הגדרות ← איפוס זיכרון שיחה.</dd></div>
+        <div><dt>הוא אומר שהגיע למגבלת שימוש</dt><dd>המערכת רצה על מכסה חינמית. כמה דקות של המתנה, ונסה שוב.</dd></div>
+        <div><dt>גוגל לא נותנת לי להתחבר</dt><dd>האפליקציה עדיין בבדיקות: רק חשבונות שנוספו מראש יכולים להיכנס. בקש מהמפתח להוסיף את כתובת ה-<bdi>Gmail</bdi> שלך. (זו ההערה שיוצאת מההגדרות ועוברת לכאן ולמסך הכניסה.)</dd></div>
+      </dl>
+    </div>
+  </div>
+</div></section>
+
+<!-- ================= 6. plan ================= -->
+<section class="blk"><div class="wrap">
+  <h2>איך נעבוד — בשלבים, כל שלב נבדק לפני הבא</h2>
+  <p class="sub">כל שלב קטן מספיק כדי לראות אותו בטלפון ולהחליט. אחרי כל שלב אני מצלם את המסכים בגודל הטלפון ובודק אותם, ואתה מסתכל בטלפון לפני שממשיכים.</p>
+  <ol class="plan">
+    <li><span class="pn">1</span><div><h3>מדויק ונקי <span>הכי קטן, הכי מורגש</span></h3><ul><li>תיקוני נתונים: "כל היום", היום / מחר / השבוע בעברית, ברכת הפתיחה שאומרת "היום".</li><li>פס סטטוס כהה; שורת פקודה וניווט אטומים במקום שקופים.</li><li>טקסט עברי ב-Rubik, 15px, בצבע רגוע; אייקוני קו במקום אימוג'י; הסרת הערת "בשלב בדיקות".</li></ul></div></li>
+    <li><span class="pn">2</span><div><h3>היומן החדש <span>הדוגמה של הבוחן</span></h3><ul><li>רשימה אחת מקובצת לפי ימים במקום היום/השבוע, עם קו "עכשיו"; תפריט ⋯ במקום שני כפתורים.</li><li>כפתור "הוסף" וטופס תחתון; תזכורות בתוך הציר; הסיכום השבועי עובר להגדרות.</li><li>נעלמת הקראה אוטומטית שמתחילה בכל פעם שפותחים את תצוגת השבוע.</li></ul></div></li>
+    <li><span class="pn">3</span><div><h3>מדריך והתחלה <span>הבקשה השנייה</span></h3><ul><li>מסך מדריך עם משפטים ללחיצה; כרטיס פתיחה וסיור קצר בפעם הראשונה.</li><li>מצבי מיקרופון מוסברים; מצבים ריקים עם דוגמה; הערת "רק חשבונות שאושרו" עוברת ממסך ההגדרות למסך הכניסה ולמדריך.</li></ul></div></li>
+    <li><span class="pn">4</span><div><h3>שאר המסכים</h3><ul><li>משימות, דואר, הגדרות מקובצות, וסיכום "היום שלך" בבית.</li></ul></div></li>
+  </ol>
+
+  <div class="decide">
+    <h3>חמש החלטות שלך לפני שמתחילים</h3>
+    <ol>
+      <li><b>גודל הטקסט.</b> <span>להעלות עברית מ-13px ל-15px. זה משנה את סולם הגדלים ב-DESIGN.md, ואעדכן אותו שם.</span></li>
+      <li><b>יומן.</b> <span>רשימה אחת מקובצת לפי ימים במקום היום/השבוע (כך גם נעלמת הבלבול של "היום" שמראה את מחר).</span></li>
+      <li><b>תזכורות.</b> <span>בתוך ציר הזמן של היומן (כמו בהצעה), או כלשונית נפרדת?</span></li>
+      <li><b>רקע רגוע.</b> <span>בלשוניות התוכן בלבד, כשהבית שומר על ה-HUD המלא (כמו בהצעה) — או בכל האפליקציה?</span></li>
+      <li><b>התחלה.</b> <span>לאשר את הכיוון ולהתחיל משלב 1, או לשנות משהו בהצעה קודם.</span></li>
+    </ol>
+  </div>
+</div></section>
+
+<footer class="wrap foot">
+  זו הצעה בלבד: הקובץ הזה נפרד מהאפליקציה, והאפליקציה החיה לא שונתה. הנתונים במסכים להמחשה. מקור ההצעה: סריקה של האפליקציה הנוכחית בגודל טלפון (Pixel 7) ומדידות של גדלי מגע, גופנים וצבעים.
+</footer>
+
+<script>
+document.querySelectorAll('.cats').forEach(function(box){
+  box.addEventListener('click',function(e){
+    var b=e.target.closest('button.cat'); if(!b) return;
+    box.querySelectorAll('.cat').forEach(function(x){x.classList.toggle('on',x===b)});
+    var scope=box.closest('.body');
+    scope.querySelectorAll('.phr').forEach(function(p){p.hidden=(p.dataset.c!==b.dataset.c)});
+  });
+});
+</script>
+</body>
+</html>

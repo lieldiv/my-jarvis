@@ -8,12 +8,7 @@ __pycache__/
 *.pyc
 
 # Multi-user build: real users' accounts + Google tokens live here — never
-# commit this, same reasoning as .env/.google_cache above.
-users.db
-data/
-
-# PyInstaller build output (packaging/jarvis.spec) — regenerate with
-# `pyinstaller packaging/jarvis.spec --distpath dist --workpath build`,
-# never commit the ~150-300MB of generated binaries.
-build/
-dist/
+# commit this, same reasoning as .env/.google_cache above. The trailing *
+# also covers SQLite's WAL-mode siblings (users.db-wal/-shm) if the local
+# fallback path (no DATABASE_URL set) ever runs with journal_mode=WAL.
+users.db*
