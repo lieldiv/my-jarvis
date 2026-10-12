@@ -4345,6 +4345,16 @@ async function fetchAndSpeak(text){
         let data = await ask(0);
         // Never over the top of the acknowledgement it just gave.
         await thinkingSettled();
+        // A genuine TTS failure (edge-tts/Microsoft's backend down or rejecting the
+        // request -- see tts.py's generate_tts_base64) looked IDENTICAL to "nothing to
+        // say" from here: data.audio is null either way. total>0 is what tells them
+        // apart -- there WAS text to speak, it just couldn't be synthesized. A quiet,
+        // non-blocking toast (not an error state -- the reply text is already on
+        // screen, exactly as the comment below this block already argued) so a real
+        // outage is at least visible instead of silent.
+        if (data && !data.audio && data.total > 0) {
+            showToast('לא הצלחתי להשמיע את התשובה בקול — הטקסט מופיע למעלה.', true);
+        }
         let first = true;
         while (data && data.audio) {
             if (stale()) { vlog('tts-dropped', 'user started speaking'); break; }
