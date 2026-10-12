@@ -609,10 +609,18 @@ MAX_TOKENS = 2048
 # Rough per-round token estimate fed to groq_pacer.wait_if_needed() -- measured
 # directly: system prompt (~1,186 tok) + time/shortcuts context (~180 tok) +
 # ACTIVE_TOOLS schema (~4,908 tok) = ~6,275 tok fixed overhead resent on EVERY
-# round, before history/user message/output. Deliberately conservative (erring
-# high) since gpt-oss's hidden reasoning tokens make the real cost hard to
-# predict before the call is actually made.
-ESTIMATED_CALL_TOKENS = 7200
+# round, before history/user message/output.
+#
+# MUST stay meaningfully below groq_pacer.SAFE_BUDGET (6,800) -- found live by
+# a review agent: an earlier value here (7,200) exceeded SAFE_BUDGET outright,
+# which makes wait_if_needed's "comfortably under budget, don't wait" branch
+# mathematically unreachable except when the window is completely empty. Every
+# call after the first in any given minute paced into a ~15s wait regardless
+# of how much headroom actually existed -- turning a proactive pacer into a
+# near-constant tax, with 2-3 round requests risking the client's own 65s
+# fetch timeout. 6,300 reflects the measured overhead directly rather than
+# padding it further, since the padding is exactly what broke the comparison.
+ESTIMATED_CALL_TOKENS = 6300
 
 # Compose-email attachments (see /api/compose/send) — kept modest since
 # they travel as base64 inside a JSON request body on a 512MB free-tier
@@ -2855,8 +2863,11 @@ def _log_token_usage(completion) -> None:
             f"completion={usage.completion_tokens} total={usage.total_tokens}"
         )
         # Cached tokens don't count against Groq's rate limit (per their docs), so
-        # the pacer should track only the uncached portion.
-        groq_pacer.record_usage(usage.total_tokens - cached)
+        # the pacer should track only the uncached portion. Clamped at 0 -- if
+        # cached ever came back larger than total (an API quirk, not expected but
+        # not worth trusting blindly either), the honest unknown is "no additional
+        # load", not a negative number that would erase real tracked usage.
+        groq_pacer.record_usage(max(0, usage.total_tokens - cached))
     except Exception:
         pass  # purely diagnostic -- never let logging break the actual call
 
@@ -2907,6 +2918,14 @@ def _complete_with_retry(messages):
         if kind == "minute" and retry_after <= 20:
             logger.warning(f"Groq per-minute rate limit hit, retrying once after {retry_after:.1f}s")
             time.sleep(retry_after + 0.5)
+            # Re-consult the shared pacer before the retry too -- Groq's own retry_after only
+            # reflects THIS caller's own 429, not the rest of this process's concurrent users;
+            # without this, several threads that each hit 429 around the same moment sleep
+            # their own retry_after and then all fire together right as the window frees up,
+            # bypassing the exact thundering-herd protection this module exists for. Found by
+            # a review agent: this path was the one spot that skipped wait_if_needed, unlike
+            # the tool_use_failed retry right above it.
+            groq_pacer.wait_if_needed(ESTIMATED_CALL_TOKENS)
             try:
                 return groq_client.chat.completions.create(
                     model=MODEL_NAME, messages=messages, tools=ACTIVE_TOOLS,

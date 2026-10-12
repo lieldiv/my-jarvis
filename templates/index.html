@@ -3918,7 +3918,7 @@ function initSpeechRecognition(){
         }, 12000);
     };
 
-    recognition.onresult = (event) => {
+    recognition.onresult = async (event) => {
         clearTimeout(recognitionSafetyTimer);
         clearTimeout(audioCaptureWatchdog);
         /* A transcript is the strongest proof that sound reached the
@@ -3956,6 +3956,13 @@ function initSpeechRecognition(){
         try { transcript = event.results[0][0].transcript.toLowerCase().trim(); } catch (e) {}
         if (!transcript) { vlog('result', 'empty or malformed — ignored'); return; }
 
+        // Same deliberate pause as the server/Whisper path (uploadForTranscription) --
+        // found missing here by a review agent: this is the DEFAULT engine on desktop
+        // (sttEngine() picks 'browser' for every non-mobile user), so without this gap
+        // desktop was still the one place a misheard word got acted on the instant it
+        // was recognised, with no visible moment to notice and react to it.
+        setOrbTranscript(transcript);
+        await new Promise(resolve => setTimeout(resolve, 700));
         handleTranscript(transcript);
     };
 

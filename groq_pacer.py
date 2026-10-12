@@ -36,7 +36,11 @@ _usage = deque()  # (monotonic_timestamp, tokens) pairs, oldest first
 
 
 def record_usage(total_tokens: int) -> None:
-    if not total_tokens:
+    # A negative value (a caller mis-computing a "cached tokens" discount, say) must never
+    # reach the deque: it would silently SUBTRACT from the tracked sliding-window sum,
+    # under-counting real usage -- the dangerous direction, since this tracker existing at
+    # all is to avoid under-estimating how close the shared budget is to its real ceiling.
+    if not total_tokens or total_tokens < 0:
         return
     with _lock:
         _usage.append((time.monotonic(), total_tokens))

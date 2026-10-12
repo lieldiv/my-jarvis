@@ -43,6 +43,24 @@ elapsed = time.monotonic() - t0
 check("wait_if_needed sleeps when a call would push over budget", elapsed > 0.05, elapsed)
 check("...but never beyond MAX_WAIT_SECONDS", elapsed <= groq_pacer.MAX_WAIT_SECONDS + 1, elapsed)
 
+# Found live by a review agent: an earlier ESTIMATED_CALL_TOKENS (7200) exceeded SAFE_BUDGET
+# (6800) outright, making the "don't wait" branch mathematically unreachable except on a
+# completely empty window -- every call after the first in any minute paced into a ~15s wait
+# regardless of real headroom, and this test file's own hand-picked numbers (1000 above) never
+# caught it because production never actually passes 1000. Asserting against the REAL app.py
+# constant directly, not a stand-in, is the only way this test file would catch a regression here.
+check("app.ESTIMATED_CALL_TOKENS stays meaningfully below groq_pacer.SAFE_BUDGET (the 'don't wait' "
+      "branch must stay reachable, not just reachable on a literally-empty window)",
+      jarvis_app.ESTIMATED_CALL_TOKENS < groq_pacer.SAFE_BUDGET - 200,
+      (jarvis_app.ESTIMATED_CALL_TOKENS, groq_pacer.SAFE_BUDGET))
+
+groq_pacer._usage.clear()
+groq_pacer.record_usage(300)  # a small amount of real recent usage -- not an empty window
+t0 = time.monotonic()
+groq_pacer.wait_if_needed(jarvis_app.ESTIMATED_CALL_TOKENS)  # the REAL constant, not a stand-in
+check("with the real ESTIMATED_CALL_TOKENS and only light prior usage, a call proceeds without waiting",
+      time.monotonic() - t0 < 0.3)
+
 groq_pacer._usage.clear()
 old_ts = time.monotonic() - 61  # older than the 60s window
 groq_pacer._usage.append((old_ts, 9999))
@@ -53,6 +71,25 @@ check("entries older than the 60s window are pruned and ignored", time.monotonic
 groq_pacer._usage.clear()
 groq_pacer.record_usage(0)
 check("record_usage(0) is a no-op, not a zero-token entry", len(groq_pacer._usage) == 0)
+
+# Found live by a review agent: a negative value (e.g. _log_token_usage computing
+# total_tokens - cached when Groq ever reports cached_tokens > total_tokens) used to be
+# appended to the deque unchanged, silently SUBTRACTING from the tracked sliding-window sum
+# -- under-counting real usage, which is the dangerous direction for a rate limiter to be
+# wrong in (it causes MORE 429s, not fewer, since the pacer thinks there's more headroom
+# than there really is).
+groq_pacer._usage.clear()
+groq_pacer.record_usage(-50)
+check("record_usage rejects a negative token count instead of silently recording it",
+      len(groq_pacer._usage) == 0, list(groq_pacer._usage))
+
+groq_pacer._usage.clear()
+groq_pacer.record_usage(6800)
+groq_pacer.record_usage(-6800)  # must not cancel the real usage back out to zero
+t0 = time.monotonic()
+groq_pacer.wait_if_needed(1000)
+check("a negative record_usage call can't erase previously-tracked real usage",
+      time.monotonic() - t0 > 0.05)
 
 
 # ---------------------------------------------------------------------------- classify_rate_limit
@@ -153,6 +190,24 @@ try:
     result = jarvis_app._complete_with_retry([{"role": "user", "content": "hi"}])
     check("a per-minute rate limit auto-retries once and returns the retry's result", result.choices[0].message.content == "ok")
     check("...and the retry actually happened (2 real calls, not 1)", fake.chat.completions.calls == 2, fake.chat.completions.calls)
+
+    # Found live by a review agent: this exact retry path used to fire its retry WITHOUT
+    # re-consulting groq_pacer first, unlike the tool_use_failed retry -- meaning several
+    # threads that each hit a 429 around the same moment would each sleep their own
+    # retry_after and then fire together, bypassing the shared-budget check right when it
+    # matters most (several real users colliding). Counts real wait_if_needed calls across
+    # the same scripted scenario as Case 1 above: initial attempt + the retry = 2.
+    real_wait_if_needed = groq_pacer.wait_if_needed
+    wait_calls = []
+    groq_pacer.wait_if_needed = lambda est: (wait_calls.append(est), real_wait_if_needed(est))
+    try:
+        fake1b = _FakeGroqClient([e_minute, _FakeCompletion()])
+        jarvis_app.groq_client = fake1b
+        jarvis_app._complete_with_retry([{"role": "user", "content": "hi"}])
+        check("the per-minute retry re-consults groq_pacer before firing, same as the tool_use_failed retry does",
+              len(wait_calls) == 2, len(wait_calls))
+    finally:
+        groq_pacer.wait_if_needed = real_wait_if_needed
 
     # Case 2: a daily-quota exhaustion -- must raise immediately, no retry (no Gemini configured).
     fake2 = _FakeGroqClient([e_day])
