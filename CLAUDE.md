@@ -14,13 +14,19 @@ device for a cloud server to control:
 
 1. **Schedule/email management is the central use case** — calendar + inbox.
 2. Conversational voice assistant (Groq LLM + edge-tts, browser HUD in
-   [templates/index.html](templates/index.html)). Speech recognition
-   (`recognition.lang`) is Hebrew (`he-IL`) — the actual user speaks Hebrew —
+   [templates/index.html](templates/index.html)). Speech-to-text is **not**
+   the browser's own recognizer — that was abandoned (iOS: mic opens onto
+   silence, no `speechstart` event, confirmed by instrumenting every event,
+   two attempted fixes changed nothing). The browser records raw audio
+   client-side; the server transcribes it via Groq-hosted `whisper-large-v3`
+   (`transcribe_audio()` in app.py), forced to Hebrew (`STT_LANGUAGE="he"`,
+   not auto-detected — a short command with a breath at the front got
+   misdetected into Arabic/Russian) since the actual user speaks Hebrew —
    but JARVIS's own replies stay English (`SYSTEM_PROMPT` says so explicitly;
    tried full Hebrew TTS once, the two available voices — he-IL-AvriNeural/
    HilaNeural — read as unprofessional, reverted). Wake/stop/yes-no phrase
-   matching accepts both languages since he-IL recognition isn't guaranteed
-   to transcribe English loanwords.
+   matching accepts both languages since forced-Hebrew transcription isn't
+   guaranteed to come back as English loanwords.
 3. Flexible general-purpose agent — but trimmed hard from the original: no
    Spotify (removed — it was one server-wide shared account, not per-user
    OAuth), no generic web_search/play_media (removed — both called Python's
@@ -248,21 +254,60 @@ logged a gap.
 
 ## Known gotchas
 
-- **Groq free-tier rate limit is tight** — a brand-new free account
-  exhausted its quota after ~6 demo commands. Every round trip resends the
-  *entire* history + system prompt + every tool schema, and
-  `MAX_TOOL_ROUNDS` chains multiple calls per single user command. Already
-  mitigated: `MODEL_NAME="openai/gpt-oss-20b"` (not 120b — much more
-  generous free budget), `MAX_TOOL_ROUNDS=2`, `MAX_HISTORY_MESSAGES=12`,
-  and `ACTIVE_TOOLS` trims desktop-only tool schemas entirely rather than
-  just refusing them at call time. If it's still hit constantly, the actual
-  fix is Groq's paid (cheap, pay-as-you-go) tier — creating new free
-  accounts is not a real solution, confirmed by direct experience.
-- **`MAX_TOKENS` must stay generous (1024, not 200)** — gpt-oss models spend
+- **Groq's free-tier rate limit is shared across every signed-in user** —
+  8,000 tokens/minute for `openai/gpt-oss-20b` (confirmed from Groq's own
+  docs), one account for the whole deployment, not per-user. Measured
+  directly: system prompt + time/shortcuts context + `ACTIVE_TOOLS` schema
+  alone cost ~6,275 tokens on *every single round* (the whole payload is
+  resent unchanged each of up to `MAX_TOOL_ROUNDS=3` rounds) — close to or
+  over the entire shared budget from ONE round of ONE user's ONE turn,
+  before history/user message/output are even counted. A 3-round compound
+  request can total ~20,000-25,000 tokens, 2.5-3x the whole shared ceiling.
+  This is why it felt "random" — it depends on whether that specific
+  request needed 1 round or 3, not on how much any user is actually using
+  the assistant. Mitigations in place: `MODEL_NAME="openai/gpt-oss-20b"`
+  (not 120b), `MAX_HISTORY_MESSAGES=12`, `ACTIVE_TOOLS` trims desktop-only
+  tool schemas, `TERMINAL_TOOLS` skips a redundant paraphrase round for 19
+  tools whose own return string is already the final reply,
+  `reasoning_effort="low"` on every completion call (caps gpt-oss's hidden
+  reasoning-token spend), `groq_pacer.py` (proactively paces calls against a
+  sliding 60s window instead of just reacting to a 429, and tells a brief
+  per-minute throttle — safe to auto-retry — apart from genuine daily quota
+  exhaustion), and an automatic fallback to Gemini (`GEMINI_API_KEY`, see
+  `.env.example`) when Groq is still rate-limited after that. If it's still
+  hit constantly without `GEMINI_API_KEY` set, that's the next lever before
+  Groq's paid tier — creating new free Groq accounts is not a real
+  solution, confirmed by direct experience (rotating the key doesn't change
+  a per-minute rate ceiling, only resets daily/total counters).
+- **`MAX_TOKENS` must stay generous (2048, not 200)** — gpt-oss models spend
   tokens on a hidden "analysis" channel before the tool-call JSON, and Groq
   counts that against `max_tokens`. Too low → truncated JSON → 400
   `tool_use_failed`. `_complete_with_retry()` retries once on that specific
-  error, but don't shrink `MAX_TOKENS` back down.
+  error, but don't shrink `MAX_TOKENS` back down. (`reasoning_effort="low"`,
+  above, caps the *typical* reasoning spend without needing a hard token
+  ceiling low enough to risk truncating a legitimate multi-field tool call.)
+- **STT "heard the wrong word" reports can be premature cutoff, not a bad
+  decode** — the quality gate in `transcribe_audio()` (compression_ratio/
+  avg_logprob retry ladder, hallucination filtering) only ever sees what
+  Whisper actually decoded; it can't tell a wrong word from a *truncated*
+  sentence, because both come back as a clean, confident transcript. Two
+  real truncation paths found, both silent until now: client-side VAD
+  auto-stop (`VAD_HANGOVER_MS` in index.html, 900→1100ms — 900 was shorter
+  than a natural mid-sentence pause to recall a word) and dispatching the
+  transcript to the LLM in the same tick it's rendered (no gap for the user
+  to actually read it and react before it's acted on — the route's own
+  docstring always claimed this gap existed; it didn't, until a ~700ms
+  pause was added in `uploadForTranscription()` between `setOrbTranscript`
+  and `handleTranscript`). Also: a transcript that passes every quality
+  check was never logged at all before — only retries/discards/errors were
+  — so there was no way to pull up what Whisper actually returned for a
+  reported bad-transcription incident; `transcribe_audio()`'s success path
+  now logs the text plus the worst per-segment compression_ratio/
+  avg_logprob via `_stt_quality_summary()`. Mixed Hebrew/English proper
+  nouns (app names, contacts, cities) still mis-transliterate with no
+  mitigation — a vocabulary-list prompt was tried and *measured* to make
+  transcription nearly 3x worse (see `STT_PROMPT`'s own comment), so don't
+  re-attempt that without measuring again first.
 - **Mobile performance**: this HUD has several full-viewport
   `backdrop-filter: blur()` layers (including the sign-in gate, visible
   immediately on load) plus multiple simultaneous glow/rotation animations

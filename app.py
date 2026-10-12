@@ -36,6 +36,7 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 import webbrowser
 from datetime import datetime, timedelta
 from urllib.parse import quote, urlsplit
@@ -104,6 +105,7 @@ logger = logging.getLogger("jarvis")
 # --- Computer-use / sandboxing additions ------------------------------------
 from guardrails import refuse_if_elevated, ensure_workspace, resolve_confirmation, get_pending_meta, list_pending_for_user
 import file_tools
+import groq_pacer
 import vision_action
 import event_stream
 
@@ -194,7 +196,7 @@ if not GROQ_API_KEY:
 # retries transient failures internally UP TO 2 more times, each up to 60s,
 # and run_llm() below can call this whole thing twice more on top of that
 # (_complete_with_retry's own retry on a malformed tool call, times
-# MAX_TOOL_ROUNDS=2 loop iterations) — worst case, over ten minutes with a
+# MAX_TOOL_ROUNDS=3 loop iterations) — worst case, over ten minutes with a
 # gunicorn thread checked out of the --threads 16 pool the entire time,
 # serving nothing else. Same class of bug as the SSE thread-pinning issue
 # fixed separately: anything that can hold a worker thread for an
@@ -203,6 +205,25 @@ if not GROQ_API_KEY:
 # not by crashing, but by quietly running out of threads to serve
 # anything else, including Render's own health check.
 groq_client = Groq(api_key=GROQ_API_KEY, timeout=30.0, max_retries=1)
+
+# Optional free fallback for when Groq's shared free-tier rate limit is hit --
+# every user of this deployment shares ONE Groq account, so the 8,000-token/minute
+# budget is split across however many are active, not owned by any one of them.
+# Gemini's API is the only alternative researched that's confirmed (directly
+# against Google's own docs) to need no credit card AND to expose an
+# OpenAI-compatible endpoint that accepts the same messages/tools shape already
+# built for Groq -- see _complete_via_gemini below. Degrades silently to "no
+# fallback" if unset.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_CONFIGURED = bool(GEMINI_API_KEY)
+# Verified live against the real API during the equivalent fix on the desktop
+# build (not guessed): "gemini-2.5-flash" and "gemini-2.5-flash-lite" both 404
+# now ("no longer available to new users"), and "gemini-3.8-flash"/
+# "gemini-flash-latest" returned intermittent 503s ("experiencing high demand").
+# gemini-3.5-flash-lite answered cleanly and correctly tool-called against a
+# real multi-tool schema -- confirmed end-to-end, not just reachable.
+GEMINI_MODEL_NAME = "models/gemini-3.5-flash-lite"
+GEMINI_OPENAI_COMPAT_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 
 # ---------------------------------------------------------------------------
 # Speech to text
@@ -376,6 +397,25 @@ def _stt_decode_looks_wrong(result) -> str:
     return ""
 
 
+def _stt_quality_summary(result) -> str:
+    """Worst-case avg_logprob/compression_ratio across segments, for logging a
+    SUCCESSFUL transcript -- without this, every call that passes _stt_verdict
+    (the overwhelming majority) left zero trace of what Whisper actually
+    returned or how confident it was, which is exactly the data needed to
+    diagnose a reported "heard word A, said word B" incident after the fact.
+    Not a quality gate itself -- _stt_decode_looks_wrong already is one --
+    just making the same numbers visible for transcripts that passed it."""
+    worst_ratio, worst_logprob = None, None
+    for seg in _stt_segments(result):
+        ratio = _stt_field(seg, "compression_ratio")
+        if isinstance(ratio, (int, float)) and (worst_ratio is None or ratio > worst_ratio):
+            worst_ratio = ratio
+        logprob = _stt_field(seg, "avg_logprob")
+        if isinstance(logprob, (int, float)) and (worst_logprob is None or logprob < worst_logprob):
+            worst_logprob = logprob
+    return f"compression_ratio={worst_ratio} avg_logprob={worst_logprob}"
+
+
 def _stt_duration(result):
     value = getattr(result, "duration", None)
     if value is None and isinstance(result, dict):
@@ -519,6 +559,7 @@ def transcribe_audio(audio_bytes: bytes, extension: str):
     if not core or core in _STT_HALLUCINATIONS:
         logger.info(f"STT discarded a likely hallucination: {text!r}")
         return "", None
+    logger.info(f"STT transcribed: {text!r} ({_stt_quality_summary(result)})")
     return text, None
 
 
@@ -564,6 +605,14 @@ MAX_HISTORY_MESSAGES = 12    # ~6 user/assistant turns of memory
 # less reasoning than deciding two separate times/texts/tool calls, so
 # this scaled with request complexity rather than being a fixed cost.
 MAX_TOKENS = 2048
+
+# Rough per-round token estimate fed to groq_pacer.wait_if_needed() -- measured
+# directly: system prompt (~1,186 tok) + time/shortcuts context (~180 tok) +
+# ACTIVE_TOOLS schema (~4,908 tok) = ~6,275 tok fixed overhead resent on EVERY
+# round, before history/user message/output. Deliberately conservative (erring
+# high) since gpt-oss's hidden reasoning tokens make the real cost hard to
+# predict before the call is actually made.
+ESTIMATED_CALL_TOKENS = 7200
 
 # Compose-email attachments (see /api/compose/send) — kept modest since
 # they travel as base64 inside a JSON request body on a 512MB free-tier
@@ -2761,6 +2810,57 @@ def _build_tool_impl(user_id: str, shortcuts: list = None, persona: str = "jarvi
     return impl
 
 
+def _to_namespace(obj):
+    """dict/list -> SimpleNamespace/list, recursively -- lets a plain OpenAI-shaped
+    JSON response (from Gemini's OpenAI-compatibility endpoint, which has no Python
+    SDK here) be used as a drop-in for a real groq SDK completion object everywhere
+    downstream (run_llm reads completion.choices[0].message.tool_calls/.content and
+    completion.usage.*, same attribute access either way)."""
+    if isinstance(obj, dict):
+        return SimpleNamespace(**{k: _to_namespace(v) for k, v in obj.items()})
+    if isinstance(obj, list):
+        return [_to_namespace(v) for v in obj]
+    return obj
+
+
+def _complete_via_gemini(messages):
+    """Fallback for when Groq's shared free-tier rate limit is hit and waiting/
+    retrying on Groq itself didn't resolve it. Gemini's OpenAI-compatibility
+    endpoint takes the exact same messages/tools shape already built for Groq --
+    see GEMINI_* above for why this provider specifically."""
+    resp = requests.post(
+        GEMINI_OPENAI_COMPAT_URL,
+        headers={"Authorization": f"Bearer {GEMINI_API_KEY}", "Content-Type": "application/json"},
+        json={"model": GEMINI_MODEL_NAME, "messages": messages, "tools": ACTIVE_TOOLS, "max_tokens": MAX_TOKENS},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return _to_namespace(resp.json())
+
+
+def _log_token_usage(completion) -> None:
+    """Diagnostic for the shared free-tier Groq rate limit (8,000 TPM for
+    openai/gpt-oss-20b, split across every user of this deployment) kicking in
+    even on light aggregate use: logs exactly how many tokens each call actually
+    cost, and how many of those Groq's automatic prompt caching (console.groq.com/
+    docs/prompt-caching) discounted from the rate-limit count -- cached tokens
+    don't count against TPM, but caching is best-effort, not guaranteed, so this
+    is the only way to see whether it's actually landing on a given deploy rather
+    than assuming. Also feeds groq_pacer's sliding-window tracker."""
+    try:
+        usage = completion.usage
+        cached = getattr(getattr(usage, "prompt_tokens_details", None), "cached_tokens", 0) or 0
+        logger.info(
+            f"Groq usage: prompt={usage.prompt_tokens} (cached={cached}) "
+            f"completion={usage.completion_tokens} total={usage.total_tokens}"
+        )
+        # Cached tokens don't count against Groq's rate limit (per their docs), so
+        # the pacer should track only the uncached portion.
+        groq_pacer.record_usage(usage.total_tokens - cached)
+    except Exception:
+        pass  # purely diagnostic -- never let logging break the actual call
+
+
 # ---------------------------------------------------------------------------
 # The "brain": one Groq call with tools, looping if the model chains calls
 # ---------------------------------------------------------------------------
@@ -2770,11 +2870,25 @@ def _complete_with_retry(messages):
     several arguments. That's noisy generation, not a broken request — one
     retry almost always succeeds, so this saves the whole turn from dying
     with 'Neural connection error, sir' over what's usually a fluke.
+
+    reasoning_effort="low": gpt-oss models burn hidden "analysis"-channel
+    tokens before the visible tool-call JSON/answer, counted against both
+    max_tokens and Groq's free-tier 8,000-tokens/minute rate limit, shared
+    across every user of this deployment -- this directly caps that spend.
+
+    Also paces itself against groq_pacer (see that module) before every
+    attempt, and -- on an actual 429 -- auto-retries once if Groq's own
+    error says this was a brief per-minute throttle with a short retry-after.
+    If that still fails (or it's a genuine daily/total quota exhaustion),
+    falls back to Gemini when GEMINI_API_KEY is configured, before finally
+    raising so run_llm's outer handler can tell the user honestly.
     """
+    groq_pacer.wait_if_needed(ESTIMATED_CALL_TOKENS)
     try:
         return groq_client.chat.completions.create(
             model=MODEL_NAME, messages=messages, tools=ACTIVE_TOOLS,
             tool_choice="auto", temperature=0.6, max_tokens=MAX_TOKENS,
+            reasoning_effort="low",
         )
     except BadRequestError as e:
         code = getattr(e, "body", {}) or {}
@@ -2782,10 +2896,32 @@ def _complete_with_retry(messages):
         if code != "tool_use_failed":
             raise
         logger.warning("Tool call JSON malformed, retrying once...")
+        groq_pacer.wait_if_needed(ESTIMATED_CALL_TOKENS)
         return groq_client.chat.completions.create(
             model=MODEL_NAME, messages=messages, tools=ACTIVE_TOOLS,
             tool_choice="auto", temperature=0.6, max_tokens=MAX_TOKENS,
+            reasoning_effort="low",
         )
+    except RateLimitError as e:
+        kind, retry_after = groq_pacer.classify_rate_limit(e)
+        if kind == "minute" and retry_after <= 20:
+            logger.warning(f"Groq per-minute rate limit hit, retrying once after {retry_after:.1f}s")
+            time.sleep(retry_after + 0.5)
+            try:
+                return groq_client.chat.completions.create(
+                    model=MODEL_NAME, messages=messages, tools=ACTIVE_TOOLS,
+                    tool_choice="auto", temperature=0.6, max_tokens=MAX_TOKENS,
+                    reasoning_effort="low",
+                )
+            except RateLimitError:
+                pass  # still rate-limited after waiting -- fall through to Gemini/raise below
+        if GEMINI_CONFIGURED:
+            logger.warning("Groq rate-limited, falling back to Gemini for this call")
+            try:
+                return _complete_via_gemini(messages)
+            except Exception as gemini_err:
+                logger.error(f"Gemini fallback also failed: {gemini_err}")
+        raise
 
 
 _MARKDOWN_BOLD_ITALIC_RE = re.compile(r"(\*\*\*|\*\*|\*|___|__|_)(.+?)\1")
@@ -2867,7 +3003,9 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
     final_text = None
     try:
         for round_idx in range(MAX_TOOL_ROUNDS):
-            msg = _complete_with_retry(messages).choices[0].message
+            completion = _complete_with_retry(messages)
+            _log_token_usage(completion)
+            msg = completion.choices[0].message
 
             if not msg.tool_calls:
                 if _looks_like_leaked_tool_call(msg.content) and round_idx < MAX_TOOL_ROUNDS - 1:
@@ -2956,7 +3094,10 @@ def run_llm(user_text: str, user_id: str, persona: str = "jarvis",
 
     except RateLimitError as e:
         logger.error(f"Groq rate limit hit: {e}")
-        return "I've hit my usage limit with Groq for now, sir — give it a few minutes, or we may need to move to a paid tier."
+        kind, _ = groq_pacer.classify_rate_limit(e)
+        if kind == "day":
+            return "Groq's shared daily quota is used up for today, sir — it resets tomorrow, or we could move to a paid tier."
+        return "Groq's briefly rate-limited, sir — give it a few seconds and try again."
     except APIConnectionError as e:
         logger.error(f"Groq connection error: {e}")
         return "I can't reach Groq right now, sir — check the internet connection."
@@ -3580,18 +3721,23 @@ def inbox_draft_reply():
         "language the instructions above are written in."
     )
     try:
+        groq_pacer.wait_if_needed(900)  # no TOOLS schema here -- just the short system prompt + prompt + output
         completion = groq_client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": "You draft warm, professional plain-text email replies for J.A.R.V.I.S., an assistant — a real reply with a greeting and closing, not a one-line brush-off. Output only the email body, nothing else."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.6, max_tokens=400,
+            temperature=0.6, max_tokens=400, reasoning_effort="low",
         )
+        _log_token_usage(completion)  # same shared Groq rate limit as run_llm's calls
         draft = _strip_markdown(completion.choices[0].message.content or "").strip()
         return jsonify({"draft": draft})
-    except RateLimitError:
-        return jsonify({"error": "I've hit my usage limit with Groq for now, sir — give it a few minutes."}), 429
+    except RateLimitError as e:
+        kind, _ = groq_pacer.classify_rate_limit(e)
+        if kind == "day":
+            return jsonify({"error": "Groq's shared daily quota is used up for today, sir — it resets tomorrow."}), 429
+        return jsonify({"error": "Groq's briefly rate-limited, sir — give it a few seconds and try again."}), 429
     except Exception as e:
         logger.error(f"Draft-reply failed: {e}")
         return jsonify({"error": "I couldn't draft that reply, sir."}), 500
@@ -3650,20 +3796,25 @@ def compose_draft():
         "[Your Name]. Match the language the instructions above are written in.>"
     )
     try:
+        groq_pacer.wait_if_needed(900)  # no TOOLS schema here -- just the short system prompt + prompt + output
         completion = groq_client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": "You draft warm, professional plain-text emails for J.A.R.V.I.S., an assistant. Follow the requested SUBJECT:/BODY: format exactly."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.6, max_tokens=450,
+            temperature=0.6, max_tokens=450, reasoning_effort="low",
         )
+        _log_token_usage(completion)  # same shared Groq rate limit as run_llm's calls
         raw = _strip_markdown(completion.choices[0].message.content or "").strip()
         match = re.search(r"SUBJECT:\s*(.*?)\s*\n+BODY:\s*(.*)", raw, re.DOTALL | re.IGNORECASE)
         subject, body = (match.group(1).strip(), match.group(2).strip()) if match else ("", raw)
         return jsonify({"subject": subject, "body": body})
-    except RateLimitError:
-        return jsonify({"error": "I've hit my usage limit with Groq for now, sir — give it a few minutes."}), 429
+    except RateLimitError as e:
+        kind, _ = groq_pacer.classify_rate_limit(e)
+        if kind == "day":
+            return jsonify({"error": "Groq's shared daily quota is used up for today, sir — it resets tomorrow."}), 429
+        return jsonify({"error": "Groq's briefly rate-limited, sir — give it a few seconds and try again."}), 429
     except Exception as e:
         logger.error(f"Compose-draft failed: {e}")
         return jsonify({"error": "I couldn't draft that email, sir."}), 500

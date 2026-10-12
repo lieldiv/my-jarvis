@@ -3062,8 +3062,13 @@ const VAD_MIN_SPEECH_RMS = 0.012;
 const VAD_MIN_RELEASE_RMS = 0.008;
 /* How long a pause has to last before it reads as "finished" rather than
    "thinking". Under about 700ms this clips people between clauses; much over
-   a second and the wait becomes the thing you notice. */
-const VAD_HANGOVER_MS = 900;
+   a second and the wait becomes the thing you notice. Raised from 900 to
+   1100 after a real report of commands silently truncating mid-sentence --
+   900ms is shorter than a natural pause to recall a word or a name, and a
+   cut-off command transcribes cleanly (it just isn't the whole sentence),
+   so it looked identical to "misheard" from the outside. Still well under
+   the "becomes the thing you notice" ceiling above. */
+const VAD_HANGOVER_MS = 1100;
 
 let vadNoiseFloor = 0, vadCalibratedUntil = 0, vadSpeechSeen = false, vadQuietSince = 0;
 /* The loudest the take ever got. Against the noise floor it gives the one
@@ -3762,6 +3767,12 @@ async function uploadForTranscription(blob, filename){
     vlog('stt-text', `"${data.text}"`);
     setOrbTranscript(data.text);
     voiceState = 'idle';
+    // A brief, deliberate pause before acting -- restores a safety gap that used to
+    // exist implicitly (the old browser recognizer's own processing delay) but
+    // disappeared once transcription moved server-side: without it, the transcript
+    // renders and the command fires in the same tick, so a misheard word was acted
+    // on before anyone could actually read what was shown and react to it.
+    await new Promise(resolve => setTimeout(resolve, 700));
     handleTranscript(data.text.toLowerCase().trim());
 }
 
