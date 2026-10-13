@@ -14,6 +14,7 @@ async function newPage(browser, { denied = false } = {}) {
   const errors = []; const commands = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.route('**/api/command', async route => { commands.push(JSON.parse(route.request().postData()).command); await route.fulfill({ json: { response: 'Canned reply, sir.', audio: null, speak: false, persona: 'jarvis' } }); });
+  await page.route('**/api/speak', r => r.fulfill({ json: { audio: null } }));   // no network text-to-speech: the wake greeting must not make timing depend on it
   await installMocks(page);
   if (denied) await page.addInitScript(() => { navigator.permissions.query = async () => ({ state: 'denied', onchange: null }); });
   return { ctx, page, errors, commands };

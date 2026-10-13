@@ -14,6 +14,7 @@ async function newPage(browser, over = {}, { denied = false } = {}) {
   const errors = [], calls = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.route('**/api/command', r => r.fulfill({ json: { response: 'ok', audio: null, speak: false, persona: 'jarvis' } }));
+  await page.route('**/api/speak', r => r.fulfill({ json: { audio: null } }));   // no network text-to-speech: the wake greeting must not make timing depend on it
   await installMocks(page, over);
   const rec = (r, extra = {}) => calls.push({ m: r.request().method(), url: r.request().url(), body: r.request().postData(), ...extra });
   await page.route('**/api/tasks', async r => { if (r.request().method() === 'GET') return r.fallback(); rec(r); await r.fulfill({ json: { ok: true } }); });

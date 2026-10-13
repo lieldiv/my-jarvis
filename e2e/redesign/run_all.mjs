@@ -25,6 +25,7 @@ const suites = [
   [PY, 'unit_confirm_honesty.py'],
   [PY, 'unit_calendar_errors.py'],
   [PY, 'unit_groq_pacer.py'],
+  [PY, 'unit_tts_retry.py'],
   ['node', 'test_step1_foundation.mjs'],
   ['node', 'test_step2_agenda.mjs'],
   ['node', 'test_step3_guide.mjs'],

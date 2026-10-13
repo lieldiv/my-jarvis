@@ -15,6 +15,7 @@ const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 const commands = [];
 await page.route('**/api/command', async route => { commands.push(JSON.parse(route.request().postData()).command); await route.fulfill({ json: { response: 'Canned reply, sir.', audio: null, speak: false, persona: 'jarvis' } }); });
+await page.route('**/api/speak', r => r.fulfill({ json: { audio: null } }));   // no network text-to-speech: the wake greeting must not make timing depend on it
 let cancelBody = null;
 await page.route('**/api/calendar/cancel-request', async route => { cancelBody = JSON.parse(route.request().postData()); await route.fulfill({ json: { status: 'confirmation_required', token: 'tok-cancel', kind: 'calendar_event_delete', message: 'Cancel?', details: { summary: cancelBody.summary } } }); });
 let weeklyCalled = 0;

@@ -17,6 +17,7 @@ page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error' && !/401|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text()); });
 
 await page.route('**/api/command', route => route.fulfill({ json: { response: 'Canned reply, sir.', audio: null, speak: false, persona: 'jarvis' } }));
+await page.route('**/api/speak', r => r.fulfill({ json: { audio: null } }));   // no network text-to-speech: the wake greeting must not make timing depend on it
 
 await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.evaluate(() => { document.getElementById('gate-screen').style.display = 'none'; showWakeGate(); });

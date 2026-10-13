@@ -12,6 +12,7 @@ await ctx.addCookies([{ name: 'session', value: SESSION, url: BASE }]);
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
+await page.route('**/api/speak', r => r.fulfill({ json: { audio: null } }));   // no network text-to-speech: the wake greeting must not make timing depend on it
 
 await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.evaluate(() => { document.getElementById('gate-screen').style.display = 'none'; showWakeGate(); });
