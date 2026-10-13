@@ -4317,6 +4317,27 @@ function thinkingSettled(){
     return pending || Promise.resolve();
 }
 
+/* Emergency fallback when the server couldn't synthesize speech at all (edge-tts/
+   Microsoft down -- see the call site in fetchAndSpeak for why). Uses the browser's
+   own built-in speechSynthesis instead of going fully silent; mirrors playJarvisAudio's
+   own voiceState/mic-rearm handling so the orb doesn't get stuck mid-"speaking" when
+   this path is the one actually running instead. */
+function speakWithBrowserFallback(text){
+    if (!window.speechSynthesis) return;   // unsupported browser -- text on screen is still there
+    try {
+        window.speechSynthesis.cancel();   // clear anything already queued before speaking this
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-GB';   // Jarvis's replies are English regardless of the Hebrew UI
+        utterance.onstart = () => { voiceState = 'done'; renderOrb(); };
+        utterance.onend = () => {
+            voiceState = 'idle'; renderOrb();
+            if (isAwake && !micMuted) armMicrophone(); else warmMicrophone();
+            setTimeout(() => { if (voiceState === 'idle') clearOrbBubbles(); }, 2600);
+        };
+        window.speechSynthesis.speak(utterance);
+    } catch (e) { vlog('tts-fallback-error', String(e)); }
+}
+
 async function fetchAndSpeak(text){
     const generation = speechGeneration;
     const persona = currentMode();
@@ -4351,9 +4372,15 @@ async function fetchAndSpeak(text){
         // apart -- there WAS text to speak, it just couldn't be synthesized. A quiet,
         // non-blocking toast (not an error state -- the reply text is already on
         // screen, exactly as the comment below this block already argued) so a real
-        // outage is at least visible instead of silent.
+        // outage is at least visible instead of silent. Falls back to the browser's
+        // own built-in voice so the assistant still SPEAKS during an edge-tts outage
+        // (confirmed live, Oct 2026: github.com/rany2/edge-tts#490, Microsoft's side,
+        // no ETA) -- it sounds different/more robotic than Jarvis's usual voice, which
+        // is exactly why the toast says so explicitly rather than letting the voice
+        // change speak for itself.
         if (data && !data.audio && data.total > 0) {
-            showToast('לא הצלחתי להשמיע את התשובה בקול — הטקסט מופיע למעלה.', true);
+            showToast('קול הגיבוי הזמני פעיל (שירות הקול הרגיל לא זמין כרגע) — הטקסט תמיד מופיע למעלה.', true);
+            speakWithBrowserFallback(text);
         }
         let first = true;
         while (data && data.audio) {
