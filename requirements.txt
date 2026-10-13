@@ -15,7 +15,16 @@ edge-tts==7.2.8
 # investigating a real edge-tts outage: a different aiohttp resolved on a fresh
 # install could in principle behave differently against Microsoft's backend than
 # the version this was actually tested against.
-aiohttp==3.14.3
+#
+# 3.13.5, NOT the locally-resolved 3.14.3 -- aiohttp 3.14.x dropped Python 3.9
+# support entirely (confirmed directly: pip has no 3.14.x build for 3.9 at all,
+# only up to 3.13.5), and this project targets 3.9 to match Render's actual
+# runtime (see .github/workflows/test.yml's own comment on why it's pinned
+# there). The first version of this pin broke CI outright within minutes of
+# being pushed -- exactly the kind of thing "verify before shipping" should
+# have caught; re-pinned to the newest version that's actually installable
+# under 3.9, not just the newest version period.
+aiohttp==3.13.5
 requests==2.32.3
 python-dotenv==1.1.0
 gunicorn==23.0.0
