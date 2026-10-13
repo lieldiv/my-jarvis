@@ -11,9 +11,35 @@ import asyncio
 import base64
 import logging
 
+import cert_bootstrap  # noqa: F401 — must run before edge_tts.communicate's first import
+# anywhere in the process: aiohttp's SSL context is a module-level constant evaluated
+# once, at that first import, so cert_bootstrap's certifi monkeypatch only takes effect
+# if it's already applied by then. Every other HTTPS-calling module in this repo
+# self-imports it for the same reason (google_service.py, microsoft_service.py,
+# push_service.py, stocks_service.py, tavily_service.py) -- this one relied on app.py
+# happening to import cert_bootstrap first, which holds today by accident, not by
+# design. Found by a review agent; fixed before it could ever actually matter.
 import edge_tts
+import edge_tts.communicate as _edge_tts_communicate
 
 logger = logging.getLogger("jarvis.tts")
+
+# Microsoft is migrating the Edge Read-Aloud backend off speech.platform.bing.com
+# to api.msedgeservices.com, rolling it out region by region -- confirmed live,
+# not guessed: reproduced the 403 directly against the old host, then confirmed
+# this exact patch gets real audio back (github.com/rany2/edge-tts#490, 40+
+# independent reports across multiple countries as of Oct 2026, same token still
+# accepted on the new host, no other change needed; unmerged fix: PR #491).
+#
+# MUST patch communicate.WSS_URL specifically, not constants.WSS_URL: edge_tts's
+# own communicate.py does `from .constants import WSS_URL`, which binds its own
+# local name at import time -- patching the constants module after that point
+# silently does nothing, because communicate.py never looks at it again. Checked
+# directly against the installed 7.2.8 package source before relying on this.
+_edge_tts_communicate.WSS_URL = (
+    "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1"
+    f"?Ocp-Apim-Subscription-Key={edge_tts.constants.TRUSTED_CLIENT_TOKEN}"
+)
 
 VOICE = "en-GB-RyanNeural"  # run `edge-tts --list-voices` to see others
 

@@ -17,6 +17,24 @@ def check(label, cond, detail=""):
 
 import tts
 
+# Confirmed live (Oct 2026): Microsoft is rolling out a new Edge Read-Aloud host
+# (api.msedgeservices.com) and rejecting the old one (speech.platform.bing.com)
+# with 403s region by region -- github.com/rany2/edge-tts#490, 40+ independent
+# reports, same TRUSTED_CLIENT_TOKEN still accepted on the new host. tts.py
+# patches edge_tts.communicate.WSS_URL (NOT edge_tts.constants.WSS_URL -- the
+# installed package's communicate.py does `from .constants import WSS_URL`,
+# which binds its own local name at import time, so patching the constants
+# module after that point silently does nothing). This proves the patch
+# actually lands on the name edge_tts itself reads from, not a module nobody
+# consults -- a wrong-target patch here would look identical to a correct one
+# until the exact moment the old host starts rejecting requests again.
+check("tts.py patches communicate.WSS_URL (the name edge_tts actually reads), not just constants.WSS_URL",
+      tts._edge_tts_communicate.WSS_URL.startswith("wss://api.msedgeservices.com/"),
+      tts._edge_tts_communicate.WSS_URL)
+check("the patched URL still carries the real TRUSTED_CLIENT_TOKEN (same token, new host -- not a guess)",
+      tts.edge_tts.constants.TRUSTED_CLIENT_TOKEN in tts._edge_tts_communicate.WSS_URL,
+      tts._edge_tts_communicate.WSS_URL)
+
 
 def run(coro):
     return asyncio.run(coro)

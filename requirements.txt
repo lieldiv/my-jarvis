@@ -9,6 +9,13 @@
 flask==3.1.3
 groq==1.0.0
 edge-tts==7.2.8
+# aiohttp is edge-tts's actual WebSocket client (not the "websockets" package) --
+# pinned explicitly rather than left as an unpinned transitive dependency, matching
+# this file's own stated principle above. Found unpinned by a review agent while
+# investigating a real edge-tts outage: a different aiohttp resolved on a fresh
+# install could in principle behave differently against Microsoft's backend than
+# the version this was actually tested against.
+aiohttp==3.14.3
 requests==2.32.3
 python-dotenv==1.1.0
 gunicorn==23.0.0

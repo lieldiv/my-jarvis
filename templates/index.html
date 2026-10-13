@@ -4400,7 +4400,16 @@ async function fetchAndSpeak(text){
             await new Promise(resolve => playJarvisAudio(data.audio, onStart, resolve));
             data = await pending;
         }
-    } catch (e) { vlog('tts-error', 'speak request failed'); }
+    } catch (e) {
+        // A SLOW failure (the fetch's own 20s timeout firing, e.g. mid-outage retries on
+        // the server taking too long) landed here instead of the clean-JSON path above --
+        // found by a review agent: this branch used to go fully silent (no toast, no
+        // fallback voice) while a FAST failure got the full graceful degradation. Same
+        // treatment now regardless of which way it failed.
+        vlog('tts-error', 'speak request failed');
+        showToast('קול הגיבוי הזמני פעיל (שירות הקול הרגיל לא זמין כרגע) — הטקסט תמיד מופיע למעלה.', true);
+        speakWithBrowserFallback(text);
+    }
     // No audio is not a failure worth interrupting anyone over — the reply is
     // already on screen. Just let the orb settle the way it would have.
     setTimeout(() => { if (voiceState === 'done') { voiceState = 'idle'; renderOrb(); clearOrbBubbles(); } }, 4000);
