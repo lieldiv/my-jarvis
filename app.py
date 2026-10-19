@@ -1910,7 +1910,14 @@ def _mark_task_complete(user_id, args):
     task_text = args.get("task_text", "")
     if not task_id:
         return "I need a task ID, sir."
-    return productivity_service.request_mark_task_complete(user_id, task_id)
+    result = productivity_service.request_mark_task_complete(user_id, task_id)
+    # Unlike the HUD's own checkbox (POST /api/tasks/<id>/complete, which
+    # refreshes itself on a successful response), completing a task through
+    # this voice/text tool path has no HTTP response the Tasks tab is
+    # watching -- without this push it only catches up on the next manual
+    # tab switch.
+    event_stream.push_event({"type": "tasks_updated"}, user_id=user_id)
+    return result
 
 
 def _create_calendar_event(user_id, args):

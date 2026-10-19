@@ -748,6 +748,14 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .page-head{ margin:4px 0 14px; }
 .page-title{ margin:0; font-size:24px; font-weight:700; line-height:1.25; color:var(--color-white); }
 .page-sub{ margin:2px 0 0; font-size:14px; color:var(--color-text-dim); }
+.page-sub-row{ display:flex; align-items:center; gap:7px; margin-top:2px; }
+.page-sub-row .page-sub{ margin-top:0; }
+/* Background-refresh spinner for tabs that re-fetch behind already-visible
+   content (Tasks/Inbox) -- reuses the orb's own jm-spin arc language so it
+   reads as "JARVIS working," not a bolted-on loading widget. */
+.tab-spinner{ width:13px; height:13px; border-radius:50%; border:2px solid transparent; border-top-color:rgba(var(--accent-rgb),1); border-right-color:rgba(var(--accent-rgb),.3); animation:jm-spin .9s linear infinite; flex-shrink:0; }
+@media (prefers-reduced-motion: reduce){ .tab-spinner{ animation:none; border-color:rgba(var(--accent-rgb),.6); } }
+#tasks-list.refreshing,#inbox-list.refreshing{ opacity:.45; transition:opacity .2s ease; pointer-events:none; }
 .day-head{ display:flex; align-items:center; gap:10px; margin:20px 0 8px; font-size:13px; color:var(--color-text-dim); }
 .day-head:first-of-type{ margin-top:6px; }
 .day-head b{ color:var(--color-white); font-size:15px; font-weight:600; }
@@ -1143,7 +1151,7 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
             <div class="page-head page-head-row">
               <div>
                 <h1 class="page-title">הדואר שלי</h1>
-                <p class="page-sub" id="inbox-sub"></p>
+                <div class="page-sub-row"><p class="page-sub" id="inbox-sub"></p><span class="tab-spinner" id="inbox-spinner" hidden></span></div>
               </div>
               <button class="hdr-btn" onclick="loadInboxTab(true)" aria-label="רענן"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></button>
             </div>
@@ -1154,7 +1162,7 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
           <div class="tab-panel" id="tab-tasks">
             <div class="page-head">
               <h1 class="page-title">המשימות שלי</h1>
-              <p class="page-sub" id="tasks-sub"></p>
+              <div class="page-sub-row"><p class="page-sub" id="tasks-sub"></p><span class="tab-spinner" id="tasks-spinner" hidden></span></div>
             </div>
             <div id="tasks-list"><div class="events-empty">טוען…</div></div>
             <div class="prog-card" id="task-progress">
@@ -5071,7 +5079,10 @@ async function loadInboxTab(force, quiet){
         else if (!replying()) renderInboxList();   // show what we have at once, refresh behind it
     }
     if (!force && !stale) return;
+    const showSpinner = !quiet && inboxLoaded;   // first load already shows the full "טוען…" placeholder
+    if (showSpinner) { list.classList.add('refreshing'); $('inbox-spinner').hidden = false; }
     const ok = await fetchInbox();
+    if (showSpinner) { list.classList.remove('refreshing'); $('inbox-spinner').hidden = true; }
     if (!ok) {
         if (!quiet) {
             if (inboxLoaded) showToast('לא הצלחתי לרענן את הדואר.', true);
@@ -5919,6 +5930,11 @@ function initEventStream(){
             showConfirmModal(evt);
         } else if (evt.type === 'daily_briefing') {
             finishCommand(evt.text, evt.audio);
+        } else if (evt.type === 'tasks_updated') {
+            // Completing a task through JARVIS (voice/text) has no HTTP response
+            // the Tasks tab is already watching, unlike the checkbox's own
+            // direct POST -- this SSE push is what makes that path refresh too.
+            loadTasksTab();
         } else if (evt.detail !== undefined) {
             addActivity(evt.detail, evt.type || 'step', 'executed');
         } else if (evt.attempt !== undefined) {
@@ -6931,6 +6947,7 @@ let tasksLoadedOnce = false, taskDoneToday = null;
 async function loadTasksTab(){
     const list = $('tasks-list');
     if (!tasksLoadedOnce) list.innerHTML = '<div class="events-empty">טוען…</div>';   // never blank a list that is already showing
+    else { list.classList.add('refreshing'); $('tasks-spinner').hidden = false; }
     try {
         const res = await fetchWithTimeout('/api/tasks');
         const data = await res.json();
@@ -6940,6 +6957,8 @@ async function loadTasksTab(){
     } catch (e) {
         list.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>';
         return;
+    } finally {
+        list.classList.remove('refreshing'); $('tasks-spinner').hidden = true;
     }
     renderTasksList();
     renderHomeUpcoming();
