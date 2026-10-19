@@ -4200,6 +4200,16 @@ async function sendCommand(commandText){
     logCommandStart(commandText, 'שיחה');
     try {
         const data = await postCommand(commandText);
+        // event_stream.push_event() for a pending confirmation fires inside
+        // the same request this response just came from, so it's almost
+        // always already in flight by now -- this short, bounded wait
+        // (skipped if it has already arrived) closes the "usually" gap
+        // instead of letting the orb flip to "done" a beat before the
+        // confirm sheet it should have been waiting for pops up on top of
+        // it. 180ms is under normal UI-responsiveness thresholds, so it
+        // doesn't cost anything noticeable on the (much more common) replies
+        // that were never going to need a confirmation at all.
+        if (!pendingConfirmEvt) await new Promise(r => setTimeout(r, 180));
         finishCommand(data.response, data.audio, data.speak);
         // If this command needed approval, a confirmation sheet is already
         // showing by now (its SSE push lands before this response usually
@@ -5004,8 +5014,21 @@ let eventFormRef = null;
    write. Doesn't touch the orb's own idle voice state. */
 async function submitBackgroundCommand(text, toolLabel){
     logCommandStart(text, toolLabel);
+    // Doesn't touch the orb, but the add-sheet it's called from (addEventSave)
+    // closes itself immediately -- without this, there's nothing left on
+    // screen saying anything is happening until the toast below lands,
+    // several seconds later. Mirrors the same immediate-toast pattern
+    // sendWeeklySummaryNow already uses just below this function.
+    showToast(toolLabel === 'update_calendar_event' ? 'מעדכן את הפגישה…' : 'קובע את הפגישה…');
     try {
         const data = await postCommand(text);
+        // event_stream.push_event() for a pending confirmation fires inside
+        // the same request this response just came from, so it's almost
+        // always already in flight by now -- this short, bounded wait
+        // (skipped if it has already arrived) closes the "usually" gap
+        // instead of this toast racing ahead of the confirm sheet it
+        // should have waited for.
+        if (!pendingConfirmEvt) await new Promise(r => setTimeout(r, 180));
         // A confirmation sheet, if one was needed, has already claimed
         // inFlightLogId by now — this only settles the plain-answer case.
         if (!pendingConfirmEvt) { logCommandSettle('executed'); showToast(data.response || '', false); }
