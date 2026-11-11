@@ -1940,6 +1940,15 @@ let soundHeardThisSession = false;
    reordering: one expected transcript is let through, once. */
 let awaitingFinalResult = false;
 
+/* True for the 700ms between a transcript arriving and sendCommand() (via
+   handleTranscript) actually being called with it -- see onresult's own
+   deliberate pause below. voiceState doesn't flip to 'processing' until
+   sendCommand runs, so without this separate flag onend's mic-restart guard
+   (continuous=false means onend fires right after onresult, before this
+   pause even ends) has nothing to check and reopens the mic while this
+   transcript is still sitting here unsent. */
+let transcriptPendingSubmit = false;
+
 /* A transcript is the strongest possible proof that sound reached the
    recogniser — stronger than onsoundstart, which a real phone turned out not
    to fire at all even on a session that returned a result. Without counting
@@ -2198,6 +2207,16 @@ function renderOrb(){
     $('dock-mic').classList.toggle('live', visualState === 'listening');
     $('cmd-input').placeholder = visualState === 'listening' ? 'מקשיב…'
         : (visualState === 'processing' || visualState === 'tool') ? 'חושב…' : 'שאל או פקד על JARVIS…';
+    // Nothing used to stop a second Enter/tap from firing sendCommand() again
+    // while the first was still in flight -- the two overlapping calls shared
+    // voiceState/orb elements/inFlightLogId, so whichever settled last won the
+    // display and the other's activity-log row was orphaned "pending" forever.
+    // sendCommand()'s own guard makes this harmless either way; disabling here
+    // too is just so it's visible, not a silent no-op on a second Enter press.
+    const busy = visualState === 'processing' || visualState === 'tool';
+    $('cmd-input').disabled = busy;
+    const sendBtn = document.querySelector('.cmd-send-btn');
+    if (sendBtn) sendBtn.disabled = busy;
 }
 renderOrb();
 // The dock's real height varies (safe-area inset on notched phones); the scroll area and floating
@@ -3970,7 +3989,9 @@ function initSpeechRecognition(){
         // desktop was still the one place a misheard word got acted on the instant it
         // was recognised, with no visible moment to notice and react to it.
         setOrbTranscript(transcript);
+        transcriptPendingSubmit = true;
         await new Promise(resolve => setTimeout(resolve, 700));
+        transcriptPendingSubmit = false;
         handleTranscript(transcript);
     };
 
@@ -4063,7 +4084,17 @@ function initSpeechRecognition(){
         }
         if (!micMuted && (!currentAudio || currentAudio.paused)) {
             setTimeout(() => {
-                if (!recognitionActive && !micMuted) {
+                // A result from THIS session may still be sitting in its
+                // 700ms pre-submit pause (transcriptPendingSubmit -- see
+                // onresult above) or already in sendCommand()'s own
+                // processing (voiceState) -- continuous=false means onend
+                // fires right after onresult, well before either of those
+                // finishes. Reopening the mic here would start a second
+                // recognition session that could overwrite the
+                // still-displayed transcript via its own onresult before
+                // the first turn has even been sent, let alone answered.
+                if (!recognitionActive && !micMuted && !transcriptPendingSubmit &&
+                    voiceState !== 'processing' && voiceState !== 'tool') {
                     try {
                         recognition.start();
                         // start() can also succeed into nothing here: no
@@ -4182,6 +4213,15 @@ async function postCommand(text){
 }
 async function sendCommand(commandText){
     if (!commandText || !commandText.trim()) return;
+    // Nothing used to stop this from being invoked a second time while a
+    // first call was still in flight (a second Enter press, or the mic
+    // reopening before the previous transcript had even been submitted --
+    // see the onend restart guard below). voiceState/the orb's transcript
+    // and response elements/inFlightLogId are all shared, not per-call, so
+    // two overlapping calls stomped on each other: whichever finishCommand()
+    // resolved last won the display regardless of which call it belonged
+    // to, and the loser's activity-log row was orphaned "pending" forever.
+    if (voiceState === 'processing' || voiceState === 'tool') return;
     $('cmd-input').value = '';
     hideReplyBubble();
 
