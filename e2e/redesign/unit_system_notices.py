@@ -5,7 +5,7 @@
 # each is just "notice appears in the Suggestions tab, user dismisses it."
 # Also proves /api/suggestions (combining email suggestions + notices) and
 # that /api/inbox (the Mail tab) was left untouched by this whole feature.
-import os, sys, time, tempfile
+import os, sqlite3, sys, time, tempfile
 os.environ.setdefault("FLASK_SECRET_KEY", "unit-test-secret")
 os.environ["JARVIS_DB_PATH"] = os.path.join(tempfile.mkdtemp(), "notices_test.db")  # isolated, throwaway
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # the repo root
@@ -201,6 +201,207 @@ except Exception as e:
 
 for n in users.list_active_notices(UID):
     users.dismiss_notice(n["id"], UID)
+
+# ---------------------------------------------------------------------------- daily_briefing.py: inbox backlog
+db.google_service.get_unread_count = lambda user_id: 20
+db.INBOX_BACKLOG_THRESHOLD = 15
+db._check_inbox_backlog()
+backlog_notices = [n for n in users.list_active_notices(UID) if n["category"] == "inbox_backlog"]
+check("a backlog over the threshold creates exactly one notice, naming the real count", len(backlog_notices) == 1 and "20" in backlog_notices[0]["body"], backlog_notices)
+check("the backlog notice carries a 'go to mail' action_label", backlog_notices and backlog_notices[0]["action_label"] == "עבור לדואר", backlog_notices)
+
+db._check_inbox_backlog()
+check("re-running the same day's backlog check does not duplicate the notice",
+      len([n for n in users.list_active_notices(UID) if n["category"] == "inbox_backlog"]) == 1)
+
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+
+db.google_service.get_unread_count = lambda user_id: 5
+before_low = len(users.list_active_notices(UID))
+db._check_inbox_backlog()
+check("a backlog below the threshold creates no notice", len(users.list_active_notices(UID)) == before_low)
+
+db.google_service.get_unread_count = lambda user_id: None
+try:
+    db._check_inbox_backlog()
+    check("an unconnected/failed unread-count check (None) doesn't raise", True)
+except Exception as e:
+    check("an unconnected/failed unread-count check (None) doesn't raise", False, str(e))
+
+# ---------------------------------------------------------------------------- daily_briefing.py: missing location
+def _fake_event_no_location(user_id, time_min, time_max, max_results=10, calendar_id="primary"):
+    return [{"id": "eNoLoc", "summary": "פגישת צוות", "start": "2027-02-01T10:00:00+02:00", "end": "2027-02-01T10:30:00+02:00", "location": "", "source": "Google"}]
+db.google_service.list_calendar_events = _fake_event_no_location
+db._check_missing_location()
+loc_notices = [n for n in users.list_active_notices(UID) if n["category"] == "missing_location"]
+check("an imminent timed event with no location creates exactly one notice", len(loc_notices) == 1 and "פגישת צוות" in loc_notices[0]["body"], loc_notices)
+
+db._check_missing_location()
+check("re-scanning the SAME event does not duplicate the notice",
+      len([n for n in users.list_active_notices(UID) if n["category"] == "missing_location"]) == 1)
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+
+def _fake_event_with_location(user_id, time_min, time_max, max_results=10, calendar_id="primary"):
+    return [{"id": "eLoc", "summary": "פגישה", "start": "2027-02-01T10:00:00+02:00", "end": "2027-02-01T10:30:00+02:00", "location": "חדר ישיבות 2", "source": "Google"}]
+db.google_service.list_calendar_events = _fake_event_with_location
+before_has_loc = len(users.list_active_notices(UID))
+db._check_missing_location()
+check("an event that already has a location creates no notice", len(users.list_active_notices(UID)) == before_has_loc)
+
+def _fake_event_with_link(user_id, time_min, time_max, max_results=10, calendar_id="primary"):
+    return [{"id": "eLink", "summary": "שיחת זום https://zoom.us/j/123", "start": "2027-02-01T10:00:00+02:00", "end": "2027-02-01T10:30:00+02:00", "location": "", "source": "Google"}]
+db.google_service.list_calendar_events = _fake_event_with_link
+before_has_link = len(users.list_active_notices(UID))
+db._check_missing_location()
+check("an event whose summary already looks like a video-call link creates no notice", len(users.list_active_notices(UID)) == before_has_link)
+
+def _fake_event_with_meet(user_id, time_min, time_max, max_results=10, calendar_id="primary"):
+    return [{"id": "eMeet", "summary": "סנכרון צוות", "start": "2027-02-01T10:00:00+02:00", "end": "2027-02-01T10:30:00+02:00", "location": "", "hangout_link": "https://meet.google.com/abc-defg-hij", "source": "Google"}]
+db.google_service.list_calendar_events = _fake_event_with_meet
+before_has_meet = len(users.list_active_notices(UID))
+db._check_missing_location()
+check("an event with a Google Meet link (hangout_link, not location/summary) creates no notice -- it DOES have a place to be",
+      len(users.list_active_notices(UID)) == before_has_meet)
+
+# ---------------------------------------------------------------------------- daily_briefing.py: weather vs calendar
+class _FakeResp:
+    def __init__(self, data): self._data = data
+    def raise_for_status(self): pass
+    def json(self): return self._data
+FORECAST_RAIN = {"weather": [{"date": "today"}, {"date": "tomorrow", "hourly": [{"chanceofrain": "20"}, {"chanceofrain": "70"}]}]}
+FORECAST_DRY = {"weather": [{"date": "today"}, {"date": "tomorrow", "hourly": [{"chanceofrain": "5"}, {"chanceofrain": "10"}]}]}
+
+captured_window = {}
+def _fake_outdoor_event(user_id, time_min, time_max, max_results=10, calendar_id="primary"):
+    captured_window["time_min"], captured_window["time_max"] = time_min, time_max
+    return [{"id": "eOutdoor", "summary": "ריצת בוקר בפארק", "start": "2027-02-02T07:00:00+02:00", "end": "2027-02-02T08:00:00+02:00", "location": "", "source": "Google"}]
+db.google_service.list_calendar_events = _fake_outdoor_event
+db.requests.get = lambda *a, **k: _FakeResp(FORECAST_RAIN)
+db._check_weather_vs_calendar()
+weather_notices = [n for n in users.list_active_notices(UID) if n["category"] == "weather"]
+check("rain forecast + an outdoor-sounding event creates exactly one notice", len(weather_notices) == 1 and "ריצת בוקר" in weather_notices[0]["body"], weather_notices)
+
+# Regression: the calendar window must be "tomorrow" in the app's own
+# local day (Asia/Jerusalem), not UTC -- a UTC-day window shifts by the
+# local offset and can miss/mislabel events near local midnight.
+import datetime as _dt
+import productivity_service as _ps
+_expected_tomorrow_local = _dt.datetime.now(_ps.LOCAL_TZ) + _dt.timedelta(days=1)
+_expected_start_local = _expected_tomorrow_local.replace(hour=0, minute=0, second=0, microsecond=0)
+_expected_time_min_utc = _expected_start_local.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+check("the weather check's calendar window starts at LOCAL (Asia/Jerusalem) midnight tomorrow, converted to UTC -- not UTC midnight",
+      captured_window.get("time_min") == _expected_time_min_utc,
+      (captured_window.get("time_min"), _expected_time_min_utc))
+
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+
+db.requests.get = lambda *a, **k: _FakeResp(FORECAST_DRY)
+before_dry = len(users.list_active_notices(UID))
+db._check_weather_vs_calendar()
+check("a dry forecast creates no weather notice even with an outdoor event on the calendar", len(users.list_active_notices(UID)) == before_dry)
+
+def _fake_indoor_event(user_id, time_min, time_max, max_results=10, calendar_id="primary"):
+    return [{"id": "eIndoor", "summary": "פגישת סטטוס", "start": "2027-02-02T10:00:00+02:00", "end": "2027-02-02T11:00:00+02:00", "location": "", "source": "Google"}]
+db.google_service.list_calendar_events = _fake_indoor_event
+db.requests.get = lambda *a, **k: _FakeResp(FORECAST_RAIN)
+before_indoor = len(users.list_active_notices(UID))
+db._check_weather_vs_calendar()
+check("rain forecast but no outdoor-sounding event creates no notice (no fabricated 'outdoor' guess)", len(users.list_active_notices(UID)) == before_indoor)
+
+def _raising_forecast(*a, **k):
+    raise RuntimeError("wttr.in exploded")
+db.requests.get = _raising_forecast
+try:
+    db._check_weather_vs_calendar()
+    check("a forecast-fetch exception doesn't raise out of the weather check", True)
+except Exception as e:
+    check("a forecast-fetch exception doesn't raise out of the weather check", False, str(e))
+
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+
+# ---------------------------------------------------------------------------- daily_briefing.py: daily weather (unconditional)
+FORECAST_SUNNY_HOT = {"weather": [{"maxtempC": "32", "mintempC": "22", "hourly": [{"weatherDesc": [{"value": "Sunny"}]}, {"weatherDesc": [{"value": "Sunny"}]}, {"weatherDesc": [{"value": "Sunny"}]}]}]}
+db.requests.get = lambda *a, **k: _FakeResp(FORECAST_SUNNY_HOT)
+db._check_daily_weather()
+daily_notices = [n for n in users.list_active_notices(UID) if n["category"] == "daily_weather"]
+check("the daily weather card fires UNCONDITIONALLY (no rain, no outdoor event needed) and names the real temps",
+      len(daily_notices) == 1 and "22" in daily_notices[0]["body"] and "32" in daily_notices[0]["body"], daily_notices)
+check("a recognized condition is translated to Hebrew, never left as raw English", "שמשי" in daily_notices[0]["body"] and "Sunny" not in daily_notices[0]["body"], daily_notices)
+
+db._check_daily_weather()
+check("re-running the same day's weather check does not duplicate the notice",
+      len([n for n in users.list_active_notices(UID) if n["category"] == "daily_weather"]) == 1)
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+# The daily-weather dedupe_key is just "daily_weather:<today>" -- dismissing
+# the row above still leaves it in the table (dismissed, not deleted), so a
+# same-day re-run would silently no-op against it (dedup checks ANY row
+# with that key, dismissed or not -- same rule as everywhere else in this
+# feature). Delete it outright so this next scenario gets a clean slate
+# for the SAME day, rather than a false "no notice" that's really just
+# this test re-colliding with its own earlier row.
+with sqlite3.connect(os.environ["JARVIS_DB_PATH"]) as _conn:
+    _conn.execute("DELETE FROM system_notices WHERE category = 'daily_weather'")
+    _conn.commit()
+
+FORECAST_UNRECOGNIZED_DESC = {"weather": [{"maxtempC": "20", "mintempC": "10", "hourly": [{"weatherDesc": [{"value": "Some Unusual Condition"}]}, {"weatherDesc": [{"value": "Some Unusual Condition"}]}, {"weatherDesc": [{"value": "Some Unusual Condition"}]}]}]}
+db.requests.get = lambda *a, **k: _FakeResp(FORECAST_UNRECOGNIZED_DESC)
+db._check_daily_weather()
+unrecognized_notices = [n for n in users.list_active_notices(UID) if n["category"] == "daily_weather"]
+check("an unrecognized condition is omitted entirely (never shows raw/garbled English) -- the temps alone still show",
+      len(unrecognized_notices) == 1 and "10" in unrecognized_notices[0]["body"] and "Some Unusual Condition" not in unrecognized_notices[0]["body"],
+      unrecognized_notices)
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+
+def _raising_daily_forecast(*a, **k):
+    raise RuntimeError("wttr.in exploded")
+db.requests.get = _raising_daily_forecast
+try:
+    db._check_daily_weather()
+    check("a daily-weather fetch exception doesn't raise out of the check", True)
+except Exception as e:
+    check("a daily-weather fetch exception doesn't raise out of the check", False, str(e))
+check("...and creates no notice either", all(n["category"] != "daily_weather" for n in users.list_active_notices(UID)))
+
+# ---------------------------------------------------------------------------- users.py + daily_briefing.py: stale tasks
+NOW = time.time()
+sid_old_task = users.add_task(UID, "לסדר את המחסן", category=None, recurring_day=None)
+with sqlite3.connect(os.environ["JARVIS_DB_PATH"]) as conn:
+    conn.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (NOW - 20 * 86400, sid_old_task))
+    conn.commit()
+
+sid_new_task = users.add_task(UID, "לקנות חלב", category=None, recurring_day=None)  # created just now -- NOT stale
+
+sid_old_recurring = users.add_task(UID, "לצאת לריצה", category=None, recurring_day="Monday")
+with sqlite3.connect(os.environ["JARVIS_DB_PATH"]) as conn:
+    conn.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (NOW - 20 * 86400, sid_old_recurring))
+    conn.commit()
+
+stale = users.list_stale_tasks(NOW - db.STALE_TASK_DAYS * 86400)
+stale_ids = {t["id"] for t in stale}
+check("list_stale_tasks finds the old ONE-TIME task", sid_old_task in stale_ids, stale)
+check("...but not the recently-created one-time task", sid_new_task not in stale_ids, stale)
+check("...and never a RECURRING task, no matter how old (it's supposed to stay open)", sid_old_recurring not in stale_ids, stale)
+
+db._check_stale_tasks()
+stale_notices = [n for n in users.list_active_notices(UID) if n["category"] == "stale_task"]
+check("the stale-task check creates exactly one notice, naming the real task text", len(stale_notices) == 1 and "לסדר את המחסן" in stale_notices[0]["body"], stale_notices)
+check("the stale-task notice carries a 'go to tasks' action_label", stale_notices and stale_notices[0]["action_label"] == "פתח משימות", stale_notices)
+
+db._check_stale_tasks()
+check("re-running the check does not duplicate the notice for the same task",
+      len([n for n in users.list_active_notices(UID) if n["category"] == "stale_task"]) == 1)
+
+users.mark_task_complete(sid_old_task, UID)
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+db._check_stale_tasks()
+check("a now-completed task is never flagged again", all(n["category"] != "stale_task" for n in users.list_active_notices(UID)))
 
 # ---------------------------------------------------------------------------- app.py: the live routes
 import app as jarvis

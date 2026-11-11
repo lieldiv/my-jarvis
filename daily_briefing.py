@@ -31,12 +31,20 @@ One background thread, checked once a minute:
     explicit that this feature must never send without that approval. This
     is the one place in this whole file an LLM call happens; everything
     else in this module is either LLM-free or a plain notification.
-  - system notices (holiday greeting, meeting conflicts, market swings):
-    all three are zero-LLM and deterministic, each writing a generic,
-    dismiss-only `system_notices` row (users.add_system_notice) rendered
-    in the HUD's "הצעות מערכת" tab. The holiday greeting is self-facing
-    only -- it never sends anything to anyone else, by explicit product-
-    owner instruction; it just wishes the signed-in user a happy holiday.
+  - system notices (holiday greeting, meeting conflicts, market swings,
+    inbox backlog, missing event location, rain-vs-outdoor-plans, a daily
+    weather ambient card, a stale-task nudge): all eight are zero-LLM and
+    deterministic (the weather-vs-calendar check's "does this sound like
+    an outdoor event" match is a fixed keyword list, not an LLM judgment),
+    each writing a generic, dismiss-only `system_notices` row
+    (users.add_system_notice) rendered in the HUD's "הצעות מערכת" tab.
+    The holiday greeting is self-facing only -- it never sends anything
+    to anyone else, by explicit product-owner instruction; it just wishes
+    the signed-in user a happy holiday. The daily weather card is
+    deliberately UNCONDITIONAL (fires once a day regardless of
+    conditions) -- unlike every other notice here, which only appears
+    when something is actually true, this one exists so the Suggestions
+    tab isn't empty on an ordinary day with nothing else to flag.
 
 Same free-tier caveat as users.py's docstring: users.db is wiped on every
 restart/spin-down, so a reminder set for later can silently vanish if the
@@ -53,6 +61,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parseaddr
 
+import cert_bootstrap  # noqa: F401 — must run before any HTTPS-making import below (the weather check's own requests.get call)
+import requests
 from groq import Groq, RateLimitError
 
 import google_service
@@ -502,6 +512,238 @@ def _check_market_swing():
                 logger.error(f"Failed to record market notice for user {user_id}: {e}")
 
 
+INBOX_BACKLOG_THRESHOLD = int(os.environ.get("JARVIS_INBOX_BACKLOG_THRESHOLD", "15"))
+
+
+def _check_inbox_backlog():
+    """Zero-LLM: a plain unread-count threshold (Gmail's own
+    resultSizeEstimate, see google_service.get_unread_count), reusing the
+    same Gmail read this app already does elsewhere. Deliberately does NOT
+    draft or suggest anything about specific emails -- that's the
+    important-email feature's own job; this is only a backlog nudge, and
+    only once per day so it can't re-fire every cycle while the backlog
+    stays above the threshold."""
+    today_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for user_id in users.list_connected_user_ids():
+        try:
+            count = google_service.get_unread_count(user_id)
+        except Exception as e:
+            logger.error(f"Inbox-backlog check failed for user {user_id}: {e}")
+            continue
+        if count is None or count < INBOX_BACKLOG_THRESHOLD:
+            continue
+        try:
+            users.add_system_notice(
+                user_id, "inbox_backlog",
+                title="יש לך הרבה דואר שלא נקרא",
+                body=f"{count} הודעות שלא נקראו מחכות לך.",
+                dedupe_key=f"inbox_backlog:{user_id}:{today_key}",
+                action_label="עבור לדואר",
+            )
+        except Exception as e:
+            logger.error(f"Failed to record inbox-backlog notice for user {user_id}: {e}")
+
+
+def _check_missing_location():
+    """Zero-LLM: flags an imminent (next 2h) TIMED event with no location
+    and nothing that looks like a video-call link already in its own
+    summary/location -- a plain presence check, not a guess about which
+    meetings "need" one. All-day events are excluded, same reasoning as
+    the conflict check."""
+    now_dt = datetime.now(timezone.utc)
+    time_min = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    time_max = (now_dt + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for user_id in users.list_connected_user_ids():
+        try:
+            events = google_service.list_calendar_events(user_id, time_min, time_max, max_results=10)
+        except Exception as e:
+            logger.error(f"Missing-location check failed for user {user_id}: {e}")
+            continue
+        for ev in events or []:
+            start = ev.get("start")
+            if not start or "T" not in start:
+                continue  # all-day (or malformed) -- skip rather than guess
+            location = (ev.get("location") or "").strip()
+            summary = ev.get("summary") or ""
+            hangout_link = (ev.get("hangout_link") or "").strip()
+            if location or hangout_link or "http://" in summary or "https://" in summary:
+                continue  # already has a place, a Google Meet link, or already looks like a video-call link
+            try:
+                users.add_system_notice(
+                    user_id, "missing_location",
+                    title="לפגישה הקרובה אין מיקום",
+                    body=f"\"{summary or '(ללא כותרת)'}\" מתחילה בקרוב בלי מיקום או קישור לשיחה.",
+                    dedupe_key=f"missing_location:{ev.get('id','')}:{start[:10]}",
+                    action_label="פתח יומן",
+                )
+            except Exception as e:
+                logger.error(f"Failed to record missing-location notice for user {user_id}: {e}")
+
+
+WEATHER_LOCATION = os.environ.get("JARVIS_WEATHER_LOCATION", "Tel Aviv")
+RAIN_CHANCE_THRESHOLD_PCT = 50
+# Deliberately a fixed keyword list, not an LLM judgment -- same "no
+# fabrication, no guessing" bar as the rest of this file. Low recall by
+# design (an event titled just "עם דנה" never matches, even if it really
+# is outdoors) is the accepted tradeoff for zero false "this is outdoors"
+# claims about a meeting that never said so.
+_OUTDOOR_EVENT_KEYWORDS = [
+    "ריצה", "run", "טיול", "hike", "hiking", "פיקניק", "picnic", "בחוץ", "outdoor",
+    "גינה", "גן", "garden", "ים", "beach", "חוף", "פארק", "park", "אופניים", "bike",
+    "cycling", "שטח", "קמפינג", "camping", "בר-בי-קיו", "bbq", "barbecue",
+]
+
+
+def _looks_outdoor(summary: str, location: str) -> bool:
+    text = f"{summary or ''} {location or ''}".lower()
+    return any(kw in text for kw in _OUTDOOR_EVENT_KEYWORDS)
+
+
+def _tomorrow_rain_chance(location: str):
+    """Returns the highest hourly chance-of-rain (0-100) in tomorrow's
+    forecast, or None if the call failed -- wttr.in's free j1 (JSON)
+    endpoint, no API key. Index 1 of "weather" is always "tomorrow"
+    relative to whatever day wttr.in itself thinks it is."""
+    try:
+        res = requests.get(f"https://wttr.in/{requests.utils.quote(location)}", params={"format": "j1"}, timeout=6)
+        res.raise_for_status()
+        data = res.json()
+        tomorrow = data.get("weather", [])[1]
+        hours = tomorrow.get("hourly") or []
+        chances = [int(h.get("chanceofrain", 0)) for h in hours if h.get("chanceofrain") is not None]
+        return max(chances) if chances else None
+    except Exception as e:
+        logger.warning(f"Tomorrow's rain forecast fetch failed for '{location}': {e}")
+        return None
+
+
+def _check_weather_vs_calendar():
+    """Zero-LLM: if tomorrow's forecast has a real chance of rain AND the
+    user has an outdoor-sounding event tomorrow (fixed keyword match, see
+    _looks_outdoor), flag it. One shared forecast fetch per cycle (weather
+    isn't per-user), only fanned out to users who actually have a matching
+    event."""
+    rain_chance = _tomorrow_rain_chance(WEATHER_LOCATION)
+    if rain_chance is None or rain_chance < RAIN_CHANCE_THRESHOLD_PCT:
+        return
+    # Unlike the other checks' plain rolling now..now+N windows (TZ-
+    # irrelevant), this one is calendar-DAY-aligned -- "tomorrow" has to be
+    # tomorrow in the app's own local day (productivity_service.LOCAL_TZ,
+    # Asia/Jerusalem), the same convention every other "today"/"tomorrow"
+    # concept in this app already uses. Building this in UTC instead would
+    # shift the window by the local UTC offset (+2/+3h), missing early-
+    # morning local-tomorrow events and pulling in early-morning
+    # day-after-tomorrow ones instead.
+    tomorrow_local = datetime.now(productivity_service.LOCAL_TZ) + timedelta(days=1)
+    day_start_local = tomorrow_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end_local = tomorrow_local.replace(hour=23, minute=59, second=59, microsecond=0)
+    time_min = day_start_local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    time_max = day_end_local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    tomorrow_key = tomorrow_local.strftime("%Y-%m-%d")
+    for user_id in users.list_connected_user_ids():
+        try:
+            events = google_service.list_calendar_events(user_id, time_min, time_max, max_results=10)
+        except Exception as e:
+            logger.error(f"Weather-vs-calendar check failed for user {user_id}: {e}")
+            continue
+        for ev in events or []:
+            if not _looks_outdoor(ev.get("summary"), ev.get("location")):
+                continue
+            try:
+                users.add_system_notice(
+                    user_id, "weather",
+                    title="צפוי גשם מחר",
+                    body=f"יש {rain_chance}% סיכוי לגשם מחר, ויש לך \"{ev.get('summary') or '(ללא כותרת)'}\" ביומן.",
+                    dedupe_key=f"weather:{ev.get('id','')}:{tomorrow_key}",
+                )
+            except Exception as e:
+                logger.error(f"Failed to record weather notice for user {user_id}: {e}")
+
+
+# Common wttr.in condition strings translated to Hebrew; anything NOT in
+# this dict is left out of the notice entirely (never show raw English,
+# same bar as the holiday-name translator above) -- the temperature range
+# alone still makes the card worth showing.
+_WEATHER_DESC_HE = {
+    "sunny": "שמשי", "clear": "בהיר", "partly cloudy": "מעונן חלקית",
+    "cloudy": "מעונן", "overcast": "מעונן מלא", "mist": "ערפל", "fog": "ערפל",
+    "patchy rain possible": "ייתכן גשם מקומי", "light rain": "גשם קל",
+    "moderate rain": "גשם בינוני", "heavy rain": "גשם כבד",
+    "thundery outbreaks possible": "ייתכנו סופות רעמים", "light snow": "שלג קל",
+}
+
+
+def _check_daily_weather():
+    """Zero-LLM, UNCONDITIONAL -- unlike _check_weather_vs_calendar (which
+    only ever fires on a rain+outdoor-event match), this is a plain "here's
+    today's weather" ambient card that fires once a day regardless of
+    conditions, so the Suggestions tab isn't only ever populated on days
+    something is actually wrong. Reuses the same wttr.in j1 endpoint, but
+    its own independent fetch (kept separate from the rain-check's, for
+    the same reason every other detector in this file is independent:
+    isolated failure, easy to reason about on its own)."""
+    today_key = datetime.now(productivity_service.LOCAL_TZ).strftime("%Y-%m-%d")
+    try:
+        res = requests.get(f"https://wttr.in/{requests.utils.quote(WEATHER_LOCATION)}", params={"format": "j1"}, timeout=6)
+        res.raise_for_status()
+        data = res.json()
+        today = data.get("weather", [])[0]
+        max_c, min_c = today.get("maxtempC"), today.get("mintempC")
+        hours = today.get("hourly") or []
+        desc_en = None
+        if hours:
+            noonish = hours[min(len(hours) - 1, len(hours) // 2)]
+            desc_list = noonish.get("weatherDesc") or []
+            desc_en = (desc_list[0].get("value") or "").strip() if desc_list else None
+    except Exception as e:
+        logger.warning(f"Daily weather fetch failed for '{WEATHER_LOCATION}': {e}")
+        return
+    if max_c is None or min_c is None:
+        return
+    body = f"היום: {min_c}°–{max_c}°"
+    desc_he = _WEATHER_DESC_HE.get((desc_en or "").lower())
+    if desc_he:
+        body += f", {desc_he}"
+    for user_id in users.list_connected_user_ids():
+        try:
+            users.add_system_notice(
+                user_id, "daily_weather",
+                title="מזג האוויר היום",
+                body=body,
+                dedupe_key=f"daily_weather:{today_key}",
+            )
+        except Exception as e:
+            logger.error(f"Failed to record daily-weather notice for user {user_id}: {e}")
+
+
+STALE_TASK_DAYS = int(os.environ.get("JARVIS_STALE_TASK_DAYS", "14"))
+
+
+def _check_stale_tasks():
+    """Zero-LLM: a one-time (non-recurring) task that's sat open for
+    STALE_TASK_DAYS with no progress gets a gentle nudge. A recurring task
+    is deliberately excluded -- it's supposed to stay open indefinitely,
+    that's not staleness. Checked across all users at once (one query),
+    unlike the calendar-based checks which have to go per-user."""
+    cutoff = time.time() - STALE_TASK_DAYS * 86400
+    try:
+        stale = users.list_stale_tasks(cutoff)
+    except Exception as e:
+        logger.error(f"Stale-task check failed: {e}")
+        return
+    for task in stale or []:
+        try:
+            users.add_system_notice(
+                task["user_id"], "stale_task",
+                title="משימה ישנה עדיין פתוחה",
+                body=f"\"{task['text']}\" עדיין פתוחה כבר יותר מ-{STALE_TASK_DAYS} יום.",
+                dedupe_key=f"stale_task:{task['id']}",
+                action_label="פתח משימות",
+            )
+        except Exception as e:
+            logger.error(f"Failed to record stale-task notice for task {task.get('id')}: {e}")
+
+
 def _next_weekly_fire(after: datetime) -> datetime:
     candidate = after.replace(hour=WEEKLY_SUMMARY_HOUR, minute=WEEKLY_SUMMARY_MINUTE, second=0, microsecond=0)
     days_ahead = (WEEKLY_SUMMARY_WEEKDAY - candidate.weekday()) % 7
@@ -566,6 +808,31 @@ def _scheduler_loop():
             _check_market_swing()
         except Exception as e:
             logger.error(f"Market-swing check failed: {e}")
+
+        try:
+            _check_inbox_backlog()
+        except Exception as e:
+            logger.error(f"Inbox-backlog check failed: {e}")
+
+        try:
+            _check_missing_location()
+        except Exception as e:
+            logger.error(f"Missing-location check failed: {e}")
+
+        try:
+            _check_weather_vs_calendar()
+        except Exception as e:
+            logger.error(f"Weather-vs-calendar check failed: {e}")
+
+        try:
+            _check_daily_weather()
+        except Exception as e:
+            logger.error(f"Daily-weather check failed: {e}")
+
+        try:
+            _check_stale_tasks()
+        except Exception as e:
+            logger.error(f"Stale-task check failed: {e}")
 
         if next_weekly_fire is not None:
             now = datetime.now(productivity_service.LOCAL_TZ)

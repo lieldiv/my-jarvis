@@ -756,6 +756,21 @@ def get_user_tasks(user_id: str, include_completed: bool = False) -> list[dict]:
     ]
 
 
+def list_stale_tasks(older_than: float) -> list[dict]:
+    """Every still-open, ONE-TIME task (recurring_day IS NULL -- a
+    recurring task is supposed to stay open indefinitely, it's not
+    "stale") created before `older_than`, across ALL users -- backs
+    daily_briefing.py's stale-task nudge. Not scoped by user_id, matching
+    the other scheduler-facing list_* functions in this file."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, user_id, text, created_at FROM tasks"
+            " WHERE completed = 0 AND recurring_day IS NULL AND created_at < ?",
+            (older_than,),
+        ).fetchall()
+    return [{"id": r[0], "user_id": r[1], "text": r[2], "created_at": r[3]} for r in rows]
+
+
 def mark_task_complete(task_id: int, user_id: str) -> bool:
     """Mark a task complete. Scoped by user_id for safety."""
     with _connect() as conn:

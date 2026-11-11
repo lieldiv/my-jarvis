@@ -81,6 +81,38 @@ msg = gs.create_calendar_event("u1", "Meeting", "2026-10-01T10:00:00+03:00", "20
 check("create_calendar_event surfaces its real status too, not just delete",
       "400" in msg and "Bad Request" in msg, msg)
 
+
+# ---------------------------------------------------------------------------- list_calendar_events: success-path field extraction
+# daily_briefing.py's missing-location check (added later) needs hangout_link
+# specifically -- prove list_calendar_events actually surfaces it from a
+# realistic Events.list() response shape, not just that the field name
+# exists somewhere in the source.
+class _FakeEventsList:
+    def __init__(self, items):
+        self._items = items
+    def list(self, **kwargs):
+        return self
+    def execute(self):
+        return {"items": self._items}
+
+class _FakeCalendarServiceForList:
+    def __init__(self, items):
+        self._events = _FakeEventsList(items)
+    def events(self):
+        return self._events
+
+gs._calendar_service = lambda user_id: _FakeCalendarServiceForList([
+    {"id": "e1", "summary": "Standup", "start": {"dateTime": "2027-01-01T10:00:00+02:00"},
+     "end": {"dateTime": "2027-01-01T10:30:00+02:00"}, "location": "", "hangoutLink": "https://meet.google.com/abc-defg-hij"},
+    {"id": "e2", "summary": "No link", "start": {"dateTime": "2027-01-01T11:00:00+02:00"},
+     "end": {"dateTime": "2027-01-01T11:30:00+02:00"}, "location": ""},
+])
+events = gs.list_calendar_events("u1", "2027-01-01T00:00:00Z", "2027-01-02T00:00:00Z")
+check("list_calendar_events surfaces hangoutLink as hangout_link when Google sends one",
+      events[0]["hangout_link"] == "https://meet.google.com/abc-defg-hij", events[0])
+check("...and defaults to an empty string (never a missing key / None) when Google doesn't send one",
+      events[1]["hangout_link"] == "", events[1])
+
 failed = 0
 for label, ok, detail in results:
     print(("PASS  " if ok else "FAIL  ") + label + ("" if ok else "\n      " + str(detail)[:300]))

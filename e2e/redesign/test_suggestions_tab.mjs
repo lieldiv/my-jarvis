@@ -51,7 +51,7 @@ const browser = await chromium.launch();
 {
   const { ctx, page, errors, calls } = await newPage(browser);
   await goTab(page, 'suggestions');
-  check('Suggestions: title and a live count', (await page.locator('#tab-suggestions .page-title').innerText()) === 'הצעות מערכת' && (await page.locator('#suggestions-sub').innerText()) === '4 הצעות ממתינות', await page.locator('#suggestions-sub').innerText());
+  check('Suggestions: title and a live count', (await page.locator('#tab-suggestions .page-title').innerText()) === 'הצעות מערכת' && (await page.locator('#suggestions-sub').innerText()) === '10 הצעות ממתינות', await page.locator('#suggestions-sub').innerText());
 
   const pendingCard = await page.locator('.suggestion-card').nth(0).innerText();
   check('Suggestions: a not-yet-drafted email suggestion shows "preparing a draft", dismiss only (no send button)', pendingCard.includes('מכין טיוטת תשובה') && (await page.locator('.suggestion-card').nth(0).locator('.ds-btn.pri').count()) === 0, pendingCard);
@@ -62,8 +62,38 @@ const browser = await chromium.launch();
   const conflictCard = await page.locator('.notice-conflict').innerText();
   check('Suggestions: a notice WITH an action_label shows that button plus "התעלם"', conflictCard.includes('שתי פגישות חופפות') && conflictCard.includes('פתח יומן') && conflictCard.includes('התעלם'), conflictCard);
 
-  const holidayCard = await page.locator('.notice-card:not(.notice-conflict):not(.notice-market)').innerText();
+  const holidayCard = await page.locator('.notice-holiday').innerText();
   check('Suggestions: a notice with NO action_label shows only "הבנתי" (dismiss), never "שלח" anywhere', holidayCard.includes('פסח מתקרב') && holidayCard.includes('הבנתי') && !holidayCard.includes('שלח'), holidayCard);
+
+  const marketCard = await page.locator('.notice-market').innerText();
+  check('Suggestions: the market-swing notice renders (dismiss-only, no action_label)', marketCard.includes('S&P 500') && marketCard.includes('הבנתי'), marketCard);
+
+  const inboxBacklogCard = await page.locator('.notice-inbox_backlog').innerText();
+  check('Suggestions: the inbox-backlog notice renders with its "עבור לדואר" action', inboxBacklogCard.includes('20 הודעות') && inboxBacklogCard.includes('עבור לדואר'), inboxBacklogCard);
+
+  const missingLocCard = await page.locator('.notice-missing_location').innerText();
+  check('Suggestions: the missing-location notice renders with a "פתח יומן" action', missingLocCard.includes('אין מיקום') && missingLocCard.includes('פתח יומן'), missingLocCard);
+
+  const weatherCard = await page.locator('.notice-weather').innerText();
+  check('Suggestions: the weather-vs-calendar notice renders (dismiss-only)', weatherCard.includes('צפוי גשם מחר') && weatherCard.includes('הבנתי'), weatherCard);
+
+  const dailyWeatherCard = await page.locator('.notice-daily_weather').innerText();
+  check('Suggestions: the UNCONDITIONAL daily-weather card renders (dismiss-only)', dailyWeatherCard.includes('מזג האוויר היום') && dailyWeatherCard.includes('22') && dailyWeatherCard.includes('הבנתי'), dailyWeatherCard);
+
+  const staleTaskCard = await page.locator('.notice-stale_task').innerText();
+  check('Suggestions: the stale-task notice renders with a "פתח משימות" action', staleTaskCard.includes('לסדר את המחסן') && staleTaskCard.includes('פתח משימות'), staleTaskCard);
+
+  // the inbox-backlog action button really navigates to Mail, not just a relabeled dismiss
+  await page.locator('.notice-inbox_backlog .ds-btn', { hasText: 'עבור לדואר' }).click();
+  await page.waitForTimeout(400);
+  check('Suggestions: inbox-backlog\'s "עבור לדואר" action actually switches to the Mail tab', await visible(page, '#tab-inbox') && !(await visible(page, '#tab-suggestions')));
+  await goTab(page, 'suggestions');
+
+  // the stale-task action button really navigates to Tasks, not just a relabeled dismiss
+  await page.locator('.notice-stale_task .ds-btn', { hasText: 'פתח משימות' }).click();
+  await page.waitForTimeout(400);
+  check('Suggestions: stale-task\'s "פתח משימות" action actually switches to the Tasks tab', await visible(page, '#tab-tasks') && !(await visible(page, '#tab-suggestions')));
+  await goTab(page, 'suggestions');
 
   // sending a drafted email suggestion opens the real confirm-to-act modal, nothing sent directly
   await page.locator('.suggestion-card').nth(1).locator('.ds-btn.pri').click();

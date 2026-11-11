@@ -258,6 +258,7 @@ def list_calendar_events(user_id: str, time_min_iso: str, time_max_iso: str, max
             "start": start,
             "end": end,
             "location": item.get("location", ""),
+            "hangout_link": item.get("hangoutLink", ""),   # Google Meet's own join link, separate from location/summary
             "source": "Google",
         })
     return events
@@ -360,6 +361,27 @@ def list_recent_emails(user_id: str, max_results: int = 8, query: str = "is:unre
         return None
     except Exception as e:
         logger.error(f"Gmail list failed (network/transport error): {e}")
+        return None
+
+
+def get_unread_count(user_id: str):
+    """Gmail's own resultSizeEstimate for an is:unread search -- an
+    approximate total, not limited to however many messages a caller
+    chooses to fetch (unlike list_recent_emails's max_results). Backs
+    daily_briefing.py's inbox-backlog notice, which needs "how many" and
+    nothing else, so this stays a single, minimal (maxResults=1) call
+    instead of paging through every unread message just to count them."""
+    svc = _gmail_service(user_id)
+    if not svc:
+        return None
+    try:
+        result = svc.users().messages().list(userId="me", q="is:unread", maxResults=1).execute()
+        return result.get("resultSizeEstimate", 0)
+    except HttpError as e:
+        logger.error(f"Gmail unread-count failed: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Gmail unread-count failed (network/transport error): {e}")
         return None
 
 

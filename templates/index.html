@@ -912,6 +912,10 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .notice-conflict .mail-from{ color:var(--color-cyan); }
 .notice-market{ border-color:rgba(95,179,255,.4); }
 .notice-market .mail-from{ color:#5fb3ff; }
+.notice-weather, .notice-daily_weather{ border-color:rgba(45,212,191,.4); }
+.notice-weather .mail-from, .notice-daily_weather .mail-from{ color:#2dd4bf; }
+.notice-inbox_backlog, .notice-missing_location, .notice-stale_task{ border-color:rgba(255,255,255,.14); }
+.notice-inbox_backlog .mail-from, .notice-missing_location .mail-from, .notice-stale_task .mail-from{ color:var(--color-text-dim); }
 .mail-top{ display:flex; align-items:center; gap:8px; }
 .mail-from{ font-weight:600; font-size:15.5px; color:var(--color-white); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; unicode-bidi:plaintext; }
 .mail-when{ margin-inline-start:auto; font-size:12.5px; color:var(--color-text-dim); flex:none; }
@@ -5364,11 +5368,11 @@ function updateSuggestionsSub(){
     const n = suggestionsEmailCache.length + suggestionsNoticesCache.length;
     $('suggestions-sub').textContent = n ? `${n} הצעות ממתינות` : 'אין הצעות כרגע';
 }
-const NOTICE_ICON_BY_CATEGORY = { holiday: 'warn', conflict: 'cal', market: 'trend' };
+const NOTICE_ICON_BY_CATEGORY = { holiday: 'warn', conflict: 'cal', market: 'trend', inbox_backlog: 'mail', missing_location: 'cal', weather: 'warn', daily_weather: 'warn', stale_task: 'task' };
 // What the action button actually DOES per category, beyond just
 // dismissing -- e.g. "פתח יומן" really switches to the Agenda tab, it
 // doesn't just acknowledge the notice like a plain dismiss would.
-const NOTICE_ACTION_BY_CATEGORY = { conflict: () => setTab('agenda') };
+const NOTICE_ACTION_BY_CATEGORY = { conflict: () => setTab('agenda'), missing_location: () => setTab('agenda'), inbox_backlog: () => setTab('inbox'), stale_task: () => setTab('tasks') };
 function buildNoticeCard(n){
     const card = el('div', 'mail-card notice-card notice-' + n.category);
     const top = el('div', 'mail-top');
