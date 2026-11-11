@@ -25,7 +25,16 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: confirmed directly that GitHub's ubuntu-latest
+    # runner moved to Ubuntu 26.04 and actions/setup-python@v5 can no longer
+    # install Python 3.9 there at all ("The version '3.9' with architecture
+    # 'x64' was not found for Ubuntu 26.04") -- this broke CI on every push
+    # from that point on, regardless of what the push actually changed.
+    # ubuntu-22.04 still has 3.9 available, which is the whole point of
+    # pinning the version below in the first place (matching Render's actual
+    # runtime, see the Python setup step's own comment) -- ubuntu-latest
+    # silently moving out from under that pin defeats it.
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
     env:
       # Every value below is a hardcoded placeholder, never a real credential.
