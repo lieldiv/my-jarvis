@@ -216,6 +216,21 @@ def _init_db():
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS system_notices (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    action_label TEXT,
+                    dedupe_key TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    dismissed_at REAL
+                )
+                """
+            )
             return
 
         conn.execute(
@@ -294,11 +309,17 @@ def _init_db():
 
         # One row per Gmail message the background scheduler (see
         # daily_briefing.py's _check_important_emails) matched against a
-        # user's configured "important sender" list. Detection only ever
-        # writes a row here -- drafting and sending both stay inside live,
-        # user-present requests (see app.py's /api/inbox/suggestions/<id>/
-        # review), so nothing about this table's own correctness depends on
-        # an SSE push ever reaching an open tab.
+        # user's configured "important sender" list. Detection writes a
+        # 'pending' row; the SAME background scheduler then drafts it
+        # ('pending' -> 'drafted') -- but never sends it on its own. Sending
+        # always goes through the normal confirm-to-act path
+        # (productivity_service.request_send_email), the exact same gate
+        # every other write in this app already uses: the product owner was
+        # explicit that this feature must never send without the user's own
+        # approval. The user can edit the draft (in the confirm modal itself,
+        # via edit_pending_email) or dismiss it entirely before approving.
+        # Nothing about this table's own correctness depends on an SSE push
+        # ever reaching an open tab (see this module's docstring).
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS important_email_suggestions (
@@ -398,6 +419,30 @@ def _init_db():
                 raw_text TEXT,
                 created_at REAL NOT NULL,
                 notified_at REAL
+            )
+            """
+        )
+
+        # Generic, send-free proactive notices -- "something worth noticing,
+        # dismiss when seen", no drafting/sending state machine at all
+        # (unlike important_email_suggestions). One row per detected thing;
+        # dedupe_key is how each detector (daily_briefing.py) avoids writing
+        # the same notice twice for the same occurrence (e.g.
+        # "holiday:Passover:2027", "conflict:<event1>:<event2>:<date>",
+        # "market:<date>") -- the same select-then-insert dedup pattern
+        # important_email_suggestions already uses for gmail_message_id.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS system_notices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                action_label TEXT,
+                dedupe_key TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                dismissed_at REAL
             )
             """
         )
@@ -906,26 +951,66 @@ def add_important_suggestion(user_id: str, gmail_message_id: str, sender_name: s
         return cur.lastrowid
 
 
-def set_suggestion_draft(suggestion_id: int, user_id: str, draft_subject: str | None,
-                         draft_body: str | None, draft_error: str | None = None) -> None:
+def list_suggestions_needing_draft() -> list[dict]:
+    """Every still-'pending' row, across all users — the scheduler's own
+    drafting pass picks these up and either advances them to 'drafted' (see
+    set_suggestion_draft) or leaves them 'pending' on a transient failure,
+    to retry next cycle."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, user_id, sender_name, sender_email, subject, snippet"
+            " FROM important_email_suggestions WHERE status = 'pending'"
+        ).fetchall()
+    return [
+        {"id": r[0], "user_id": r[1], "sender_name": r[2], "sender_email": r[3], "subject": r[4], "snippet": r[5]}
+        for r in rows
+    ]
+
+
+def set_suggestion_draft(suggestion_id: int, draft_subject: str, draft_body: str) -> None:
+    """Called on a SUCCESSFUL draft only — advances 'pending' -> 'drafted'.
+    This never sends anything by itself: the user still has to tap "send"
+    in the Inbox tab, which goes through the exact same confirm-to-act path
+    (productivity_service.request_send_email) every other write in this app
+    already uses — see app.py's /api/inbox/suggestions/<id>/send. Not scoped
+    by user_id -- this runs from the background scheduler, not a live
+    per-user request."""
     with _connect() as conn:
         conn.execute(
-            "UPDATE important_email_suggestions SET draft_subject = ?, draft_body = ?, draft_error = ?"
-            " WHERE id = ? AND user_id = ?",
-            (draft_subject, draft_body, draft_error, suggestion_id, user_id),
+            "UPDATE important_email_suggestions SET draft_subject = ?, draft_body = ?, draft_error = NULL,"
+            " status = 'drafted' WHERE id = ?",
+            (draft_subject, draft_body, suggestion_id),
+        )
+
+
+def record_suggestion_draft_error(suggestion_id: int, draft_error: str) -> None:
+    """A failed drafting attempt (e.g. Groq rate-limited) -- status stays
+    'pending' on purpose, so the next scheduler cycle just retries it rather
+    than needing its own separate retry bookkeeping. draft_error is kept
+    only as a diagnostic breadcrumb."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE important_email_suggestions SET draft_error = ? WHERE id = ?",
+            (draft_error, suggestion_id),
         )
 
 
 def list_pending_suggestions(user_id: str) -> list[dict]:
+    """Everything NOT YET resolved -- both freshly-detected ('pending', no
+    draft yet) and already-drafted ('drafted', awaiting the user's own
+    send/dismiss decision) rows, so the Inbox tab can show "preparing a
+    draft..." as well as the ready-to-send state."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, sender_name, sender_email, subject, snippet, date_ms"
-            " FROM important_email_suggestions WHERE user_id = ? AND status = 'pending'"
+            "SELECT id, sender_name, sender_email, subject, snippet, date_ms,"
+            " draft_subject, draft_body, status"
+            " FROM important_email_suggestions WHERE user_id = ? AND status != 'resolved'"
             " ORDER BY date_ms DESC",
             (user_id,),
         ).fetchall()
     return [
-        {"id": r[0], "sender_name": r[1], "sender_email": r[2], "subject": r[3], "snippet": r[4], "date_ms": r[5]}
+        {"id": r[0], "sender_name": r[1], "sender_email": r[2], "subject": r[3], "snippet": r[4], "date_ms": r[5],
+         "draft_subject": r[6], "draft_body": r[7], "status": r[8]}
         for r in rows
     ]
 
@@ -933,7 +1018,8 @@ def list_pending_suggestions(user_id: str) -> list[dict]:
 def get_suggestion(suggestion_id: int, user_id: str) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, sender_name, sender_email, subject, snippet, date_ms, draft_subject, draft_body, status"
+            "SELECT id, sender_name, sender_email, subject, snippet, date_ms,"
+            " draft_subject, draft_body, status"
             " FROM important_email_suggestions WHERE id = ? AND user_id = ?",
             (suggestion_id, user_id),
         ).fetchone()
@@ -945,17 +1031,17 @@ def get_suggestion(suggestion_id: int, user_id: str) -> dict | None:
 
 
 def mark_suggestion_resolved(suggestion_id: int, user_id: str, resolution: str) -> bool:
-    """resolution records that the user acted ('sent'/'cancelled'/'dismissed'),
-    not that Gmail definitely accepted a send — guardrails.resolve_confirmation()
-    never raises on a real send failure (same contract every other email in
-    this app already has); the confirm modal's own toast is what tells the
-    user if the real send failed. The WHERE status='pending' guard makes this
-    safe to call more than once for the same row without clobbering an
-    earlier, different resolution."""
+    """resolution records what actually happened ('sent'/'cancelled'/'dismissed'),
+    not a guarantee from Gmail's side beyond what google_service.send_email's
+    own return string already told the caller (see its docstring -- it never
+    raises, it returns an error SENTENCE on failure). The WHERE status !=
+    'resolved' guard makes this a safe no-op if called twice for the same
+    row (e.g. a double click) without clobbering whichever resolution landed
+    first."""
     with _connect() as conn:
         cur = conn.execute(
             "UPDATE important_email_suggestions SET status = 'resolved', resolution = ?, resolved_at = ?"
-            " WHERE id = ? AND user_id = ? AND status = 'pending'",
+            " WHERE id = ? AND user_id = ? AND status != 'resolved'",
             (resolution, time.time(), suggestion_id, user_id),
         )
         return cur.rowcount > 0
@@ -968,6 +1054,54 @@ def count_suggestions_created_since(user_id: str, since: float) -> int:
             (user_id, since),
         ).fetchone()
     return row[0] if row else 0
+
+
+def add_system_notice(user_id: str, category: str, title: str, body: str, dedupe_key: str,
+                       action_label: str | None = None) -> int | None:
+    """Generic, send-free suggestion card for any category that's just
+    "notice + dismiss" (holiday greetings, calendar conflicts, market
+    swings, ...) -- no drafting/sending state machine, unlike
+    important_email_suggestions. Silently no-ops (returns None) if this
+    exact dedupe_key already has a row for this user, same dedup pattern
+    add_important_suggestion already uses for gmail_message_id -- each
+    background detector in daily_briefing.py is free to re-scan its
+    signal every cycle without ever creating a duplicate notice."""
+    with _connect() as conn:
+        existing = conn.execute(
+            "SELECT id FROM system_notices WHERE user_id = ? AND dedupe_key = ?",
+            (user_id, dedupe_key),
+        ).fetchone()
+        if existing:
+            return None
+        cur = conn.execute(
+            "INSERT INTO system_notices (user_id, category, title, body, action_label, dedupe_key, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, category, title, body, action_label, dedupe_key, time.time()),
+        )
+        return cur.lastrowid
+
+
+def list_active_notices(user_id: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, category, title, body, action_label, created_at"
+            " FROM system_notices WHERE user_id = ? AND dismissed_at IS NULL"
+            " ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    return [
+        {"id": r[0], "category": r[1], "title": r[2], "body": r[3], "action_label": r[4], "created_at": r[5]}
+        for r in rows
+    ]
+
+
+def dismiss_notice(notice_id: int, user_id: str) -> bool:
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE system_notices SET dismissed_at = ? WHERE id = ? AND user_id = ? AND dismissed_at IS NULL",
+            (time.time(), notice_id, user_id),
+        )
+        return cur.rowcount > 0
 
 
 _init_db()

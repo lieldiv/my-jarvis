@@ -500,6 +500,7 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .nav-item.active::before{ content:''; position:absolute; top:0; width:30px; height:2px; background:rgb(var(--accent-rgb)); box-shadow:0 0 10px rgb(var(--accent-rgb)); }
 .nav-item.just-updated{ color:#00ff88; }
 .nav-item.just-updated::after{ content:''; position:absolute; top:7px; inset-inline-end:calc(50% - 22px); width:8px; height:8px; border-radius:50%; background:#00ff88; box-shadow:0 0 10px #00ff88; animation:jm-pulse .6s ease-in-out infinite; }
+.nav-dot-new{ position:absolute; top:4px; inset-inline-end:calc(50% - 20px); width:7px; height:7px; border-radius:50%; background:var(--color-gold); box-shadow:0 0 8px var(--color-gold); }
 /* An answer typed or spoken while you are on another tab has nowhere to appear (the orb lives on Home). */
 .reply-bubble{ position:absolute; inset-inline:12px; bottom:calc(100% + 10px); display:none; align-items:flex-start; gap:6px; padding:12px 6px 12px 14px; background:var(--surface-solid); border:1px solid var(--color-cyan-border); border-radius:var(--radius-xl); box-shadow:var(--glow-md); font-size:14.5px; line-height:1.6; color:var(--color-white); animation:jm-fadeup .25s ease both; }
 .reply-bubble.show{ display:flex; }
@@ -902,7 +903,15 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .task-recur-mode-chip, .task-recur-day-chip{ min-height:44px; font-size:14.5px; }
 .mail-card{ background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-md); padding:14px; margin-bottom:10px; }
 .suggestion-card{ border-color:rgba(255,200,0,.4); }
-.suggestion-card .mail-from{ color:#ffc800; display:inline-flex; align-items:center; gap:5px; }
+.suggestion-card .mail-from{ color:var(--color-gold); display:inline-flex; align-items:center; gap:5px; }
+.suggestion-status{ font-size:13px; color:var(--color-text-dim); margin-top:8px; font-style:italic; }
+.draft-preview{ -webkit-line-clamp:4; white-space:pre-wrap; }
+.notice-card{ border-color:rgba(181,140,255,.4); }
+.notice-card .mail-from{ color:#b58cff; display:inline-flex; align-items:center; gap:5px; }
+.notice-conflict{ border-color:rgba(var(--accent-rgb),.4); }
+.notice-conflict .mail-from{ color:var(--color-cyan); }
+.notice-market{ border-color:rgba(95,179,255,.4); }
+.notice-market .mail-from{ color:#5fb3ff; }
 .mail-top{ display:flex; align-items:center; gap:8px; }
 .mail-from{ font-weight:600; font-size:15.5px; color:var(--color-white); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; unicode-bidi:plaintext; }
 .mail-when{ margin-inline-start:auto; font-size:12.5px; color:var(--color-text-dim); flex:none; }
@@ -982,6 +991,7 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
   <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></symbol>
   <symbol id="i-task" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4" stroke-linecap="round"/><path d="M12 3a6 6 0 0 0-3.2 11.1c.6.4 1 1.1 1 1.9h4.4c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3z"/></symbol>
   <symbol id="i-cog" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.5 4.5l2.1 2.1M17.4 17.4l2.1 2.1M2.5 12h3M18.5 12h3M4.5 19.5l2.1-2.1M17.4 6.6l2.1-2.1"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.7" fill="currentColor" stroke="none"/></symbol>
@@ -1160,6 +1170,18 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
             <div id="inbox-list"><div class="events-empty">טוען…</div></div>
           </div>
 
+          <!-- SUGGESTIONS -->
+          <div class="tab-panel" id="tab-suggestions">
+            <div class="page-head page-head-row">
+              <div>
+                <h1 class="page-title">הצעות מערכת</h1>
+                <div class="page-sub-row"><p class="page-sub" id="suggestions-sub"></p><span class="tab-spinner" id="suggestions-spinner" hidden></span></div>
+              </div>
+              <button class="hdr-btn" onclick="loadSuggestionsTab(true)" aria-label="רענן"><svg class="i" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+            </div>
+            <div id="suggestions-list"><div class="events-empty">טוען…</div></div>
+          </div>
+
           <!-- TASKS -->
           <div class="tab-panel" id="tab-tasks">
             <div class="page-head">
@@ -1291,6 +1313,18 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
               <div class="coach-actions">
                 <button type="button" class="ds-btn pri" onclick="startTour()">סיור קצר · 30 שניות</button>
                 <button type="button" class="ds-btn" onclick="dismissCoach()">הבנתי</button>
+              </div>
+            </div>
+
+        <div class="coach" id="suggestions-intro" style="display:none;">
+              <button class="coach-x" onclick="dismissSuggestionsIntro()" aria-label="סגור"><svg class="i s" aria-hidden="true"><use href="#i-x"/></svg></button>
+              <h3 class="coach-title">🆕 לשונית חדשה: הצעות מערכת</h3>
+              <ul class="coach-list">
+                <li><svg class="i" aria-hidden="true"><use href="#i-bulb"/></svg><span>JARVIS יכין לך דברים מראש ויחכה לאישור שלך — מתחילים עם תשובות לאימיילים חשובים.</span></li>
+              </ul>
+              <div class="coach-actions">
+                <button type="button" class="ds-btn pri" onclick="goToSuggestionsFromIntro()">בוא נראה</button>
+                <button type="button" class="ds-btn" onclick="dismissSuggestionsIntro()">הבנתי</button>
               </div>
             </div>
 
@@ -1728,9 +1762,16 @@ function flashNav(tabKey){
 /* ================================================================================
    Bottom nav + tab switching.
    ================================================================================ */
+// Declared up here (not down by updateCoach/updateSuggestionsIntro's own
+// definitions, much later in this script) because renderNav() reads both
+// and is called immediately below, before that later point in the script
+// would run -- a const read before its own declaration throws, taking the
+// whole page down with it.
+const COACH_KEY = 'jarvis_coach_v1';
+const SUGGESTIONS_TAB_INTRO_KEY = 'jarvis_suggestions_intro_v1';
 const NAV_DEFS = [
     { key: 'home', label: 'בית', icon: 'home' }, { key: 'agenda', label: 'יומן', icon: 'cal' }, { key: 'inbox', label: 'דואר', icon: 'mail' },
-    { key: 'tasks', label: 'משימות', icon: 'task' }, { key: 'settings', label: 'הגדרות', icon: 'gear' },
+    { key: 'tasks', label: 'משימות', icon: 'task' }, { key: 'suggestions', label: 'הצעות', icon: 'bulb' }, { key: 'settings', label: 'הגדרות', icon: 'gear' },
 ];
 let currentTab = 'home';
 function renderNav(){
@@ -1744,6 +1785,16 @@ function renderNav(){
         btn.insertAdjacentHTML('beforeend', icon(n.icon));
         const label = el('span','nav-label'); label.textContent = n.label;
         btn.appendChild(label);
+        // Same gating as the intro card itself (updateSuggestionsIntro) --
+        // a brand-new user's key gets marked seen immediately (nothing to
+        // announce to them, see updateSuggestionsIntro's own comment), so
+        // without this check here too the dot would flash once on first
+        // render and vanish for good the moment anything else re-renders
+        // the nav, instead of staying lit for an EXISTING user until they
+        // actually see the announcement.
+        if (n.key === 'suggestions' && lsGet(COACH_KEY, '0') === '1' && lsGet(SUGGESTIONS_TAB_INTRO_KEY, '0') !== '1') {
+            const dot = el('span', 'nav-dot-new'); btn.appendChild(dot);
+        }
         nav.appendChild(btn);
     });
 }
@@ -1776,6 +1827,7 @@ function setTab(key){
     if (key === 'inbox') loadInboxTab();
     if (key === 'agenda') loadAgendaTab();
     if (key === 'tasks') loadTasksTab();
+    if (key === 'suggestions') { loadSuggestionsTab(); dismissSuggestionsIntro(); }
     if (key === 'settings') { renderConnStatus(); loadImportantSuggestionsSettings(); }
 }
 renderNav();
@@ -5137,7 +5189,6 @@ function unreadText(n){
     if (n === 1) return 'הודעה אחת שלא נקראה';
     return `${n >= INBOX_LIMIT ? INBOX_LIMIT + '+' : n} הודעות שלא נקראו`;
 }
-let inboxSuggestionsCache = [];
 function fetchInbox(){
     if (!inboxInflight) inboxInflight = (async () => {
         try {
@@ -5145,7 +5196,6 @@ function fetchInbox(){
             const data = await res.json();
             inboxConfigured = data.configured !== false;
             inboxEmailsCache = data.emails || [];
-            inboxSuggestionsCache = data.suggestions || [];
             inboxLoaded = true; inboxLoadedAt = Date.now();
             return true;
         } catch (e) { return false; }
@@ -5186,25 +5236,43 @@ function updateInboxSub(){
     $('inbox-sub').textContent = !inboxConfigured ? 'הדואר לא מחובר' : n ? `${unreadText(n)} · מחובר ל-Gmail` : 'אין הודעות שלא נקראו';
 }
 function buildSuggestionCard(s){
-    // Same mail-card visual language as a normal inbox row (top/subject/
-    // preview) plus a star accent and its own two actions -- "review" is
-    // the ONLY place this feature ever drafts or sends anything; dismiss
-    // never spends an LLM call just to say no.
+    // Same mail-card visual language as a normal inbox row (top/subject),
+    // plus a star accent. Detection+drafting both happen automatically in
+    // daily_briefing.py's scheduler (within ~60s) -- but it never sends
+    // anything itself. Once status is 'drafted', the only things a live
+    // request can do are send it for approval (through the same
+    // confirm-to-act modal every other email in this app already uses,
+    // which also covers editing -- see its own EDIT affordance) or dismiss
+    // it outright. There is no auto-send path at all.
     const card = el('div', 'mail-card suggestion-card');
     const top = el('div', 'mail-top');
     top.innerHTML = `<span class="mail-from">${icon('warn', 's')} ${escapeHtml(s.sender_name || s.sender_email)}</span><span class="mail-when"></span>`;
     top.querySelector('.mail-when').textContent = relTime(s.date_ms);
     const subj = el('div', 'mail-subject'); subj.textContent = s.subject || '(ללא נושא)';
-    const prev = el('div', 'mail-preview'); prev.textContent = s.snippet || '';
+    card.append(top, subj);
+
+    if (s.status !== 'drafted' || !s.draft_body) {
+        const prev = el('div', 'mail-preview'); prev.textContent = s.snippet || '';
+        const status = el('div', 'suggestion-status'); status.textContent = 'מכין טיוטת תשובה…';
+        const actions = el('div', 'mail-actions');
+        const dismissBtn = el('button', 'ds-btn'); dismissBtn.type = 'button';
+        dismissBtn.textContent = 'התעלם';
+        dismissBtn.onclick = () => dismissSuggestion(s.id);
+        actions.appendChild(dismissBtn);
+        card.append(prev, status, actions);
+        return card;
+    }
+
+    const draftPrev = el('div', 'mail-preview draft-preview'); draftPrev.textContent = s.draft_body;
     const actions = el('div', 'mail-actions');
-    const reviewBtn = el('button', 'ds-btn pri'); reviewBtn.type = 'button';
-    reviewBtn.innerHTML = icon('edit', 's') + 'סקור טיוטת תשובה';
-    reviewBtn.onclick = () => reviewSuggestion(s.id);
+    const sendBtn = el('button', 'ds-btn pri'); sendBtn.type = 'button';
+    sendBtn.innerHTML = icon('send', 's') + 'שלח לאישור';
+    sendBtn.onclick = () => sendSuggestion(s.id);
     const dismissBtn = el('button', 'ds-btn'); dismissBtn.type = 'button';
     dismissBtn.textContent = 'התעלם';
     dismissBtn.onclick = () => dismissSuggestion(s.id);
-    actions.append(reviewBtn, dismissBtn);
-    card.append(top, subj, prev, actions);
+    actions.append(sendBtn, dismissBtn);
+    card.append(draftPrev, actions);
     return card;
 }
 function renderInboxList(){
@@ -5217,7 +5285,6 @@ function renderInboxList(){
             { buttons: [{ label: 'התחבר עם Google', primary: true, run: () => switchGoogleAccount() }] }));
         return;
     }
-    inboxSuggestionsCache.forEach(s => list.appendChild(buildSuggestionCard(s)));
     if (!n) {
         list.appendChild(buildEmptyCard('mail', 'תיבת הדואר ריקה', 'אין הודעות חדשות.',
             { tryText: 'שלח מייל ל-dana@gmail.com שאני מאחר' }));
@@ -5251,6 +5318,111 @@ function renderInboxList(){
     });
 }
 function escapeHtml(s){ const d = document.createElement('div'); d.innerText = s == null ? '' : s; return d.innerHTML; }
+
+/* ================================================================================
+   Suggestions tab -- "הצעות מערכת": everything JARVIS prepares proactively
+   and waits for the user to review. Two kinds of card share this one list:
+   important-email replies (buildSuggestionCard, drafted/sent through the
+   real confirm-to-act modal) and generic system notices (buildNoticeCard --
+   holiday greeting, calendar conflicts, market swings: notice + dismiss
+   only, nothing to approve/send). Deliberately NOT part of the Mail tab.
+   ================================================================================ */
+let suggestionsEmailCache = [], suggestionsNoticesCache = [];
+let suggestionsLoaded = false, suggestionsLoadedAt = 0, suggestionsInflight = null;
+function fetchSuggestions(){
+    if (!suggestionsInflight) suggestionsInflight = (async () => {
+        try {
+            const res = await fetchWithTimeout('/api/suggestions');
+            const data = await res.json();
+            suggestionsEmailCache = data.email_suggestions || [];
+            suggestionsNoticesCache = data.notices || [];
+            suggestionsLoaded = true; suggestionsLoadedAt = Date.now();
+            return true;
+        } catch (e) { return false; }
+        finally { suggestionsInflight = null; }
+    })();
+    return suggestionsInflight;
+}
+async function loadSuggestionsTab(force){
+    const list = $('suggestions-list');
+    const stale = !suggestionsLoaded || Date.now() - suggestionsLoadedAt > 60000;
+    if (!suggestionsLoaded) list.innerHTML = '<div class="events-empty">טוען…</div>';
+    else renderSuggestionsList();
+    if (!force && !stale) return;
+    const showSpinner = suggestionsLoaded;
+    if (showSpinner) { list.classList.add('refreshing'); $('suggestions-spinner').hidden = false; }
+    const ok = await fetchSuggestions();
+    if (showSpinner) { list.classList.remove('refreshing'); $('suggestions-spinner').hidden = true; }
+    if (!ok) {
+        if (suggestionsLoaded) showToast('לא הצלחתי לרענן את ההצעות.', true);
+        else list.innerHTML = '<div class="events-empty">לא הצלחתי להתחבר לשרת.</div>';
+        return;
+    }
+    if (currentTab === 'suggestions') renderSuggestionsList();
+}
+function updateSuggestionsSub(){
+    const n = suggestionsEmailCache.length + suggestionsNoticesCache.length;
+    $('suggestions-sub').textContent = n ? `${n} הצעות ממתינות` : 'אין הצעות כרגע';
+}
+const NOTICE_ICON_BY_CATEGORY = { holiday: 'warn', conflict: 'cal', market: 'trend' };
+// What the action button actually DOES per category, beyond just
+// dismissing -- e.g. "פתח יומן" really switches to the Agenda tab, it
+// doesn't just acknowledge the notice like a plain dismiss would.
+const NOTICE_ACTION_BY_CATEGORY = { conflict: () => setTab('agenda') };
+function buildNoticeCard(n){
+    const card = el('div', 'mail-card notice-card notice-' + n.category);
+    const top = el('div', 'mail-top');
+    top.innerHTML = `<span class="mail-from">${icon(NOTICE_ICON_BY_CATEGORY[n.category] || 'bulb', 's')} ${escapeHtml(n.title)}</span>`;
+    const body = el('div', 'mail-preview'); body.textContent = n.body;
+    const actions = el('div', 'mail-actions');
+    if (n.action_label) {
+        const actBtn = el('button', 'ds-btn pri'); actBtn.type = 'button'; actBtn.textContent = n.action_label;
+        actBtn.onclick = () => {
+            const run = NOTICE_ACTION_BY_CATEGORY[n.category];
+            if (run) run();
+            dismissNotice(n.id, card);
+        };
+        actions.appendChild(actBtn);
+    }
+    const dismissBtn = el('button', 'ds-btn'); dismissBtn.type = 'button';
+    dismissBtn.textContent = n.action_label ? 'התעלם' : 'הבנתי';
+    dismissBtn.onclick = () => dismissNotice(n.id, card);
+    actions.appendChild(dismissBtn);
+    card.append(top, body, actions);
+    return card;
+}
+function renderSuggestionsList(){
+    const list = $('suggestions-list');
+    list.innerHTML = '';
+    updateSuggestionsSub();
+    if (!suggestionsEmailCache.length && !suggestionsNoticesCache.length) {
+        list.appendChild(buildEmptyCard('bulb', 'אין הצעות כרגע', 'כשיהיה משהו חדש בשבילך, הוא יופיע כאן.'));
+        return;
+    }
+    suggestionsEmailCache.forEach(s => list.appendChild(buildSuggestionCard(s)));
+    suggestionsNoticesCache.forEach(n => list.appendChild(buildNoticeCard(n)));
+}
+async function dismissNotice(id, cardEl){
+    // Server call FIRST, then mutate -- a card removed optimistically and
+    // only reconciled with the server afterward can desync silently (the
+    // POST fails, the card is already gone with no feedback, and the same
+    // notice then resurrects on the next fetch with no explanation of why).
+    const btns = cardEl.querySelectorAll('button');
+    btns.forEach(b => b.disabled = true);
+    try {
+        const res = await fetchWithTimeout(`/api/suggestions/notices/${id}/dismiss`, { method: 'POST' });
+        const data = await res.json();
+        if (!data.ok) throw new Error('dismiss not ok');
+    } catch (e) {
+        btns.forEach(b => b.disabled = false);
+        showToast('לא הצלחתי להסיר את ההצעה. נסה שוב.', true);
+        return;
+    }
+    cardEl.remove();
+    suggestionsNoticesCache = suggestionsNoticesCache.filter(x => x.id !== id);
+    if (!$('suggestions-list').children.length) renderSuggestionsList();
+    else updateSuggestionsSub();
+}
 
 async function draftInboxReply(i){
     const e = inboxEmailsCache[i];
@@ -6014,13 +6186,13 @@ async function resolveConfirmation(approve){
         if (logId != null) updateActivityStatus(logId, approve ? 'confirmed' : 'cancelled');
         // The actual send/cancel already happened above via /api/confirm —
         // this only updates the suggestion ROW's own bookkeeping so the
-        // Inbox banner stops showing it. Fire-and-forget: nothing the user
-        // sees depends on this call's own success.
+        // Suggestions tab stops showing it. Fire-and-forget: nothing the
+        // user sees depends on this call's own success.
         if (suggestionId != null) {
             fetchWithTimeout(`/api/inbox/suggestions/${suggestionId}/resolve`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ resolution: approve ? 'sent' : 'cancelled' }),
-            }).catch(() => {}).then(() => loadInboxTab(true));
+            }).catch(() => {}).then(() => loadSuggestionsTab(true));
         }
     } catch (err) {
         pendingConfirmToken = null;
@@ -6306,15 +6478,15 @@ async function saveImportantSenders(){
         showToast('לא הצלחתי להתחבר לשרת.', true);
     }
 }
-async function reviewSuggestion(id){
+async function sendSuggestion(id){
     try {
-        const res = await fetchWithTimeout(`/api/inbox/suggestions/${id}/review`, { method: 'POST' });
+        const res = await fetchWithTimeout(`/api/inbox/suggestions/${id}/send`, { method: 'POST' });
         const data = await res.json();
         if (data.error) { showToast(data.error, true); return; }
         // The exact same function sendInboxReply already hands its own
-        // confirmation_required result to — no new UI, the mature
-        // approve/edit/reject modal just gets a different source for its
-        // subject/body this time.
+        // confirmation_required result to -- no new UI, the mature
+        // approve/edit/reject modal (EDIT included) just gets a different
+        // source for its subject/body this time.
         showConfirmModal(data);
     } catch (e) {
         showToast('לא הצלחתי להתחבר לשרת.', true);
@@ -6323,7 +6495,7 @@ async function reviewSuggestion(id){
 async function dismissSuggestion(id){
     try {
         await fetchWithTimeout(`/api/inbox/suggestions/${id}/dismiss`, { method: 'POST' });
-        loadInboxTab(true);
+        loadSuggestionsTab(true);
     } catch (e) {
         showToast('לא הצלחתי להתחבר לשרת.', true);
     }
@@ -7427,13 +7599,28 @@ function useHelpPhrase(item){
 renderHelp();
 
 /* ---- first-run card + the short tour ---- */
-const COACH_KEY = 'jarvis_coach_v1';
 // A first-run tip floating above the dock (not in Home's scrolling content, where its buttons sat below the fold).
 function updateCoach(){
     const c = $('coach');
     c.style.display = (currentTab === 'home' && lsGet(COACH_KEY, '0') !== '1' && tourIdx < 0) ? '' : 'none';
+    updateSuggestionsIntro();
 }
 function dismissCoach(){ lsSet(COACH_KEY, '1'); updateCoach(); }
+
+/* ---- one-time "system update" announcement for the new Suggestions tab --
+   only for users past the original first-run coach above (a brand-new
+   signup has nothing to "update" from, so it's marked seen immediately
+   for them and never shown -- see below). Separate element/key from
+   COACH_KEY so dismissing one never dismisses the other. */
+function updateSuggestionsIntro(){
+    const el = $('suggestions-intro');
+    const pastFirstRun = lsGet(COACH_KEY, '0') === '1';
+    const alreadySeen = lsGet(SUGGESTIONS_TAB_INTRO_KEY, '0') === '1';
+    if (!pastFirstRun && !alreadySeen) { lsSet(SUGGESTIONS_TAB_INTRO_KEY, '1'); }
+    el.style.display = (currentTab === 'home' && pastFirstRun && !alreadySeen && tourIdx < 0) ? '' : 'none';
+}
+function dismissSuggestionsIntro(){ lsSet(SUGGESTIONS_TAB_INTRO_KEY, '1'); updateSuggestionsIntro(); renderNav(); }
+function goToSuggestionsFromIntro(){ dismissSuggestionsIntro(); setTab('suggestions'); }
 const TOUR_STEPS = [
     { sel: '#orb-body', round: true, pad: 10, title: 'כאן מדברים', text: 'לחץ על הכדור ואמור משפט אחד, למשל "מה יש לי היום?".' },
     { sel: '.cmd-input-row', pad: 4, title: 'או מקלידים', text: 'אפשר להקליד כאן פקודה, והמיקרופון שלידה עובד מכל מסך.' },

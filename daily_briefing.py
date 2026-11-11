@@ -21,6 +21,22 @@ One background thread, checked once a minute:
   - weekly summary: once a week (JARVIS_WEEKLY_SUMMARY_WEEKDAY/HOUR/MINUTE,
     default Sunday 08:00 local), emailed to every currently-connected user
     (users.list_connected_user_ids) — their own week ahead.
+  - important-email suggestions: detects a new email from a user's own
+    configured "important" sender (Gmail search, no LLM), and drafts a
+    short conservative holding reply for it (a small, independent Groq
+    client -- see below). It never sends anything by itself: the draft just
+    sits in the Inbox tab until the user taps "send", which goes through
+    the exact same confirm-to-act path (productivity_service.request_send_email)
+    every other write in this app already uses -- the product owner was
+    explicit that this feature must never send without that approval. This
+    is the one place in this whole file an LLM call happens; everything
+    else in this module is either LLM-free or a plain notification.
+  - system notices (holiday greeting, meeting conflicts, market swings):
+    all three are zero-LLM and deterministic, each writing a generic,
+    dismiss-only `system_notices` row (users.add_system_notice) rendered
+    in the HUD's "הצעות מערכת" tab. The holiday greeting is self-facing
+    only -- it never sends anything to anyone else, by explicit product-
+    owner instruction; it just wishes the signed-in user a happy holiday.
 
 Same free-tier caveat as users.py's docstring: users.db is wiped on every
 restart/spin-down, so a reminder set for later can silently vanish if the
@@ -31,17 +47,32 @@ knowing before relying on this for anything time-critical.
 
 import logging
 import os
+import re
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.utils import parseaddr
 
+from groq import Groq, RateLimitError
+
 import google_service
+import groq_pacer
 import productivity_service
 import push_service
+import stocks_service
 import users
 
 logger = logging.getLogger("jarvis.daily_briefing")
+
+# A small, independent Groq client -- can't reuse app.py's (app.py imports
+# THIS module, so the reverse would be circular; see the module docstring).
+# Same api key/model/timeout/retry shape as app.py's own client, and the
+# SAME groq_pacer instance (a plain module, no circularity there) so this
+# genuinely shares the one rate-limit budget with every live user request
+# rather than quietly exceeding it from a second, uncoordinated client.
+_GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+_groq_client = Groq(api_key=_GROQ_API_KEY, timeout=30.0, max_retries=1) if _GROQ_API_KEY else None
+_IMPORTANT_EMAIL_MODEL = "openai/gpt-oss-20b"  # matches app.py's own MODEL_NAME
 
 WEEKLY_SUMMARY_ENABLED = os.environ.get("JARVIS_WEEKLY_SUMMARY", "true").lower() == "true"
 # Python's datetime.weekday(): Monday=0 ... Sunday=6.
@@ -191,10 +222,11 @@ def _check_capability_gaps():
 
 def _check_important_emails():
     """Detection only — this NEVER calls the LLM and NEVER sends anything.
-    Drafting and sending both stay inside live, user-present requests (see
-    app.py's /api/inbox/suggestions/<id>/review, which is where the actual
-    confirm-to-act send happens) — this job's entire job is noticing a
-    matching message exists and writing one local row for it.
+    Drafting (_draft_important_suggestions) happens later in this same
+    scheduler, automatically; sending only ever happens from a live request
+    once the user taps "send" (app.py's /api/inbox/suggestions/<id>/send) —
+    this job's entire job is noticing a matching message exists and writing
+    one local row for it.
 
     Why no LLM-based "is this important" judgment: an address match is
     free (zero Groq tokens against the shared rate-limited budget this
@@ -243,6 +275,233 @@ def _check_important_emails():
                 logger.error(f"Failed to record important-email suggestion for user {user_id}: {e}")
 
 
+# Same small, self-contained pattern as app.py's own _strip_markdown --
+# duplicated rather than imported for the same circular-import reason the
+# Groq client above is. Kept because the drafting prompt below already asks
+# for "no markdown," but an LLM's own habit of adding it anyway would
+# otherwise go out in a REAL, auto-sent email with no human proofread step
+# to catch it -- this app, not a spoken reply, is where the raw asterisks
+# would actually show.
+_MARKDOWN_BOLD_ITALIC_RE = re.compile(r"(\*\*\*|\*\*|\*|___|__|_)(.+?)\1")
+_MARKDOWN_HEADER_RE = re.compile(r"^#{1,6}\s+", re.MULTILINE)
+_MARKDOWN_BULLET_RE = re.compile(r"^\s*[\*\-•]\s+", re.MULTILINE)
+
+
+def _strip_markdown(text: str) -> str:
+    if not text:
+        return text
+    text = _MARKDOWN_BOLD_ITALIC_RE.sub(r"\2", text)
+    text = _MARKDOWN_HEADER_RE.sub("", text)
+    text = _MARKDOWN_BULLET_RE.sub("", text)
+    return text
+
+
+def _draft_important_suggestions():
+    """Advances every still-'pending' suggestion to 'drafted', or leaves it
+    'pending' to retry next cycle on a transient failure -- never raises,
+    and never sends anything itself. The draft just sits in the Inbox tab
+    until the user explicitly taps "send" (app.py's
+    /api/inbox/suggestions/<id>/send), which goes through the real
+    confirm-to-act path -- see the deliberately conservative prompt below,
+    which exists so a weak first draft never has to be rewritten from
+    scratch, not because nothing will review it before it goes out."""
+    if not _groq_client:
+        return  # GROQ_API_KEY unset (e.g. local dev without a .env) -- nothing to draft with
+    for sugg in users.list_suggestions_needing_draft():
+        subject = sugg.get("subject") or ""
+        draft_subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+        prompt = (
+            f"An email arrived from {sugg.get('sender_name') or sugg.get('sender_email')}. "
+            f"Subject: {subject}. Preview: {sugg.get('snippet') or ''}\n\n"
+            "Write ONLY a short holding reply as plain text: acknowledge receipt and say "
+            "you'll follow up properly soon. Do NOT invent any dates, numbers, commitments, "
+            "or decisions that aren't already stated in the preview above -- the user will "
+            "review and can edit this before it's ever sent, so leave the real content for "
+            "them to add. Write it exactly as the user themselves would write it, in first "
+            "person -- never mention JARVIS, an assistant, AI, or anything automated; nothing "
+            "in the reply should reveal this wasn't typed by the user personally. A brief "
+            "greeting and closing, nothing else. No subject line, no markdown."
+        )
+        try:
+            groq_pacer.wait_if_needed(900)
+            completion = _groq_client.chat.completions.create(
+                model=_IMPORTANT_EMAIL_MODEL,
+                messages=[
+                    {"role": "system", "content": "You draft short, deliberately conservative holding replies "
+                     "for J.A.R.V.I.S. — the user never asked for this specific reply, so never fabricate "
+                     "content beyond acknowledging the email and promising a proper follow-up."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.4, max_tokens=250, reasoning_effort="low",
+            )
+            usage = getattr(completion, "usage", None)
+            if usage:
+                groq_pacer.record_usage(max(0, getattr(usage, "total_tokens", 0)))
+            draft_body = _strip_markdown(completion.choices[0].message.content or "").strip()
+            if not draft_body:
+                raise ValueError("empty draft")
+            users.set_suggestion_draft(sugg["id"], draft_subject, draft_body)
+        except RateLimitError as e:
+            kind, _ = groq_pacer.classify_rate_limit(e)
+            users.record_suggestion_draft_error(sugg["id"], f"rate_limited:{kind}")
+            if kind == "day":
+                return  # daily quota exhausted -- stop this cycle's pass entirely, not just this one row
+        except Exception as e:
+            logger.error(f"Important-email draft failed for suggestion {sugg['id']}: {e}")
+            users.record_suggestion_draft_error(sugg["id"], str(e))
+
+
+# ---------------------------------------------------------------------------
+# System notices: holiday greeting, meeting conflicts, market swings. All
+# three are zero-LLM and deterministic (unlike the important-email drafter
+# above) -- each just writes a generic, dismiss-only system_notices row
+# (see users.add_system_notice) when its own simple condition is true.
+# None of them ever sends anything anywhere; they only ever notify the
+# signed-in user themselves.
+# ---------------------------------------------------------------------------
+HOLIDAY_CALENDAR_ID = "en.jewish#holiday@group.v.calendar.google.com"  # Google's own public calendar
+HOLIDAY_LOOKAHEAD_DAYS = 3
+
+# Google's public holiday calendar titles are in English ("Passover",
+# "Rosh Hashana", "Hanukkah: 1 Candle", ...) -- this app's whole UI is
+# Hebrew, so only a holiday we can confidently translate gets a notice;
+# anything unrecognized is silently skipped rather than showing a half-
+# English or garbled title.
+_HOLIDAY_NAME_HE = [
+    ("rosh hashana", "ראש השנה"), ("yom kippur", "יום כיפור"), ("sukkot", "סוכות"),
+    ("simchat torah", "שמחת תורה"), ("shmini atzeret", "שמיני עצרת"),
+    ("hanukkah", "חנוכה"), ("chanukah", "חנוכה"), ("tu bishvat", 'ט"ו בשבט'),
+    ("purim", "פורים"), ("passover", "פסח"), ("pesach", "פסח"),
+    ("shavuot", "שבועות"), ("tisha b'av", "תשעה באב"),
+]
+
+
+def _hebrew_holiday_name(summary) -> str | None:
+    s = (summary or "").lower()
+    for keyword, hebrew in _HOLIDAY_NAME_HE:
+        if keyword in s:
+            return hebrew
+    return None
+
+
+def _check_holiday_greeting():
+    """Self-facing ONLY -- by the product owner's own explicit correction,
+    this never sends anything to anyone else (no recipient list, no
+    WhatsApp, no email on the user's behalf): it just wishes the signed-in
+    user a happy holiday and reminds them to tell their own family.
+    Reads Google's public Jewish-holidays calendar -- readable with the
+    calendar.readonly scope this app already has, zero new dependency."""
+    now_dt = datetime.now(timezone.utc)
+    time_min = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    time_max = (now_dt + timedelta(days=HOLIDAY_LOOKAHEAD_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for user_id in users.list_connected_user_ids():
+        try:
+            events = google_service.list_calendar_events(
+                user_id, time_min, time_max, max_results=5, calendar_id=HOLIDAY_CALENDAR_ID)
+        except Exception as e:
+            logger.error(f"Holiday calendar check failed for user {user_id}: {e}")
+            continue
+        for ev in events or []:
+            hebrew_name = _hebrew_holiday_name(ev.get("summary"))
+            if not hebrew_name:
+                continue
+            year = (ev.get("start") or "")[:4] or "unknown"
+            try:
+                users.add_system_notice(
+                    user_id, "holiday",
+                    title=f"{hebrew_name} מתקרב",
+                    body=f"חג {hebrew_name} שמח! ואל תשכח לאחל חג שמח גם למשפחה שלך.",
+                    dedupe_key=f"holiday:{hebrew_name}:{year}",
+                )
+            except Exception as e:
+                logger.error(f"Failed to record holiday notice for user {user_id}: {e}")
+
+
+def _check_meeting_conflicts():
+    """Zero-LLM, deterministic: flags two of the next 24h's TIMED events
+    that overlap. All-day events are excluded -- they don't "conflict" the
+    way two scheduled meetings do."""
+    now_dt = datetime.now(timezone.utc)
+    time_min = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    time_max = (now_dt + timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for user_id in users.list_connected_user_ids():
+        try:
+            events = google_service.list_calendar_events(user_id, time_min, time_max, max_results=20)
+        except Exception as e:
+            logger.error(f"Meeting-conflict check failed for user {user_id}: {e}")
+            continue
+        timed = []
+        for ev in events or []:
+            start, end = ev.get("start"), ev.get("end")
+            if not start or not end or "T" not in start or "T" not in end:
+                continue  # all-day (or malformed) -- skip rather than guess
+            try:
+                start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            timed.append((start_dt, end_dt, ev))
+        timed.sort(key=lambda t: t[0])
+        # Every OVERLAPPING pair, not just adjacent-in-sorted-order ones --
+        # adjacent-only misses a real conflict like A 9:00-11:00 containing
+        # both B 9:15-9:30 and C 9:45-10:00: B and C don't overlap each
+        # other, so they're adjacent in sort order with nothing between
+        # them, but each still genuinely overlaps A. Bounded by max_results
+        # (20), so the full pairwise sweep is cheap; the inner loop still
+        # breaks early once b_start reaches a_end, since nothing later in
+        # start-sorted order can overlap a_end either.
+        for i in range(len(timed)):
+            a_start, a_end, a_ev = timed[i]
+            for j in range(i + 1, len(timed)):
+                b_start, _b_end, b_ev = timed[j]
+                if b_start >= a_end:
+                    break  # sorted by start -- no later pair can overlap this a_end either
+                date_key = a_start.strftime("%Y-%m-%d")
+                try:
+                    users.add_system_notice(
+                        user_id, "conflict",
+                        title="שתי פגישות חופפות",
+                        body=(f"\"{a_ev.get('summary') or '(ללא כותרת)'}\" ו-"
+                              f"\"{b_ev.get('summary') or '(ללא כותרת)'}\" חופפות היום ביומן שלך."),
+                        dedupe_key=f"conflict:{a_ev.get('id','')}:{b_ev.get('id','')}:{date_key}",
+                        action_label="פתח יומן",
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to record conflict notice for user {user_id}: {e}")
+
+
+MARKET_SWING_THRESHOLD_PCT = 3.0
+
+
+def _check_market_swing():
+    """Zero-LLM, zero-personalization: ONE shared market snapshot fetched
+    per cycle (not once per user -- this is public market data, not a
+    per-user API call), fanned out as a notice to every connected user,
+    once per index per day, only when the move exceeds the threshold."""
+    try:
+        snapshot = stocks_service.get_market_snapshot()
+    except Exception as e:
+        logger.error(f"Market snapshot fetch failed: {e}")
+        return
+    today_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for row in snapshot or []:
+        pct, label = row.get("today_pct"), row.get("label")
+        if pct is None or not label or abs(pct) < MARKET_SWING_THRESHOLD_PCT:
+            continue
+        direction = "עלה" if pct >= 0 else "ירד"
+        dedupe_key = f"market:{label}:{today_key}"
+        for user_id in users.list_connected_user_ids():
+            try:
+                users.add_system_notice(
+                    user_id, "market",
+                    title=f"תנודה חדה ב-{label}",
+                    body=f"מדד {label} {direction} {abs(pct):.1f}% היום.",
+                    dedupe_key=dedupe_key,
+                )
+            except Exception as e:
+                logger.error(f"Failed to record market notice for user {user_id}: {e}")
+
+
 def _next_weekly_fire(after: datetime) -> datetime:
     candidate = after.replace(hour=WEEKLY_SUMMARY_HOUR, minute=WEEKLY_SUMMARY_MINUTE, second=0, microsecond=0)
     days_ahead = (WEEKLY_SUMMARY_WEEKDAY - candidate.weekday()) % 7
@@ -287,6 +546,26 @@ def _scheduler_loop():
             _check_important_emails()
         except Exception as e:
             logger.error(f"Important-email check failed: {e}")
+
+        try:
+            _draft_important_suggestions()
+        except Exception as e:
+            logger.error(f"Important-email drafting pass failed: {e}")
+
+        try:
+            _check_holiday_greeting()
+        except Exception as e:
+            logger.error(f"Holiday-greeting check failed: {e}")
+
+        try:
+            _check_meeting_conflicts()
+        except Exception as e:
+            logger.error(f"Meeting-conflict check failed: {e}")
+
+        try:
+            _check_market_swing()
+        except Exception as e:
+            logger.error(f"Market-swing check failed: {e}")
 
         if next_weekly_fire is not None:
             now = datetime.now(productivity_service.LOCAL_TZ)

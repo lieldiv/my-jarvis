@@ -27,10 +27,12 @@ const suites = [
   [PY, 'unit_groq_pacer.py'],
   [PY, 'unit_tts_retry.py'],
   [PY, 'unit_important_suggestions.py'],
+  [PY, 'unit_system_notices.py'],
   ['node', 'test_step1_foundation.mjs'],
   ['node', 'test_step2_agenda.mjs'],
   ['node', 'test_step3_guide.mjs'],
   ['node', 'test_step4_screens.mjs'],
+  ['node', 'test_suggestions_tab.mjs'],
   ['node', 'test_smoke_regression.mjs'],
   ['node', 'test_web_page_card.mjs'],
 ];

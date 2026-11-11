@@ -27,7 +27,7 @@ const dockBg = await page.evaluate(() => getComputedStyle(document.getElementByI
 check('dock background is fully opaque', /^rgb\(/.test(dockBg) && !/rgba/.test(dockBg), dockBg);
 check('command bar and nav share the dock (no separate translucent bars)', await page.evaluate(() => document.getElementById('dock').contains(document.querySelector('.cmd-input-row')) && document.getElementById('dock').contains(document.getElementById('bottom-nav'))));
 const tabs = await page.$$('#bottom-nav .nav-item');
-check('five nav items', tabs.length === 5, tabs.length);
+check('six nav items (added "הצעות" for system suggestions)', tabs.length === 6, tabs.length);
 check('every nav item carries an svg icon and a label', await page.evaluate(() => [...document.querySelectorAll('#bottom-nav .nav-item')].every(b => b.querySelector('svg.i') && b.querySelector('.nav-label').textContent.trim().length > 0)));
 check('nav touch targets are at least 44px tall', (await page.evaluate(() => [...document.querySelectorAll('#bottom-nav .nav-item')].map(b => Math.round(b.getBoundingClientRect().height)))).every(h => h >= 44));
 const mic = await rect('#dock-mic'), send = await rect('.cmd-send-btn'), inp = await rect('#cmd-input');

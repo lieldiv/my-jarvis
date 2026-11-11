@@ -220,15 +220,21 @@ def _gmail_service(user_id: str):
     return build("gmail", "v1", credentials=creds)
 
 
-def list_calendar_events(user_id: str, time_min_iso: str, time_max_iso: str, max_results: int = 15):
+def list_calendar_events(user_id: str, time_min_iso: str, time_max_iso: str, max_results: int = 15,
+                          calendar_id: str = "primary"):
     """Returns a list of {summary, start, end, location} dicts, or None if
-    this user has no connected Google Calendar."""
+    this user has no connected Google Calendar. calendar_id defaults to the
+    user's own primary calendar; pass a PUBLIC calendar's id (e.g. Google's
+    own Jewish-holidays calendar, used by daily_briefing.py's holiday-
+    greeting check) to read from that instead -- a public calendar is
+    readable with the same calendar.readonly scope already granted here,
+    no new OAuth consent and no new dependency needed."""
     svc = _calendar_service(user_id)
     if not svc:
         return None
     try:
         result = svc.events().list(
-            calendarId="primary",
+            calendarId=calendar_id,
             timeMin=time_min_iso,
             timeMax=time_max_iso,
             maxResults=max_results,

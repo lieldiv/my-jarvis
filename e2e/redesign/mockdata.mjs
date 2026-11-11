@@ -21,12 +21,25 @@ export const INBOX = { configured: true, emails: [
   { sender_name: 'דנה כהן', sender_email: 'dana@example.com', subject: 'סיכום הפגישה של אתמול', snippet: 'היי, מצרפת את הסיכום ואת המשימות שהחלטנו עליהן. תגידי לי אם משהו חסר…', date_ms: Date.now() - 2 * HOUR - 60000, source: 'Google' },
   { sender_name: 'Google Cloud', sender_email: 'noreply@google.com', subject: 'Your monthly billing summary', snippet: 'Here is your billing summary for August. Total charges: $0.00', date_ms: Date.now() - 26 * HOUR, source: 'Google' },
 ] };
+// "הצעות מערכת" tab: email_suggestions (pending/drafted) + generic
+// system_notices (holiday/conflict/market, ...) -- see /api/suggestions.
+export const SUGGESTIONS = {
+  email_suggestions: [
+    { id: 101, sender_name: 'דנה כהן', sender_email: 'dana@example.com', subject: 'סטטוס פרויקט', snippet: 'מה המצב?', date_ms: Date.now() - HOUR, draft_subject: null, draft_body: null, status: 'pending' },
+    { id: 102, sender_name: 'דנה כהן', sender_email: 'dana@example.com', subject: 'אישור פגישה', snippet: '', date_ms: Date.now() - 4 * HOUR, draft_subject: 'Re: אישור פגישה', draft_body: 'שלום דנה, תודה, מאשר.', status: 'drafted' },
+  ],
+  notices: [
+    { id: 201, category: 'conflict', title: 'שתי פגישות חופפות', body: '"פגישת צוות" ו-"שיחה עם לקוח" חופפות היום.', action_label: 'פתח יומן', created_at: Date.now() / 1000 },
+    { id: 202, category: 'holiday', title: 'פסח מתקרב', body: 'חג פסח שמח! ואל תשכח לאחל חג שמח גם למשפחה שלך.', action_label: null, created_at: Date.now() / 1000 },
+  ],
+};
 export async function installMocks(page, over = {}) {
   await page.route('**/api/upcoming-events', r => r.fulfill({ json: over.events ?? EVENTS }));
   await page.route('**/api/reminders', r => r.request().method() === 'GET' ? r.fulfill({ json: over.reminders ?? REMINDERS }) : r.continue());
   await page.route('**/api/tasks', r => r.request().method() === 'GET' ? r.fulfill({ json: over.tasks ?? TASKS }) : r.continue());
   await page.route('**/api/tasks/stats', r => r.fulfill({ json: over.stats ?? STATS }));
   await page.route('**/api/inbox', r => r.request().method() === 'GET' ? r.fulfill({ json: over.inbox ?? INBOX }) : r.continue());
+  await page.route('**/api/suggestions', r => r.request().method() === 'GET' ? r.fulfill({ json: over.suggestions ?? SUGGESTIONS }) : r.continue());
   await page.route('**/api/speak', r => r.fulfill({ json: { audio: null } }));
 }
 export async function enterApp(page, base, waitMs = 2500) {
