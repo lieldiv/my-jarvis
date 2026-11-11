@@ -910,8 +910,8 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .notice-card .mail-from{ color:#b58cff; display:inline-flex; align-items:center; gap:5px; }
 .notice-conflict{ border-color:rgba(var(--accent-rgb),.4); }
 .notice-conflict .mail-from{ color:var(--color-cyan); }
-.notice-market{ border-color:rgba(95,179,255,.4); }
-.notice-market .mail-from{ color:#5fb3ff; }
+.notice-market, .notice-stock{ border-color:rgba(95,179,255,.4); }
+.notice-market .mail-from, .notice-stock .mail-from{ color:#5fb3ff; }
 .notice-weather, .notice-daily_weather{ border-color:rgba(45,212,191,.4); }
 .notice-weather .mail-from, .notice-daily_weather .mail-from{ color:#2dd4bf; }
 .notice-inbox_backlog, .notice-missing_location, .notice-stale_task{ border-color:rgba(255,255,255,.14); }
@@ -5368,7 +5368,7 @@ function updateSuggestionsSub(){
     const n = suggestionsEmailCache.length + suggestionsNoticesCache.length;
     $('suggestions-sub').textContent = n ? `${n} הצעות ממתינות` : 'אין הצעות כרגע';
 }
-const NOTICE_ICON_BY_CATEGORY = { holiday: 'warn', conflict: 'cal', market: 'trend', inbox_backlog: 'mail', missing_location: 'cal', weather: 'warn', daily_weather: 'warn', stale_task: 'task' };
+const NOTICE_ICON_BY_CATEGORY = { holiday: 'warn', conflict: 'cal', market: 'trend', stock: 'trend', inbox_backlog: 'mail', missing_location: 'cal', weather: 'warn', daily_weather: 'warn', stale_task: 'task' };
 // What the action button actually DOES per category, beyond just
 // dismissing -- e.g. "פתח יומן" really switches to the Agenda tab, it
 // doesn't just acknowledge the notice like a plain dismiss would.

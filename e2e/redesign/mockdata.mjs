@@ -32,6 +32,7 @@ export const SUGGESTIONS = {
     { id: 201, category: 'conflict', title: 'שתי פגישות חופפות', body: '"פגישת צוות" ו-"שיחה עם לקוח" חופפות היום.', action_label: 'פתח יומן', created_at: Date.now() / 1000 },
     { id: 202, category: 'holiday', title: 'פסח מתקרב', body: 'חג פסח שמח! ואל תשכח לאחל חג שמח גם למשפחה שלך.', action_label: null, created_at: Date.now() / 1000 },
     { id: 203, category: 'market', title: 'תנודה חדה ב-S&P 500', body: 'מדד S&P 500 ירד 3.2% היום.', action_label: null, created_at: Date.now() / 1000 },
+    { id: 209, category: 'stock', title: 'תנודה חדה במניית Nvidia', body: 'מניית Nvidia ירדה 4.1% היום.', action_label: null, created_at: Date.now() / 1000 },
     { id: 204, category: 'inbox_backlog', title: 'יש לך הרבה דואר שלא נקרא', body: '20 הודעות שלא נקראו מחכות לך.', action_label: 'עבור לדואר', created_at: Date.now() / 1000 },
     { id: 205, category: 'missing_location', title: 'לפגישה הקרובה אין מיקום', body: '"פגישת צוות" מתחילה בקרוב בלי מיקום או קישור לשיחה.', action_label: 'פתח יומן', created_at: Date.now() / 1000 },
     { id: 206, category: 'weather', title: 'צפוי גשם מחר', body: 'יש 70% סיכוי לגשם מחר, ויש לך "ריצת בוקר בפארק" ביומן.', action_label: null, created_at: Date.now() / 1000 },

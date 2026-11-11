@@ -51,7 +51,7 @@ const browser = await chromium.launch();
 {
   const { ctx, page, errors, calls } = await newPage(browser);
   await goTab(page, 'suggestions');
-  check('Suggestions: title and a live count', (await page.locator('#tab-suggestions .page-title').innerText()) === 'הצעות מערכת' && (await page.locator('#suggestions-sub').innerText()) === '10 הצעות ממתינות', await page.locator('#suggestions-sub').innerText());
+  check('Suggestions: title and a live count', (await page.locator('#tab-suggestions .page-title').innerText()) === 'הצעות מערכת' && (await page.locator('#suggestions-sub').innerText()) === '11 הצעות ממתינות', await page.locator('#suggestions-sub').innerText());
 
   const pendingCard = await page.locator('.suggestion-card').nth(0).innerText();
   check('Suggestions: a not-yet-drafted email suggestion shows "preparing a draft", dismiss only (no send button)', pendingCard.includes('מכין טיוטת תשובה') && (await page.locator('.suggestion-card').nth(0).locator('.ds-btn.pri').count()) === 0, pendingCard);
@@ -66,7 +66,10 @@ const browser = await chromium.launch();
   check('Suggestions: a notice with NO action_label shows only "הבנתי" (dismiss), never "שלח" anywhere', holidayCard.includes('פסח מתקרב') && holidayCard.includes('הבנתי') && !holidayCard.includes('שלח'), holidayCard);
 
   const marketCard = await page.locator('.notice-market').innerText();
-  check('Suggestions: the market-swing notice renders (dismiss-only, no action_label)', marketCard.includes('S&P 500') && marketCard.includes('הבנתי'), marketCard);
+  check('Suggestions: the market-swing (index) notice renders (dismiss-only, no action_label)', marketCard.includes('S&P 500') && marketCard.includes('הבנתי'), marketCard);
+
+  const stockCard = await page.locator('.notice-stock').innerText();
+  check('Suggestions: the individual-stock swing notice renders separately from the index one', stockCard.includes('Nvidia') && stockCard.includes('הבנתי'), stockCard);
 
   const inboxBacklogCard = await page.locator('.notice-inbox_backlog').innerText();
   check('Suggestions: the inbox-backlog notice renders with its "עבור לדואר" action', inboxBacklogCard.includes('20 הודעות') && inboxBacklogCard.includes('עבור לדואר'), inboxBacklogCard);

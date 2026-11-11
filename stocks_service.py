@@ -152,6 +152,16 @@ def get_quote(query: str) -> dict:
 # place, with a service that's been zero-key and zero-cost the whole time.
 _MARKET_INDICES = [("^GSPC", "S&P 500"), ("^DJI", "Dow Jones"), ("^IXIC", "Nasdaq")]
 
+# Deliberately a fixed list of the biggest, most widely-recognized
+# individual stocks, not a per-user watchlist -- same "no new settings UI"
+# philosophy as _MARKET_INDICES above. Backs the market-swing notice's
+# extension to cover a single company (e.g. Nvidia) moving sharply, not
+# just a broad index.
+_WATCHED_STOCKS = [
+    ("AAPL", "Apple"), ("MSFT", "Microsoft"), ("NVDA", "Nvidia"), ("AMZN", "Amazon"),
+    ("GOOGL", "Google"), ("META", "Meta"), ("TSLA", "Tesla"),
+]
+
 
 def _fetch_index_change(symbol: str):
     """Returns (today_pct, week_pct) for one index, or None on failure.
@@ -186,17 +196,22 @@ def _fetch_index_change(symbol: str):
         return None
 
 
+def _fetch_many(pairs: list) -> list:
+    """Generic version of the concurrency fix below -- any (symbol, label)
+    list, not just _MARKET_INDICES: running N independent HTTPS calls to
+    this slow unofficial API one after another means every caller pays the
+    SUM of every symbol's own latency instead of just the slowest one."""
+    with ThreadPoolExecutor(max_workers=len(pairs)) as pool:
+        changes = list(pool.map(lambda pair: _fetch_index_change(pair[0]), pairs))
+    return [(label, change) for (_, label), change in zip(pairs, changes)]
+
+
 def _fetch_all_indices() -> list:
-    """Runs _fetch_index_change for all three indices concurrently — these
-    are three independent HTTPS calls to the same slow unofficial API, and
-    running them one after another (the original shape of this function)
-    meant every caller paid the sum of all three latencies (measured at
-    6.6s sequential vs ~2s in parallel) for what should cost only the
-    slowest single one. Returns [(label, (today_pct, week_pct) | None)]
-    in the same order as _MARKET_INDICES."""
-    with ThreadPoolExecutor(max_workers=len(_MARKET_INDICES)) as pool:
-        changes = list(pool.map(lambda pair: _fetch_index_change(pair[0]), _MARKET_INDICES))
-    return [(label, change) for (_, label), change in zip(_MARKET_INDICES, changes)]
+    """Runs _fetch_index_change for all three indices concurrently (measured
+    at 6.6s sequential vs ~2s in parallel for three symbols). Returns
+    [(label, (today_pct, week_pct) | None)] in the same order as
+    _MARKET_INDICES."""
+    return _fetch_many(_MARKET_INDICES)
 
 
 def get_market_summary() -> str:
@@ -219,6 +234,21 @@ def get_market_snapshot() -> list:
     for the UI to render as rows instead of a spoken sentence."""
     out = []
     for label, change in _fetch_all_indices():
+        if change is None:
+            continue
+        today_pct, week_pct = change
+        out.append({"label": label, "today_pct": round(today_pct, 2), "week_pct": round(week_pct, 2)})
+    return out
+
+
+def get_watched_stocks_snapshot() -> list:
+    """Same shape as get_market_snapshot(), but for _WATCHED_STOCKS (major
+    individual companies) instead of broad indices -- a separate function,
+    not a change to get_market_snapshot() itself, so the existing stock
+    panel/voice "מניות" command (which only ever meant the 3 indices) stays
+    exactly as it was. Backs daily_briefing.py's market-swing notice only."""
+    out = []
+    for label, change in _fetch_many(_WATCHED_STOCKS):
         if change is None:
             continue
         today_pct, week_pct = change

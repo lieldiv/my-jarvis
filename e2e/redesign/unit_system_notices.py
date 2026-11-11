@@ -168,9 +168,11 @@ check("a conflict notice carries the 'open calendar' action_label", all(n["actio
 for n in users.list_active_notices(UID):
     users.dismiss_notice(n["id"], UID)
 
-# ---------------------------------------------------------------------------- daily_briefing.py: market swing
+# ---------------------------------------------------------------------------- daily_briefing.py: market swing (indices)
 for n in users.list_active_notices(UID):
     users.dismiss_notice(n["id"], UID)
+
+db.stocks_service.get_watched_stocks_snapshot = lambda: []  # no individual-stock moves in this sub-section
 
 db.stocks_service.get_market_snapshot = lambda: [
     {"label": "S&P 500", "today_pct": -3.2, "week_pct": -4.0},
@@ -198,6 +200,52 @@ try:
     check("a stocks_service exception doesn't raise out of the market-swing check", True)
 except Exception as e:
     check("a stocks_service exception doesn't raise out of the market-swing check", False, str(e))
+
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+
+# ---------------------------------------------------------------------------- daily_briefing.py: market swing (individual stocks)
+# Added per explicit user feedback: Nvidia dropping ~4% should surface a
+# notice too, not just broad-index moves -- a separate, fixed watched-stocks
+# list (stocks_service._WATCHED_STOCKS), not a per-user configurable one.
+db.stocks_service.get_market_snapshot = lambda: []  # no index moves in this sub-section
+
+db.stocks_service.get_watched_stocks_snapshot = lambda: [
+    {"label": "Nvidia", "today_pct": -4.1, "week_pct": -6.0},
+    {"label": "Apple", "today_pct": 0.3, "week_pct": 1.2},
+]
+db._check_market_swing()
+stock_notices = [n for n in users.list_active_notices(UID) if n["category"] == "stock"]
+check("only the stock that crossed the threshold (3.0%) gets a notice, not every watched stock", len(stock_notices) == 1, stock_notices)
+check("the stock notice names the company and direction (feminine form for 'מניה')", stock_notices and "Nvidia" in stock_notices[0]["title"] and "ירדה" in stock_notices[0]["body"], stock_notices)
+check("a stock notice is a DIFFERENT category from an index notice (never collides/conflates)", stock_notices and stock_notices[0]["category"] != "market", stock_notices)
+
+db._check_market_swing()
+check("re-running the same day's stock snapshot does not duplicate the notice",
+      len([n for n in users.list_active_notices(UID) if n["category"] == "stock"]) == 1)
+for n in users.list_active_notices(UID):
+    users.dismiss_notice(n["id"], UID)
+
+db.stocks_service.get_watched_stocks_snapshot = lambda: []
+before_empty_stock = len(users.list_active_notices(UID))
+db._check_market_swing()
+check("an empty watched-stocks snapshot is a safe no-op", len(users.list_active_notices(UID)) == before_empty_stock)
+
+# Both snapshots raising in the SAME cycle: confirms the stock-fetch
+# exception is caught independently and doesn't prevent the index half
+# (checked first) from still running and recording its own notice.
+db.stocks_service.get_market_snapshot = lambda: [{"label": "Nasdaq", "today_pct": 3.5, "week_pct": 4.0}]
+def _raising_stock_snapshot():
+    raise RuntimeError("Yahoo Finance exploded")
+db.stocks_service.get_watched_stocks_snapshot = _raising_stock_snapshot
+try:
+    db._check_market_swing()
+    check("a get_watched_stocks_snapshot exception doesn't raise out of the market-swing check", True)
+except Exception as e:
+    check("a get_watched_stocks_snapshot exception doesn't raise out of the market-swing check", False, str(e))
+check("...and the index half (checked first) still ran and recorded its own notice despite the stock half failing",
+      any(n["category"] == "market" and "Nasdaq" in n["title"] for n in users.list_active_notices(UID)),
+      users.list_active_notices(UID))
 
 for n in users.list_active_notices(UID):
     users.dismiss_notice(n["id"], UID)

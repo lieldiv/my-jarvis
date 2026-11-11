@@ -484,32 +484,57 @@ MARKET_SWING_THRESHOLD_PCT = 3.0
 
 
 def _check_market_swing():
-    """Zero-LLM, zero-personalization: ONE shared market snapshot fetched
-    per cycle (not once per user -- this is public market data, not a
-    per-user API call), fanned out as a notice to every connected user,
-    once per index per day, only when the move exceeds the threshold."""
+    """Zero-LLM, zero-personalization: TWO shared snapshots fetched per
+    cycle (not once per user -- this is public market data, not a
+    per-user API call) -- broad indices, AND (added per explicit request,
+    after a real individual stock moved sharply and nothing flagged it,
+    since only indices were tracked before) a fixed list of the biggest,
+    most widely-recognized individual stocks. Each fans out a notice to
+    every connected user, once per index/stock per day, only when the
+    move exceeds the threshold."""
+    today_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     try:
-        snapshot = stocks_service.get_market_snapshot()
+        index_snapshot = stocks_service.get_market_snapshot()
     except Exception as e:
         logger.error(f"Market snapshot fetch failed: {e}")
-        return
-    today_key = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    for row in snapshot or []:
+        index_snapshot = []
+    for row in index_snapshot or []:
         pct, label = row.get("today_pct"), row.get("label")
         if pct is None or not label or abs(pct) < MARKET_SWING_THRESHOLD_PCT:
             continue
         direction = "עלה" if pct >= 0 else "ירד"
-        dedupe_key = f"market:{label}:{today_key}"
         for user_id in users.list_connected_user_ids():
             try:
                 users.add_system_notice(
                     user_id, "market",
                     title=f"תנודה חדה ב-{label}",
                     body=f"מדד {label} {direction} {abs(pct):.1f}% היום.",
-                    dedupe_key=dedupe_key,
+                    dedupe_key=f"market:{label}:{today_key}",
                 )
             except Exception as e:
                 logger.error(f"Failed to record market notice for user {user_id}: {e}")
+
+    try:
+        stock_snapshot = stocks_service.get_watched_stocks_snapshot()
+    except Exception as e:
+        logger.error(f"Watched-stocks snapshot fetch failed: {e}")
+        stock_snapshot = []
+    for row in stock_snapshot or []:
+        pct, label = row.get("today_pct"), row.get("label")
+        if pct is None or not label or abs(pct) < MARKET_SWING_THRESHOLD_PCT:
+            continue
+        direction = "עלתה" if pct >= 0 else "ירדה"
+        for user_id in users.list_connected_user_ids():
+            try:
+                users.add_system_notice(
+                    user_id, "stock",
+                    title=f"תנודה חדה במניית {label}",
+                    body=f"מניית {label} {direction} {abs(pct):.1f}% היום.",
+                    dedupe_key=f"stock:{label}:{today_key}",
+                )
+            except Exception as e:
+                logger.error(f"Failed to record stock notice for user {user_id}: {e}")
 
 
 INBOX_BACKLOG_THRESHOLD = int(os.environ.get("JARVIS_INBOX_BACKLOG_THRESHOLD", "15"))
