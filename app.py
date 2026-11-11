@@ -3722,7 +3722,14 @@ def inbox():
     if emails is None:
         return jsonify({"configured": False, "emails": [], "summary": "No mailbox is connected, sir."})
     summary = productivity_service.get_inbox_summary_spoken(emails)
-    return jsonify({"configured": True, "emails": emails, "summary": summary})
+    # Pending important-email suggestions ride along on the Inbox tab's own
+    # existing fetch -- no new polling. This is also the ONLY delivery path
+    # for them: daily_briefing.py's background scheduler only ever writes
+    # the row (see its own module docstring on why proactive work can't
+    # rely on an SSE push reaching an open tab), so a suggestion is only
+    # ever seen once the user actually opens this tab, whenever that is.
+    suggestions = users.list_pending_suggestions(user_id)
+    return jsonify({"configured": True, "emails": emails, "summary": summary, "suggestions": suggestions})
 
 
 @app.route("/api/inbox/draft-reply", methods=["POST"])
@@ -3792,6 +3799,127 @@ def inbox_send_reply():
     # confirm modal to show and the user to approve.
     result = productivity_service.request_send_email(user_id, to, reply_subject, body)
     return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Important-email suggestions. Detection (daily_briefing.py's scheduler)
+# only ever writes a row -- it never drafts or sends. Drafting happens HERE,
+# lazily, the moment the user taps "review" on a pending suggestion, and
+# from that point on this is just the existing confirm-to-act send-email
+# path with a different source for its subject/body -- the confirm modal
+# itself is completely unmodified.
+# ---------------------------------------------------------------------------
+@app.route("/api/inbox/suggestions/<int:suggestion_id>/review", methods=["POST"])
+def review_important_suggestion(suggestion_id):
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Please sign in first, sir."}), 401
+    sugg = users.get_suggestion(suggestion_id, user_id)
+    if not sugg or sugg["status"] != "pending":
+        return jsonify({"error": "That suggestion isn't available anymore, sir."}), 404
+
+    draft_subject, draft_body = sugg.get("draft_subject"), sugg.get("draft_body")
+    if not draft_body:
+        subject = sugg.get("subject") or ""
+        draft_subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+        prompt = (
+            f"An email arrived from {sugg.get('sender_name') or sugg.get('sender_email')}. "
+            f"Subject: {subject}. Preview: {sugg.get('snippet') or ''}\n\n"
+            "Write ONLY a short holding reply as plain text: acknowledge receipt and say "
+            "you'll follow up properly soon. Do NOT invent any dates, numbers, commitments, "
+            "or decisions that aren't already stated in the preview above -- the user will "
+            "edit this before it's ever sent, so leave the real content for them to add. "
+            "A brief greeting and closing, nothing else. No subject line, no markdown."
+        )
+        try:
+            groq_pacer.wait_if_needed(900)
+            completion = groq_client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": "You draft short, deliberately conservative holding replies "
+                     "for J.A.R.V.I.S. — the user never asked for this specific reply, so never fabricate "
+                     "content beyond acknowledging the email and promising a proper follow-up."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.4, max_tokens=250, reasoning_effort="low",
+            )
+            _log_token_usage(completion)
+            draft_body = _strip_markdown(completion.choices[0].message.content or "").strip()
+            users.set_suggestion_draft(suggestion_id, user_id, draft_subject, draft_body)
+        except RateLimitError as e:
+            kind, _ = groq_pacer.classify_rate_limit(e)
+            msg = ("Groq's shared daily quota is used up for today, sir — it resets tomorrow."
+                   if kind == "day" else "Groq's briefly rate-limited, sir — give it a few seconds and try again.")
+            users.set_suggestion_draft(suggestion_id, user_id, draft_subject, None, draft_error=msg)
+            return jsonify({"error": msg}), 429
+        except Exception as e:
+            logger.error(f"Important-email draft failed for suggestion {suggestion_id}: {e}")
+            msg = "I couldn't draft that reply, sir."
+            users.set_suggestion_draft(suggestion_id, user_id, draft_subject, None, draft_error=msg)
+            return jsonify({"error": msg}), 500
+
+    result = productivity_service.request_send_email(user_id, sugg["sender_email"], draft_subject, draft_body)
+    result["suggestion_id"] = suggestion_id
+    return jsonify(result)
+
+
+@app.route("/api/inbox/suggestions/<int:suggestion_id>/dismiss", methods=["POST"])
+def dismiss_important_suggestion(suggestion_id):
+    """Lets the user clear a suggestion without ever drafting it -- no Groq
+    call spent just to say no."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Please sign in first, sir."}), 401
+    ok = users.mark_suggestion_resolved(suggestion_id, user_id, "dismissed")
+    return jsonify({"ok": ok})
+
+
+@app.route("/api/inbox/suggestions/<int:suggestion_id>/resolve", methods=["POST"])
+def resolve_important_suggestion(suggestion_id):
+    """Called right after the confirm modal's own approve/deny resolves —
+    this only updates the suggestion ROW's bookkeeping (so the Inbox banner
+    stops showing it); the actual send/cancel already happened through the
+    normal /api/confirm/<token> path before this is ever called."""
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Please sign in first, sir."}), 401
+    data = request.json or {}
+    resolution = (data.get("resolution") or "").strip() or "cancelled"
+    ok = users.mark_suggestion_resolved(suggestion_id, user_id, resolution)
+    return jsonify({"ok": ok})
+
+
+_IMPORTANT_SENDERS_MAX = 5
+
+
+@app.route("/api/settings/important-suggestions", methods=["GET", "POST"])
+def important_suggestions_settings():
+    user_id = session.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Please sign in first, sir."}), 401
+
+    if request.method == "GET":
+        return jsonify(users.get_important_suggestions_settings(user_id))
+
+    data = request.json or {}
+    enabled = bool(data.get("enabled"))
+    raw_senders = data.get("senders") or []
+    if isinstance(raw_senders, str):
+        raw_senders = raw_senders.split(",")
+    senders = []
+    for addr in raw_senders:
+        addr = (addr or "").strip().lower()
+        if not addr:
+            continue
+        if not productivity_service._looks_like_email(addr):
+            return jsonify({"error": f"'{addr}' doesn't look like a real email address."}), 400
+        if addr not in senders:
+            senders.append(addr)
+    if len(senders) > _IMPORTANT_SENDERS_MAX:
+        return jsonify({"error": f"Up to {_IMPORTANT_SENDERS_MAX} addresses, sir."}), 400
+
+    users.set_important_suggestions_settings(user_id, enabled, senders)
+    return jsonify({"ok": True, **users.get_important_suggestions_settings(user_id)})
 
 
 @app.route("/api/compose/draft", methods=["POST"])

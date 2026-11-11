@@ -901,6 +901,8 @@ input,textarea{ direction:rtl; unicode-bidi:plaintext; color-scheme:dark; }
 .prog-card .is-today .task-bar.has-count{ background:rgb(var(--accent-rgb)); }
 .task-recur-mode-chip, .task-recur-day-chip{ min-height:44px; font-size:14.5px; }
 .mail-card{ background:var(--color-panel); border:var(--border-default); border-radius:var(--radius-md); padding:14px; margin-bottom:10px; }
+.suggestion-card{ border-color:rgba(255,200,0,.4); }
+.suggestion-card .mail-from{ color:#ffc800; display:inline-flex; align-items:center; gap:5px; }
 .mail-top{ display:flex; align-items:center; gap:8px; }
 .mail-from{ font-weight:600; font-size:15.5px; color:var(--color-white); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; unicode-bidi:plaintext; }
 .mail-when{ margin-inline-start:auto; font-size:12.5px; color:var(--color-text-dim); flex:none; }
@@ -1224,6 +1226,23 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
               <div class="set-swatches">
                 <div class="theme-row" id="theme-row"></div>
                 <small id="appearance-note">הצבע נשמר במכשיר הזה בלבד.</small>
+              </div>
+            </div>
+
+            <div class="settings-sub">הצעות מערכת</div>
+            <div class="grpcard">
+              <button type="button" class="set" id="important-sugg-row" role="switch" aria-checked="false" onclick="toggleImportantSuggestions()">
+                <svg class="i" aria-hidden="true"><use href="#i-mail"/></svg>
+                <span class="lbl"><span class="nm">טיוטת תשובה למיילים חשובים</span><small>JARVIS יכין טיוטה לאישורך כשמגיע מייל מהכתובות שתגדיר למטה</small></span>
+                <span class="tog"></span>
+              </button>
+              <div class="set">
+                <svg class="i" aria-hidden="true"><use href="#i-plug"/></svg>
+                <span class="lbl"><span class="nm">כתובות חשובות</span><small>עד 5, מופרדות בפסיק</small></span>
+              </div>
+              <div class="set" style="gap:8px;">
+                <input class="ds-inp" id="important-senders-input" placeholder="manager@company.com" autocomplete="off" dir="ltr" style="flex:1;">
+                <button type="button" class="ds-btn" onclick="saveImportantSenders()">שמור</button>
               </div>
             </div>
 
@@ -1757,7 +1776,7 @@ function setTab(key){
     if (key === 'inbox') loadInboxTab();
     if (key === 'agenda') loadAgendaTab();
     if (key === 'tasks') loadTasksTab();
-    if (key === 'settings') renderConnStatus();
+    if (key === 'settings') { renderConnStatus(); loadImportantSuggestionsSettings(); }
 }
 renderNav();
 
@@ -5118,6 +5137,7 @@ function unreadText(n){
     if (n === 1) return 'הודעה אחת שלא נקראה';
     return `${n >= INBOX_LIMIT ? INBOX_LIMIT + '+' : n} הודעות שלא נקראו`;
 }
+let inboxSuggestionsCache = [];
 function fetchInbox(){
     if (!inboxInflight) inboxInflight = (async () => {
         try {
@@ -5125,6 +5145,7 @@ function fetchInbox(){
             const data = await res.json();
             inboxConfigured = data.configured !== false;
             inboxEmailsCache = data.emails || [];
+            inboxSuggestionsCache = data.suggestions || [];
             inboxLoaded = true; inboxLoadedAt = Date.now();
             return true;
         } catch (e) { return false; }
@@ -5164,6 +5185,28 @@ function updateInboxSub(){
     const n = inboxEmailsCache.length;
     $('inbox-sub').textContent = !inboxConfigured ? 'הדואר לא מחובר' : n ? `${unreadText(n)} · מחובר ל-Gmail` : 'אין הודעות שלא נקראו';
 }
+function buildSuggestionCard(s){
+    // Same mail-card visual language as a normal inbox row (top/subject/
+    // preview) plus a star accent and its own two actions -- "review" is
+    // the ONLY place this feature ever drafts or sends anything; dismiss
+    // never spends an LLM call just to say no.
+    const card = el('div', 'mail-card suggestion-card');
+    const top = el('div', 'mail-top');
+    top.innerHTML = `<span class="mail-from">${icon('warn', 's')} ${escapeHtml(s.sender_name || s.sender_email)}</span><span class="mail-when"></span>`;
+    top.querySelector('.mail-when').textContent = relTime(s.date_ms);
+    const subj = el('div', 'mail-subject'); subj.textContent = s.subject || '(ללא נושא)';
+    const prev = el('div', 'mail-preview'); prev.textContent = s.snippet || '';
+    const actions = el('div', 'mail-actions');
+    const reviewBtn = el('button', 'ds-btn pri'); reviewBtn.type = 'button';
+    reviewBtn.innerHTML = icon('edit', 's') + 'סקור טיוטת תשובה';
+    reviewBtn.onclick = () => reviewSuggestion(s.id);
+    const dismissBtn = el('button', 'ds-btn'); dismissBtn.type = 'button';
+    dismissBtn.textContent = 'התעלם';
+    dismissBtn.onclick = () => dismissSuggestion(s.id);
+    actions.append(reviewBtn, dismissBtn);
+    card.append(top, subj, prev, actions);
+    return card;
+}
 function renderInboxList(){
     const list = $('inbox-list');
     list.innerHTML = '';
@@ -5174,6 +5217,7 @@ function renderInboxList(){
             { buttons: [{ label: 'התחבר עם Google', primary: true, run: () => switchGoogleAccount() }] }));
         return;
     }
+    inboxSuggestionsCache.forEach(s => list.appendChild(buildSuggestionCard(s)));
     if (!n) {
         list.appendChild(buildEmptyCard('mail', 'תיבת הדואר ריקה', 'אין הודעות חדשות.',
             { tryText: 'שלח מייל ל-dana@gmail.com שאני מאחר' }));
@@ -5953,6 +5997,7 @@ async function resolveConfirmation(approve){
     }
     if (!pendingConfirmToken) return;
     const logId = pendingConfirmEvt ? pendingConfirmEvt.logId : null;
+    const suggestionId = pendingConfirmEvt ? pendingConfirmEvt.suggestion_id : null;
     if (pendingConfirmEvt) setConfirmingSeal(pendingConfirmEvt.kind, approve);   // match what's ACTUALLY happening, not just the kind
     $('confirming-overlay').classList.add('show');
     const token = pendingConfirmToken;
@@ -5967,6 +6012,16 @@ async function resolveConfirmation(approve){
         finishCommand(data.response, data.audio, data.speak);
         showToast(data.response || '');
         if (logId != null) updateActivityStatus(logId, approve ? 'confirmed' : 'cancelled');
+        // The actual send/cancel already happened above via /api/confirm —
+        // this only updates the suggestion ROW's own bookkeeping so the
+        // Inbox banner stops showing it. Fire-and-forget: nothing the user
+        // sees depends on this call's own success.
+        if (suggestionId != null) {
+            fetchWithTimeout(`/api/inbox/suggestions/${suggestionId}/resolve`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ resolution: approve ? 'sent' : 'cancelled' }),
+            }).catch(() => {}).then(() => loadInboxTab(true));
+        }
     } catch (err) {
         pendingConfirmToken = null;
         hideConfirmModal();
@@ -6206,6 +6261,71 @@ async function restorePushSubscription(){
         /* Silent by design. This fires unprompted on every load, so a failure
            must not throw a toast at someone who never asked for push in the
            first place; the button is still there to do it loudly on demand. */
+    }
+}
+
+/* ================================================================================
+   Important-email suggestions — the one HUD "setting" that's genuinely
+   server-persisted (not localStorage): a background thread can't read
+   localStorage, and this needs to be known server-side at scan time.
+   ================================================================================ */
+async function loadImportantSuggestionsSettings(){
+    try {
+        const res = await fetchWithTimeout('/api/settings/important-suggestions');
+        const data = await res.json();
+        $('important-sugg-row').setAttribute('aria-checked', String(!!data.enabled));
+        $('important-senders-input').value = (data.senders || []).join(', ');
+    } catch (e) { /* settings tab just shows defaults if this fails, not fatal */ }
+}
+async function toggleImportantSuggestions(){
+    const row = $('important-sugg-row');
+    const next = row.getAttribute('aria-checked') !== 'true';
+    row.setAttribute('aria-checked', String(next));   // optimistic
+    try {
+        const res = await fetchWithTimeout('/api/settings/important-suggestions', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: next, senders: $('important-senders-input').value }),
+        });
+        const data = await res.json();
+        if (!data.ok) { row.setAttribute('aria-checked', String(!next)); showToast(data.error || 'לא נשמר.', true); }
+    } catch (e) {
+        row.setAttribute('aria-checked', String(!next));
+        showToast('לא הצלחתי להתחבר לשרת.', true);
+    }
+}
+async function saveImportantSenders(){
+    const enabled = $('important-sugg-row').getAttribute('aria-checked') === 'true';
+    try {
+        const res = await fetchWithTimeout('/api/settings/important-suggestions', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled, senders: $('important-senders-input').value }),
+        });
+        const data = await res.json();
+        showToast(data.ok ? 'נשמר.' : (data.error || 'כתובת לא תקינה.'), !data.ok);
+    } catch (e) {
+        showToast('לא הצלחתי להתחבר לשרת.', true);
+    }
+}
+async function reviewSuggestion(id){
+    try {
+        const res = await fetchWithTimeout(`/api/inbox/suggestions/${id}/review`, { method: 'POST' });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, true); return; }
+        // The exact same function sendInboxReply already hands its own
+        // confirmation_required result to — no new UI, the mature
+        // approve/edit/reject modal just gets a different source for its
+        // subject/body this time.
+        showConfirmModal(data);
+    } catch (e) {
+        showToast('לא הצלחתי להתחבר לשרת.', true);
+    }
+}
+async function dismissSuggestion(id){
+    try {
+        await fetchWithTimeout(`/api/inbox/suggestions/${id}/dismiss`, { method: 'POST' });
+        loadInboxTab(true);
+    } catch (e) {
+        showToast('לא הצלחתי להתחבר לשרת.', true);
     }
 }
 

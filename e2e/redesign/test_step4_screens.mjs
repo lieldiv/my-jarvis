@@ -211,7 +211,7 @@ const browser = await chromium.launch();
 {
   const { ctx, page, errors, calls } = await newPage(browser);
   await goTab(page, 'settings');
-  check('Settings: title "הגדרות", groups in the approved order', (await page.locator('#tab-settings .page-title').innerText()) === 'הגדרות' && JSON.stringify(await texts(page, '#tab-settings .settings-sub')) === JSON.stringify(['קול והתראות', 'מראה', 'מתקדם', 'עזרה']), JSON.stringify(await texts(page, '#tab-settings .settings-sub')));
+  check('Settings: title "הגדרות", groups in the approved order', (await page.locator('#tab-settings .page-title').innerText()) === 'הגדרות' && JSON.stringify(await texts(page, '#tab-settings .settings-sub')) === JSON.stringify(['קול והתראות', 'מראה', 'הצעות מערכת', 'מתקדם', 'עזרה']), JSON.stringify(await texts(page, '#tab-settings .settings-sub')));
   const heads = await page.evaluate(() => [...document.querySelectorAll('#tab-settings .settings-sub')].map(e => { const c = getComputedStyle(e); return { size: parseFloat(c.fontSize), weight: +c.fontWeight, shadow: c.textShadow !== 'none', white: c.color }; }));
   check('Settings: group titles stay big and bold with the glow (the earlier request: "clear and easy to see")', heads.every(h => h.size >= 17 && h.weight >= 700 && h.shadow), JSON.stringify(heads));
   const st = await page.locator('#tab-settings').innerText();

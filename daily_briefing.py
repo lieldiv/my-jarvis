@@ -34,6 +34,7 @@ import os
 import threading
 import time
 from datetime import datetime, timedelta
+from email.utils import parseaddr
 
 import google_service
 import productivity_service
@@ -53,6 +54,13 @@ WEEKLY_SUMMARY_MINUTE = int(os.environ.get("JARVIS_WEEKLY_SUMMARY_MINUTE", "0"))
 # side just reads its own copy of the same setting).
 ADMIN_ALERT_EMAIL = os.environ.get("JARVIS_ADMIN_EMAIL", "lieldiv28@gmail.com").strip()
 CAPABILITY_GAP_DIGEST_LIMIT = 20  # per email; also caps how many rows one cycle marks notified
+
+# Safety cap, not a quality knob: the mitigation for a misconfigured/spoofed
+# address suddenly sending a burst, or a mailing list accidentally matching
+# one of a user's own configured senders. Checked BEFORE issuing the Gmail
+# query for that user, so a maxed-out user doesn't even cost an extra API
+# call this cycle.
+IMPORTANT_EMAIL_DAILY_LIMIT = int(os.environ.get("JARVIS_IMPORTANT_EMAIL_DAILY_LIMIT", "5"))
 
 _CHECK_INTERVAL_SECONDS = 60
 
@@ -181,6 +189,60 @@ def _check_capability_gaps():
         logger.warning("Capability-gap digest did not send — rows left unmarked, retried next cycle.")
 
 
+def _check_important_emails():
+    """Detection only — this NEVER calls the LLM and NEVER sends anything.
+    Drafting and sending both stay inside live, user-present requests (see
+    app.py's /api/inbox/suggestions/<id>/review, which is where the actual
+    confirm-to-act send happens) — this job's entire job is noticing a
+    matching message exists and writing one local row for it.
+
+    Why no LLM-based "is this important" judgment: an address match is
+    free (zero Groq tokens against the shared rate-limited budget this
+    scheduler cycle already runs other work under), deterministic, and
+    fully explainable to the user ("this fired because you listed this
+    address") — an LLM asked to judge importance from subject/snippet alone
+    would either over-trigger or need its own prompt-tuning risk, for a
+    job that runs every cycle for every connected user.
+    """
+    for cand in users.list_important_suggestion_candidates():
+        user_id = cand["user_id"]
+        senders = cand["senders"]
+        if not senders:
+            continue
+        if users.count_suggestions_created_since(user_id, time.time() - 86400) >= IMPORTANT_EMAIL_DAILY_LIMIT:
+            continue
+        query = "(" + " OR ".join(f"from:{addr}" for addr in senders) + ") newer_than:2d"
+        try:
+            matches = google_service.list_recent_emails(user_id, max_results=5, query=query)
+        except Exception as e:
+            logger.error(f"Important-email check failed for user {user_id}: {e}")
+            continue
+        if not matches:
+            continue
+        for m in matches:
+            # Never backfill mail that predates (the most recent time) the
+            # user turned this on — see users.set_important_suggestions_settings's
+            # own docstring. Without this, enabling the toggle for a sender
+            # who already emailed 40 times would dump 40 surprise drafts at
+            # once on the very first cycle.
+            enabled_at = cand["enabled_at"]
+            if enabled_at and m.get("date_ms", 0) < enabled_at * 1000:
+                continue
+            name, addr = parseaddr(m.get("sender", ""))
+            try:
+                users.add_important_suggestion(
+                    user_id,
+                    gmail_message_id=m.get("id", ""),
+                    sender_name=name or addr,
+                    sender_email=addr or m.get("sender", ""),
+                    subject=m.get("subject", ""),
+                    snippet=m.get("snippet", ""),
+                    date_ms=m.get("date_ms", 0),
+                )
+            except Exception as e:
+                logger.error(f"Failed to record important-email suggestion for user {user_id}: {e}")
+
+
 def _next_weekly_fire(after: datetime) -> datetime:
     candidate = after.replace(hour=WEEKLY_SUMMARY_HOUR, minute=WEEKLY_SUMMARY_MINUTE, second=0, microsecond=0)
     days_ahead = (WEEKLY_SUMMARY_WEEKDAY - candidate.weekday()) % 7
@@ -217,6 +279,14 @@ def _scheduler_loop():
             _check_capability_gaps()
         except Exception as e:
             logger.error(f"Capability-gap digest check failed: {e}")
+
+        # After the two time-sensitive checks above, not before: this is the
+        # one job that can make a Gmail API call per candidate user, so it
+        # shouldn't be first in line every single cycle.
+        try:
+            _check_important_emails()
+        except Exception as e:
+            logger.error(f"Important-email check failed: {e}")
 
         if next_weekly_fire is not None:
             now = datetime.now(productivity_service.LOCAL_TZ)

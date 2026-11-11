@@ -339,6 +339,9 @@ def list_recent_emails(user_id: str, max_results: int = 8, query: str = "is:unre
             ).execute()
             headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
             emails.append({
+                "id": mid,   # Gmail's own message id -- needed to dedup important-email
+                            # suggestions (see users.add_important_suggestion); harmless
+                            # addition for every existing caller that doesn't look at it
                 "subject": headers.get("Subject", "(no subject)"),
                 "sender": headers.get("From", "(unknown)"),
                 "snippet": msg.get("snippet", ""),

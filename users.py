@@ -124,7 +124,31 @@ def _init_db():
                     name TEXT,
                     google_token_json TEXT,
                     created_at REAL NOT NULL,
-                    last_login_at REAL NOT NULL
+                    last_login_at REAL NOT NULL,
+                    important_suggestions_enabled INTEGER NOT NULL DEFAULT 0,
+                    important_senders TEXT,
+                    important_suggestions_enabled_at REAL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS important_email_suggestions (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    gmail_message_id TEXT NOT NULL,
+                    sender_name TEXT,
+                    sender_email TEXT NOT NULL,
+                    subject TEXT,
+                    snippet TEXT,
+                    date_ms INTEGER,
+                    draft_subject TEXT,
+                    draft_body TEXT,
+                    draft_error TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    resolution TEXT,
+                    created_at REAL NOT NULL,
+                    resolved_at REAL
                 )
                 """
             )
@@ -252,6 +276,50 @@ def _init_db():
                 conn.execute(f"ALTER TABLE reminders ADD COLUMN {column} TEXT")
             except Exception:
                 pass  # column already exists
+
+        # Important-email suggestions: added after the users table already
+        # existed in deployed databases, so these three go through the same
+        # idempotent ALTER-TABLE-and-ignore-the-duplicate-column-error dance
+        # as reminders.recurrence/emoji/flourish above, not into the
+        # CREATE TABLE itself.
+        for column, decl in (
+            ("important_suggestions_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ("important_senders", "TEXT"),
+            ("important_suggestions_enabled_at", "REAL"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {column} {decl}")
+            except Exception:
+                pass  # column already exists
+
+        # One row per Gmail message the background scheduler (see
+        # daily_briefing.py's _check_important_emails) matched against a
+        # user's configured "important sender" list. Detection only ever
+        # writes a row here -- drafting and sending both stay inside live,
+        # user-present requests (see app.py's /api/inbox/suggestions/<id>/
+        # review), so nothing about this table's own correctness depends on
+        # an SSE push ever reaching an open tab.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS important_email_suggestions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                gmail_message_id TEXT NOT NULL,
+                sender_name TEXT,
+                sender_email TEXT NOT NULL,
+                subject TEXT,
+                snippet TEXT,
+                date_ms INTEGER,
+                draft_subject TEXT,
+                draft_body TEXT,
+                draft_error TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                resolution TEXT,
+                created_at REAL NOT NULL,
+                resolved_at REAL
+            )
+            """
+        )
 
         # Tasks/to-do items — one row per task a user creates
         # completed is 0/1 (one-time tasks only — see task_completions below
@@ -753,6 +821,153 @@ def get_completion_timestamps_since(user_id: str, since: float) -> list[float]:
             (user_id, since),
         ).fetchall()
     return [r[0] for r in onetime] + [r[0] for r in recurring]
+
+
+# ---------------------------------------------------------------------------
+# Important-email suggestions — settings (two columns on `users`, not a
+# generic settings table: this is the one feature that needs server-side
+# persistence at all, since a background thread can't read the HUD's own
+# localStorage-based "settings") plus the per-message suggestion rows.
+# ---------------------------------------------------------------------------
+def get_important_suggestions_settings(user_id: str) -> dict:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT important_suggestions_enabled, important_senders, important_suggestions_enabled_at"
+            " FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return {"enabled": False, "senders": [], "enabled_at": None}
+    return {
+        "enabled": bool(row[0]),
+        "senders": [s for s in (row[1] or "").split(",") if s],
+        "enabled_at": row[2],
+    }
+
+
+def set_important_suggestions_settings(user_id: str, enabled: bool, senders: list[str]) -> None:
+    """senders: already-validated, lowercased email addresses (app.py
+    normalizes and caps at 5 before calling this). important_suggestions_enabled_at
+    is re-stamped on every OFF->ON transition, not just the very first time
+    ever — so re-enabling after a pause never backfills mail that arrived
+    while it was off. See _check_important_emails's own use of this value."""
+    current = get_important_suggestions_settings(user_id)
+    joined = ",".join(senders[:5]) if senders else None
+    newly_enabled = enabled and not current["enabled"]
+    with _connect() as conn:
+        if newly_enabled:
+            conn.execute(
+                "UPDATE users SET important_suggestions_enabled = ?, important_senders = ?,"
+                " important_suggestions_enabled_at = ? WHERE id = ?",
+                (1 if enabled else 0, joined, time.time(), user_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE users SET important_suggestions_enabled = ?, important_senders = ? WHERE id = ?",
+                (1 if enabled else 0, joined, user_id),
+            )
+
+
+def list_important_suggestion_candidates() -> list[dict]:
+    """Every user with the toggle on AND a connected Google token — mirrors
+    list_connected_user_ids()'s WHERE clause plus the new enabled flag, so
+    the scheduler never needs a separate per-user is-connected check."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, important_senders, important_suggestions_enabled_at FROM users"
+            " WHERE important_suggestions_enabled = 1 AND google_token_json IS NOT NULL"
+        ).fetchall()
+    return [
+        {"user_id": r[0], "senders": [s for s in (r[1] or "").split(",") if s], "enabled_at": r[2]}
+        for r in rows
+    ]
+
+
+def add_important_suggestion(user_id: str, gmail_message_id: str, sender_name: str, sender_email: str,
+                             subject: str, snippet: str, date_ms: int) -> int | None:
+    """Silently no-ops (returns None) if this exact message already has a
+    row for this user — the scheduler re-scans the same recent-mail window
+    every cycle, so this dedup is what keeps it from creating duplicate
+    suggestions for a message it's already seen."""
+    with _connect() as conn:
+        existing = conn.execute(
+            "SELECT id FROM important_email_suggestions WHERE user_id = ? AND gmail_message_id = ?",
+            (user_id, gmail_message_id),
+        ).fetchone()
+        if existing:
+            return None
+        cur = conn.execute(
+            "INSERT INTO important_email_suggestions"
+            " (user_id, gmail_message_id, sender_name, sender_email, subject, snippet, date_ms, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, gmail_message_id, sender_name or None, sender_email, subject or None,
+             snippet or None, date_ms, time.time()),
+        )
+        return cur.lastrowid
+
+
+def set_suggestion_draft(suggestion_id: int, user_id: str, draft_subject: str | None,
+                         draft_body: str | None, draft_error: str | None = None) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE important_email_suggestions SET draft_subject = ?, draft_body = ?, draft_error = ?"
+            " WHERE id = ? AND user_id = ?",
+            (draft_subject, draft_body, draft_error, suggestion_id, user_id),
+        )
+
+
+def list_pending_suggestions(user_id: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, sender_name, sender_email, subject, snippet, date_ms"
+            " FROM important_email_suggestions WHERE user_id = ? AND status = 'pending'"
+            " ORDER BY date_ms DESC",
+            (user_id,),
+        ).fetchall()
+    return [
+        {"id": r[0], "sender_name": r[1], "sender_email": r[2], "subject": r[3], "snippet": r[4], "date_ms": r[5]}
+        for r in rows
+    ]
+
+
+def get_suggestion(suggestion_id: int, user_id: str) -> dict | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, sender_name, sender_email, subject, snippet, date_ms, draft_subject, draft_body, status"
+            " FROM important_email_suggestions WHERE id = ? AND user_id = ?",
+            (suggestion_id, user_id),
+        ).fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "sender_name": row[1], "sender_email": row[2], "subject": row[3],
+            "snippet": row[4], "date_ms": row[5], "draft_subject": row[6], "draft_body": row[7],
+            "status": row[8]}
+
+
+def mark_suggestion_resolved(suggestion_id: int, user_id: str, resolution: str) -> bool:
+    """resolution records that the user acted ('sent'/'cancelled'/'dismissed'),
+    not that Gmail definitely accepted a send — guardrails.resolve_confirmation()
+    never raises on a real send failure (same contract every other email in
+    this app already has); the confirm modal's own toast is what tells the
+    user if the real send failed. The WHERE status='pending' guard makes this
+    safe to call more than once for the same row without clobbering an
+    earlier, different resolution."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE important_email_suggestions SET status = 'resolved', resolution = ?, resolved_at = ?"
+            " WHERE id = ? AND user_id = ? AND status = 'pending'",
+            (resolution, time.time(), suggestion_id, user_id),
+        )
+        return cur.rowcount > 0
+
+
+def count_suggestions_created_since(user_id: str, since: float) -> int:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM important_email_suggestions WHERE user_id = ? AND created_at >= ?",
+            (user_id, since),
+        ).fetchone()
+    return row[0] if row else 0
 
 
 _init_db()
