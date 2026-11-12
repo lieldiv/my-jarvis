@@ -21,16 +21,22 @@ One background thread, checked once a minute:
   - weekly summary: once a week (JARVIS_WEEKLY_SUMMARY_WEEKDAY/HOUR/MINUTE,
     default Sunday 08:00 local), emailed to every currently-connected user
     (users.list_connected_user_ids) — their own week ahead.
-  - important-email suggestions: detects a new email from a user's own
-    configured "important" sender (Gmail search, no LLM), and drafts a
-    short conservative holding reply for it (a small, independent Groq
-    client -- see below). It never sends anything by itself: the draft just
-    sits in the Inbox tab until the user taps "send", which goes through
-    the exact same confirm-to-act path (productivity_service.request_send_email)
-    every other write in this app already uses -- the product owner was
-    explicit that this feature must never send without that approval. This
-    is the one place in this whole file an LLM call happens; everything
-    else in this module is either LLM-free or a plain notification.
+  - important-email suggestions: no settings, no configured sender list any
+    more (removed per explicit product-owner instruction) -- this is now a
+    core, always-on part of the system. Scans every connected user's own
+    most recent inbox mail and asks Groq a short classification question
+    per new message (a small, independent Groq client -- see below): NO
+    (ignore), YESNO (poses a clear yes/no question -- the Suggestions tab
+    shows Yes/No buttons; once the user picks, a live request drafts the
+    real reply), or REPLY (needs a genuine, content-aware reply, drafted
+    here automatically). It never sends anything by itself: the draft just
+    sits in the Suggestions tab until the user taps "send", which goes
+    through the exact same confirm-to-act path
+    (productivity_service.request_send_email) every other write in this
+    app already uses -- the product owner was explicit that this feature
+    must never send without that approval. This is the one job in this
+    whole file an LLM call happens for; everything else in this module is
+    either LLM-free or a plain notification.
   - system notices (holiday greeting, meeting conflicts, market swings,
     inbox backlog, missing event location, rain-vs-outdoor-plans, a daily
     weather ambient card, a stale-task nudge): all eight are zero-LLM and
@@ -96,11 +102,13 @@ WEEKLY_SUMMARY_MINUTE = int(os.environ.get("JARVIS_WEEKLY_SUMMARY_MINUTE", "0"))
 ADMIN_ALERT_EMAIL = os.environ.get("JARVIS_ADMIN_EMAIL", "lieldiv28@gmail.com").strip()
 CAPABILITY_GAP_DIGEST_LIMIT = 20  # per email; also caps how many rows one cycle marks notified
 
-# Safety cap, not a quality knob: the mitigation for a misconfigured/spoofed
-# address suddenly sending a burst, or a mailing list accidentally matching
-# one of a user's own configured senders. Checked BEFORE issuing the Gmail
-# query for that user, so a maxed-out user doesn't even cost an extra API
-# call this cycle.
+# Safety cap, not a quality knob: the mitigation for a burst of important-
+# looking mail (a hijacked/spoofed sender, a noisy thread) running up the
+# shared Groq budget on one user. Checked once BEFORE issuing the Gmail
+# query for that user (so a maxed-out user doesn't even cost an extra API
+# call that cycle) AND again inside the per-message loop below (so a single
+# cycle that classifies several messages back to back can't overshoot the
+# cap by itself before the next cycle's check gets a chance to block it).
 IMPORTANT_EMAIL_DAILY_LIMIT = int(os.environ.get("JARVIS_IMPORTANT_EMAIL_DAILY_LIMIT", "5"))
 
 _CHECK_INTERVAL_SECONDS = 60
@@ -230,59 +238,169 @@ def _check_capability_gaps():
         logger.warning("Capability-gap digest did not send — rows left unmarked, retried next cycle.")
 
 
-def _check_important_emails():
-    """Detection only — this NEVER calls the LLM and NEVER sends anything.
-    Drafting (_draft_important_suggestions) happens later in this same
-    scheduler, automatically; sending only ever happens from a live request
-    once the user taps "send" (app.py's /api/inbox/suggestions/<id>/send) —
-    this job's entire job is noticing a matching message exists and writing
-    one local row for it.
+IMPORTANT_EMAIL_SCAN_COUNT = int(os.environ.get("JARVIS_IMPORTANT_EMAIL_SCAN_COUNT", "8"))
 
-    Why no LLM-based "is this important" judgment: an address match is
-    free (zero Groq tokens against the shared rate-limited budget this
-    scheduler cycle already runs other work under), deterministic, and
-    fully explainable to the user ("this fired because you listed this
-    address") — an LLM asked to judge importance from subject/snippet alone
-    would either over-trigger or need its own prompt-tuning risk, for a
-    job that runs every cycle for every connected user.
-    """
-    for cand in users.list_important_suggestion_candidates():
-        user_id = cand["user_id"]
-        senders = cand["senders"]
-        if not senders:
-            continue
+
+def _classify_important_email(sender: str, subject: str, snippet: str) -> str:
+    """ONE cheap Groq call per new email -- there's no sender list to match
+    against any more (removed per explicit product-owner instruction: this
+    is now a core, always-on part of the system, not something the user
+    configures), so this is the only way left to judge "does this look
+    important." Replies with exactly one of:
+      NO                 -- doesn't need a reply (spam/newsletter/notification/FYI)
+      YESNO: <question>  -- asks ONE clear yes/no question, in the email's own language
+      REPLY              -- needs a real reply, not a simple yes/no
+    Kept deliberately short (small prompt, tiny max_tokens) since this runs
+    on every new message in every connected user's inbox every cycle."""
+    groq_pacer.wait_if_needed(150)
+    completion = _groq_client.chat.completions.create(
+        model=_IMPORTANT_EMAIL_MODEL,
+        messages=[
+            {"role": "system", "content": (
+                "You triage incoming emails for a busy person's assistant. Reply with "
+                "EXACTLY one of: NO (this doesn't need a reply -- spam, a newsletter, an "
+                "automated notification, FYI-only, already resolved); YESNO: <question> "
+                "(the email asks ONE clear yes/no question the person could answer "
+                "directly -- put that exact question, in the email's own language, right "
+                "after the colon); REPLY (this needs a real reply but isn't a simple "
+                "yes/no question). No other text, no explanation, no markdown."
+            )},
+            {"role": "user", "content": f"From: {sender}\nSubject: {subject}\nPreview: {snippet}"},
+        ],
+        temperature=0.2, max_tokens=60, reasoning_effort="low",
+    )
+    usage = getattr(completion, "usage", None)
+    if usage:
+        groq_pacer.record_usage(max(0, getattr(usage, "total_tokens", 0)))
+    return (completion.choices[0].message.content or "").strip()
+
+
+def _check_important_emails():
+    """Detection: for EVERY connected user (no settings/sender-list gate any
+    more), scans their IMPORTANT_EMAIL_SCAN_COUNT most recent inbox emails
+    and classifies each message newer than that user's own high-water mark
+    (users.get_scan_high_water -- so the same already-seen mail is never
+    reclassified, and re-billed against the shared Groq budget, every
+    single 60s cycle forever). A message classified NO is just remembered
+    as seen; YESNO/REPLY get a row written (YESNO additionally stores the
+    detected question -- see users.set_suggestion_awaiting_choice). Never
+    drafts anything itself -- a 'REPLY' row is picked up by
+    _draft_important_suggestions below; an 'awaiting_choice' row waits for
+    the user's own pick (app.py's .../answer route).
+
+    Two correctness guards that are easy to get wrong with a fixed-size,
+    newest-first scan window instead of a real backlog sweep:
+
+    1. COVERAGE GAP: Gmail's "most recent N" fetch can be truncated -- if a
+       user is frozen at IMPORTANT_EMAIL_DAILY_LIMIT (or just offline/
+       unscanned) for long enough that MORE than IMPORTANT_EMAIL_SCAN_COUNT
+       new messages pile up, this cycle's fetch only ever sees the newest
+       few of them. Advancing the mark to the newest of THOSE anyway would
+       make the older, never-fetched ones permanently unreachable -- next
+       cycle's "> high_water" filter would exclude them forever,
+       indistinguishable from "already seen" even though they were never
+       classified. So the mark only advances once a cycle's fetch window
+       demonstrably overlaps the OLD mark (oldest fetched message's date <=
+       high_water) or the inbox is small enough that the fetch wasn't
+       truncated at all. On a brand-new user (high_water == 0) this guard
+       is skipped on purpose -- there's no backlog to protect against yet,
+       just the intended "start watching from the most recent mail" baseline.
+    2. REPEAT COST while stuck behind a real gap: since the mark can't
+       always advance, the same already-recorded messages would otherwise
+       get re-classified (and re-billed) every cycle for as long as the gap
+       persists. users.important_suggestion_exists short-circuits those
+       before they ever reach Groq.
+
+    The high-water mark only advances when EVERY message in this cycle's
+    batch was successfully classified (or already recorded) AND the
+    coverage guard above is satisfied -- if any one of them hit a
+    transient error, or the daily cap was hit mid-batch, the whole
+    remainder is left to retry next cycle rather than risking silently
+    skipping a message that failed right next to ones that succeeded."""
+    if not _groq_client:
+        return  # GROQ_API_KEY unset (e.g. local dev without a .env) -- nothing to classify with
+    for user_id in users.list_connected_user_ids():
         if users.count_suggestions_created_since(user_id, time.time() - 86400) >= IMPORTANT_EMAIL_DAILY_LIMIT:
             continue
-        query = "(" + " OR ".join(f"from:{addr}" for addr in senders) + ") newer_than:2d"
         try:
-            matches = google_service.list_recent_emails(user_id, max_results=5, query=query)
+            emails = google_service.list_recent_emails(user_id, max_results=IMPORTANT_EMAIL_SCAN_COUNT, query="in:inbox")
         except Exception as e:
-            logger.error(f"Important-email check failed for user {user_id}: {e}")
+            logger.error(f"Important-email scan failed for user {user_id}: {e}")
             continue
-        if not matches:
+        if not emails:
             continue
-        for m in matches:
-            # Never backfill mail that predates (the most recent time) the
-            # user turned this on — see users.set_important_suggestions_settings's
-            # own docstring. Without this, enabling the toggle for a sender
-            # who already emailed 40 times would dump 40 surprise drafts at
-            # once on the very first cycle.
-            enabled_at = cand["enabled_at"]
-            if enabled_at and m.get("date_ms", 0) < enabled_at * 1000:
+        high_water = users.get_scan_high_water(user_id) or 0
+        to_process = [m for m in emails if m.get("date_ms", 0) > high_water]
+        if not to_process:
+            continue
+        covered_fully = (
+            high_water == 0
+            or len(emails) < IMPORTANT_EMAIL_SCAN_COUNT
+            or min(m.get("date_ms", 0) for m in emails) <= high_water
+        )
+        had_failure = False
+        max_date_ms = high_water
+        for m in to_process:
+            date_ms = m.get("date_ms", 0)
+            gmail_id = m.get("id", "")
+            if users.important_suggestion_exists(user_id, gmail_id):
+                max_date_ms = max(max_date_ms, date_ms)  # already classified in an earlier cycle -- no need to re-spend Groq on it
+                continue
+            if users.count_suggestions_created_since(user_id, time.time() - 86400) >= IMPORTANT_EMAIL_DAILY_LIMIT:
+                had_failure = True  # cap hit mid-batch -- the rest of this batch is untouched, not "seen"
+                break
+            subject, snippet = m.get("subject", ""), m.get("snippet", "")
+            try:
+                verdict = _classify_important_email(m.get("sender", ""), subject, snippet)
+            except RateLimitError as e:
+                kind, _ = groq_pacer.classify_rate_limit(e)
+                had_failure = True
+                if kind == "day":
+                    break  # daily quota exhausted -- stop this user's scan entirely this cycle
+                continue  # per-minute limit -- skip this message, the whole batch retries next cycle anyway
+            except Exception as e:
+                logger.error(f"Important-email classify failed for user {user_id}: {e}")
+                had_failure = True
+                continue
+            verdict_upper = (verdict or "").upper().strip()
+            first_word = verdict_upper.split()[0] if verdict_upper.split() else ""
+            is_yesno = verdict_upper.startswith("YESNO")
+            is_reply = first_word == "REPLY"
+            if first_word != "NO" and not is_yesno and not is_reply:
+                # Garbled/empty/unrecognized model output -- NOT a safe
+                # default to REPLY (that would mean acting on noise), and
+                # NOT a safe default to NO either (that would silently
+                # drop a possibly-important message). Treat it as a
+                # transient failure so the whole message gets a clean
+                # retry next cycle instead.
+                logger.error(f"Important-email classify returned an unrecognized verdict for user {user_id}: {verdict!r}")
+                had_failure = True
+                continue
+            max_date_ms = max(max_date_ms, date_ms)
+            if first_word == "NO":
                 continue
             name, addr = parseaddr(m.get("sender", ""))
             try:
-                users.add_important_suggestion(
-                    user_id,
-                    gmail_message_id=m.get("id", ""),
-                    sender_name=name or addr,
-                    sender_email=addr or m.get("sender", ""),
-                    subject=m.get("subject", ""),
-                    snippet=m.get("snippet", ""),
-                    date_ms=m.get("date_ms", 0),
+                sid = users.add_important_suggestion(
+                    user_id, gmail_message_id=gmail_id, sender_name=name or addr,
+                    sender_email=addr or m.get("sender", ""), subject=subject, snippet=snippet, date_ms=date_ms,
                 )
             except Exception as e:
                 logger.error(f"Failed to record important-email suggestion for user {user_id}: {e}")
+                continue
+            if sid is None:
+                continue
+            if is_yesno:
+                question = verdict.split(":", 1)[1].strip() if ":" in verdict else subject
+                try:
+                    users.set_suggestion_awaiting_choice(sid, question or subject)
+                except Exception as e:
+                    logger.error(f"Failed to record yes/no question for suggestion {sid}: {e}")
+        if not had_failure and covered_fully and max_date_ms > high_water:
+            try:
+                users.set_scan_high_water(user_id, max_date_ms)
+            except Exception as e:
+                logger.error(f"Failed to update scan high-water mark for user {user_id}: {e}")
 
 
 # Same small, self-contained pattern as app.py's own _strip_markdown --
@@ -309,12 +427,15 @@ def _strip_markdown(text: str) -> str:
 def _draft_important_suggestions():
     """Advances every still-'pending' suggestion to 'drafted', or leaves it
     'pending' to retry next cycle on a transient failure -- never raises,
-    and never sends anything itself. The draft just sits in the Inbox tab
-    until the user explicitly taps "send" (app.py's
+    and never sends anything itself. The draft just sits in the Suggestions
+    tab until the user explicitly taps "send" (app.py's
     /api/inbox/suggestions/<id>/send), which goes through the real
-    confirm-to-act path -- see the deliberately conservative prompt below,
-    which exists so a weak first draft never has to be rewritten from
-    scratch, not because nothing will review it before it goes out."""
+    confirm-to-act path. Unlike the first version of this feature, the
+    draft now genuinely engages with the email's real content (per
+    explicit product-owner instruction) rather than being a generic
+    holding reply -- the "don't fabricate" guardrail below is about never
+    inventing facts/commitments that aren't in the preview, not about
+    avoiding real content altogether."""
     if not _groq_client:
         return  # GROQ_API_KEY unset (e.g. local dev without a .env) -- nothing to draft with
     for sugg in users.list_suggestions_needing_draft():
@@ -323,26 +444,28 @@ def _draft_important_suggestions():
         prompt = (
             f"An email arrived from {sugg.get('sender_name') or sugg.get('sender_email')}. "
             f"Subject: {subject}. Preview: {sugg.get('snippet') or ''}\n\n"
-            "Write ONLY a short holding reply as plain text: acknowledge receipt and say "
-            "you'll follow up properly soon. Do NOT invent any dates, numbers, commitments, "
-            "or decisions that aren't already stated in the preview above -- the user will "
-            "review and can edit this before it's ever sent, so leave the real content for "
-            "them to add. Write it exactly as the user themselves would write it, in first "
-            "person -- never mention JARVIS, an assistant, AI, or anything automated; nothing "
-            "in the reply should reveal this wasn't typed by the user personally. A brief "
-            "greeting and closing, nothing else. No subject line, no markdown."
+            "Write a short, natural reply as plain text that actually engages with what "
+            "this email says -- respond to its real content, don't just acknowledge "
+            "receipt. Do NOT invent any dates, numbers, commitments, or decisions that "
+            "aren't already stated in the preview above -- the user will review and can "
+            "edit this before it's ever sent, so leave anything you're unsure of for them "
+            "to fill in rather than guessing. Write it exactly as the user themselves would "
+            "write it, in first person -- never mention JARVIS, an assistant, AI, or "
+            "anything automated; nothing in the reply should reveal this wasn't typed by "
+            "the user personally. A brief greeting and closing, nothing else. No subject "
+            "line, no markdown."
         )
         try:
             groq_pacer.wait_if_needed(900)
             completion = _groq_client.chat.completions.create(
                 model=_IMPORTANT_EMAIL_MODEL,
                 messages=[
-                    {"role": "system", "content": "You draft short, deliberately conservative holding replies "
-                     "for J.A.R.V.I.S. — the user never asked for this specific reply, so never fabricate "
-                     "content beyond acknowledging the email and promising a proper follow-up."},
+                    {"role": "system", "content": "You draft short, natural plain-text email replies for "
+                     "J.A.R.V.I.S. that genuinely engage with the original email's content — never fabricate "
+                     "facts, dates, numbers or commitments that aren't already stated in what you were given."},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.4, max_tokens=250, reasoning_effort="low",
+                temperature=0.5, max_tokens=300, reasoning_effort="low",
             )
             usage = getattr(completion, "usage", None)
             if usage:

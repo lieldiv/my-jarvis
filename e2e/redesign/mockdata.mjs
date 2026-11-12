@@ -25,8 +25,9 @@ export const INBOX = { configured: true, emails: [
 // system_notices (holiday/conflict/market, ...) -- see /api/suggestions.
 export const SUGGESTIONS = {
   email_suggestions: [
-    { id: 101, sender_name: 'דנה כהן', sender_email: 'dana@example.com', subject: 'סטטוס פרויקט', snippet: 'מה המצב?', date_ms: Date.now() - HOUR, draft_subject: null, draft_body: null, status: 'pending' },
-    { id: 102, sender_name: 'דנה כהן', sender_email: 'dana@example.com', subject: 'אישור פגישה', snippet: '', date_ms: Date.now() - 4 * HOUR, draft_subject: 'Re: אישור פגישה', draft_body: 'שלום דנה, תודה, מאשר.', status: 'drafted' },
+    { id: 101, sender_name: 'דנה כהן', sender_email: 'dana@example.com', subject: 'סטטוס פרויקט', snippet: 'מה המצב?', date_ms: Date.now() - HOUR, draft_subject: null, draft_body: null, status: 'pending', detected_question: null },
+    { id: 102, sender_name: 'דנה כהן', sender_email: 'dana@example.com', subject: 'אישור פגישה', snippet: '', date_ms: Date.now() - 4 * HOUR, draft_subject: 'Re: אישור פגישה', draft_body: 'שלום דנה, תודה, מאשר.', status: 'drafted', detected_question: null },
+    { id: 103, sender_name: 'יוסי לוי', sender_email: 'yossi@example.com', subject: 'ארוחת ערב?', snippet: 'רוצה לצאת לארוחת ערב הערב?', date_ms: Date.now() - 2 * HOUR, draft_subject: null, draft_body: null, status: 'awaiting_choice', detected_question: 'רוצה לצאת לארוחת ערב הערב?' },
   ],
   notices: [
     { id: 201, category: 'conflict', title: 'שתי פגישות חופפות', body: '"פגישת צוות" ו-"שיחה עם לקוח" חופפות היום.', action_label: 'פתח יומן', created_at: Date.now() / 1000 },

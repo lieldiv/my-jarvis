@@ -1257,18 +1257,9 @@ button.set:active, summary.set:active{ background:var(--color-cyan-soft); }
 
             <div class="settings-sub">הצעות מערכת</div>
             <div class="grpcard">
-              <button type="button" class="set" id="important-sugg-row" role="switch" aria-checked="false" onclick="toggleImportantSuggestions()">
+              <div class="set" style="cursor:default;">
                 <svg class="i" aria-hidden="true"><use href="#i-mail"/></svg>
-                <span class="lbl"><span class="nm">טיוטת תשובה למיילים חשובים</span><small>JARVIS יכין טיוטה לאישורך כשמגיע מייל מהכתובות שתגדיר למטה</small></span>
-                <span class="tog"></span>
-              </button>
-              <div class="set">
-                <svg class="i" aria-hidden="true"><use href="#i-plug"/></svg>
-                <span class="lbl"><span class="nm">כתובות חשובות</span><small>עד 5, מופרדות בפסיק</small></span>
-              </div>
-              <div class="set" style="gap:8px;">
-                <input class="ds-inp" id="important-senders-input" placeholder="manager@company.com" autocomplete="off" dir="ltr" style="flex:1;">
-                <button type="button" class="ds-btn" onclick="saveImportantSenders()">שמור</button>
+                <span class="lbl"><span class="nm">טיוטת תשובה למיילים חשובים</span><small>תמיד פעיל — JARVIS סורק לבד את הדואר האחרון ומזהה מה נראה חשוב, בלי רשימת כתובות</small></span>
               </div>
             </div>
 
@@ -1832,7 +1823,7 @@ function setTab(key){
     if (key === 'agenda') loadAgendaTab();
     if (key === 'tasks') loadTasksTab();
     if (key === 'suggestions') { loadSuggestionsTab(); dismissSuggestionsIntro(); }
-    if (key === 'settings') { renderConnStatus(); loadImportantSuggestionsSettings(); }
+    if (key === 'settings') { renderConnStatus(); }
 }
 renderNav();
 
@@ -5255,6 +5246,29 @@ function buildSuggestionCard(s){
     const subj = el('div', 'mail-subject'); subj.textContent = s.subject || '(ללא נושא)';
     card.append(top, subj);
 
+    if (s.status === 'awaiting_choice') {
+        const prev = el('div', 'mail-preview'); prev.textContent = s.snippet || '';
+        const question = el('div', 'suggestion-status'); question.textContent = s.detected_question || s.subject || '';
+        const actions = el('div', 'mail-actions');
+        // Deliberately plain (no .pri) -- .pri/cyan is reserved for "שלח
+        // לאישור" elsewhere in this same card family, and these two
+        // buttons answer a yes/no CLASSIFICATION question, not a send
+        // action. Giving כן the same cyan weight as send would blur a
+        // distinction the user needs to keep straight across this flow.
+        const yesBtn = el('button', 'ds-btn'); yesBtn.type = 'button';
+        yesBtn.textContent = 'כן';
+        yesBtn.onclick = () => answerSuggestion(s.id, true, card);
+        const noBtn = el('button', 'ds-btn'); noBtn.type = 'button';
+        noBtn.textContent = 'לא';
+        noBtn.onclick = () => answerSuggestion(s.id, false, card);
+        const dismissBtn = el('button', 'ds-btn'); dismissBtn.type = 'button';
+        dismissBtn.textContent = 'התעלם';
+        dismissBtn.onclick = () => dismissSuggestion(s.id);
+        actions.append(yesBtn, noBtn, dismissBtn);
+        card.append(prev, question, actions);
+        return card;
+    }
+
     if (s.status !== 'drafted' || !s.draft_body) {
         const prev = el('div', 'mail-preview'); prev.textContent = s.snippet || '';
         const status = el('div', 'suggestion-status'); status.textContent = 'מכין טיוטת תשובה…';
@@ -5378,6 +5392,13 @@ function buildNoticeCard(n){
     const top = el('div', 'mail-top');
     top.innerHTML = `<span class="mail-from">${icon(NOTICE_ICON_BY_CATEGORY[n.category] || 'bulb', 's')} ${escapeHtml(n.title)}</span>`;
     const body = el('div', 'mail-preview'); body.textContent = n.body;
+    card.append(top, body);
+    // daily_weather is the ONE card deliberately guaranteed to be there
+    // every day, specifically so the tab is never empty -- dismissing it
+    // would defeat that on the very day it's needed (nothing else may be
+    // conditionally true), so it gets no dismiss button at all. It's pure
+    // ambient info anyway: nothing to act on, nothing to acknowledge.
+    if (n.category === 'daily_weather') return card;
     const actions = el('div', 'mail-actions');
     if (n.action_label) {
         const actBtn = el('button', 'ds-btn pri'); actBtn.type = 'button'; actBtn.textContent = n.action_label;
@@ -5392,7 +5413,7 @@ function buildNoticeCard(n){
     dismissBtn.textContent = n.action_label ? 'התעלם' : 'הבנתי';
     dismissBtn.onclick = () => dismissNotice(n.id, card);
     actions.appendChild(dismissBtn);
-    card.append(top, body, actions);
+    card.appendChild(actions);
     return card;
 }
 function renderSuggestionsList(){
@@ -6440,48 +6461,6 @@ async function restorePushSubscription(){
     }
 }
 
-/* ================================================================================
-   Important-email suggestions — the one HUD "setting" that's genuinely
-   server-persisted (not localStorage): a background thread can't read
-   localStorage, and this needs to be known server-side at scan time.
-   ================================================================================ */
-async function loadImportantSuggestionsSettings(){
-    try {
-        const res = await fetchWithTimeout('/api/settings/important-suggestions');
-        const data = await res.json();
-        $('important-sugg-row').setAttribute('aria-checked', String(!!data.enabled));
-        $('important-senders-input').value = (data.senders || []).join(', ');
-    } catch (e) { /* settings tab just shows defaults if this fails, not fatal */ }
-}
-async function toggleImportantSuggestions(){
-    const row = $('important-sugg-row');
-    const next = row.getAttribute('aria-checked') !== 'true';
-    row.setAttribute('aria-checked', String(next));   // optimistic
-    try {
-        const res = await fetchWithTimeout('/api/settings/important-suggestions', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ enabled: next, senders: $('important-senders-input').value }),
-        });
-        const data = await res.json();
-        if (!data.ok) { row.setAttribute('aria-checked', String(!next)); showToast(data.error || 'לא נשמר.', true); }
-    } catch (e) {
-        row.setAttribute('aria-checked', String(!next));
-        showToast('לא הצלחתי להתחבר לשרת.', true);
-    }
-}
-async function saveImportantSenders(){
-    const enabled = $('important-sugg-row').getAttribute('aria-checked') === 'true';
-    try {
-        const res = await fetchWithTimeout('/api/settings/important-suggestions', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ enabled, senders: $('important-senders-input').value }),
-        });
-        const data = await res.json();
-        showToast(data.ok ? 'נשמר.' : (data.error || 'כתובת לא תקינה.'), !data.ok);
-    } catch (e) {
-        showToast('לא הצלחתי להתחבר לשרת.', true);
-    }
-}
 async function sendSuggestion(id){
     try {
         const res = await fetchWithTimeout(`/api/inbox/suggestions/${id}/send`, { method: 'POST' });
@@ -6501,6 +6480,26 @@ async function dismissSuggestion(id){
         await fetchWithTimeout(`/api/inbox/suggestions/${id}/dismiss`, { method: 'POST' });
         loadSuggestionsTab(true);
     } catch (e) {
+        showToast('לא הצלחתי להתחבר לשרת.', true);
+    }
+}
+async function answerSuggestion(id, answer, cardEl){
+    // Same double-submit guard as dismissNotice above -- disable the
+    // card's buttons for the full round-trip so a double-click (or
+    // clicking כן then לא before the first request resolves) can't fire
+    // two competing /answer calls against the same row.
+    const btns = cardEl ? cardEl.querySelectorAll('button') : [];
+    btns.forEach(b => b.disabled = true);
+    try {
+        const res = await fetchWithTimeout(`/api/inbox/suggestions/${id}/answer`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answer }),
+        });
+        const data = await res.json();
+        if (data.error) { btns.forEach(b => b.disabled = false); showToast(data.error, true); return; }
+        loadSuggestionsTab(true);
+    } catch (e) {
+        btns.forEach(b => b.disabled = false);
         showToast('לא הצלחתי להתחבר לשרת.', true);
     }
 }

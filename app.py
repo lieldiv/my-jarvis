@@ -3876,37 +3876,71 @@ def resolve_important_suggestion(suggestion_id):
     return jsonify({"ok": ok})
 
 
-_IMPORTANT_SENDERS_MAX = 5
-
-
-@app.route("/api/settings/important-suggestions", methods=["GET", "POST"])
-def important_suggestions_settings():
+@app.route("/api/inbox/suggestions/<int:suggestion_id>/answer", methods=["POST"])
+def answer_important_suggestion(suggestion_id):
+    """For a suggestion daily_briefing.py's detection flagged as posing a
+    clear yes/no question ('awaiting_choice', with its detected_question
+    stored) -- the user picks yes or no here, and THIS live request drafts
+    the real reply synchronously (same groq_client/MODEL_NAME pattern as
+    inbox_draft_reply above, not the background scheduler's independent
+    client) so there's no dead air waiting for the next scheduler cycle.
+    Still never sends anything -- the draft this produces goes through
+    set_suggestion_draft exactly like the automatic drafting path, landing
+    the row in 'drafted' for the user to review via the normal /send."""
     user_id = session.get("user_id")
     if not user_id:
         return jsonify({"error": "Please sign in first, sir."}), 401
-
-    if request.method == "GET":
-        return jsonify(users.get_important_suggestions_settings(user_id))
-
     data = request.json or {}
-    enabled = bool(data.get("enabled"))
-    raw_senders = data.get("senders") or []
-    if isinstance(raw_senders, str):
-        raw_senders = raw_senders.split(",")
-    senders = []
-    for addr in raw_senders:
-        addr = (addr or "").strip().lower()
-        if not addr:
-            continue
-        if not productivity_service._looks_like_email(addr):
-            return jsonify({"error": f"'{addr}' doesn't look like a real email address."}), 400
-        if addr not in senders:
-            senders.append(addr)
-    if len(senders) > _IMPORTANT_SENDERS_MAX:
-        return jsonify({"error": f"Up to {_IMPORTANT_SENDERS_MAX} addresses, sir."}), 400
+    if "answer" not in data:
+        return jsonify({"error": "Missing answer, sir."}), 400
+    answer = bool(data.get("answer"))
 
-    users.set_important_suggestions_settings(user_id, enabled, senders)
-    return jsonify({"ok": True, **users.get_important_suggestions_settings(user_id)})
+    sugg = users.get_suggestion(suggestion_id, user_id)
+    if not sugg or sugg["status"] != "awaiting_choice":
+        return jsonify({"error": "That suggestion isn't waiting on an answer, sir."}), 404
+
+    subject = sugg.get("subject") or ""
+    draft_subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+    question = sugg.get("detected_question") or subject
+    prompt = (
+        f"An email arrived from {sugg.get('sender_name') or sugg.get('sender_email')}. "
+        f"Subject: {subject}. Preview: {sugg.get('snippet') or ''}\n\n"
+        f"It asked: \"{question}\" — the user's answer is: {'YES' if answer else 'NO'}.\n\n"
+        "Write a short, natural reply as plain text that clearly conveys this answer in "
+        "context, engaging with the email's real content. Do NOT invent any dates, "
+        "numbers, commitments, or decisions beyond the answer given -- the user will "
+        "review and can edit this before it's ever sent. Write it exactly as the user "
+        "themselves would write it, in first person -- never mention JARVIS, an "
+        "assistant, AI, or anything automated. A brief greeting and closing, nothing "
+        "else. No subject line, no markdown."
+    )
+    try:
+        groq_pacer.wait_if_needed(900)
+        completion = groq_client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You draft short, natural plain-text email replies for "
+                 "J.A.R.V.I.S. that clearly convey the user's own yes/no answer in context — never "
+                 "fabricate facts, dates, numbers or commitments beyond that answer."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.5, max_tokens=300, reasoning_effort="low",
+        )
+        _log_token_usage(completion)
+        draft_body = _strip_markdown(completion.choices[0].message.content or "").strip()
+        if not draft_body:
+            raise ValueError("empty draft")
+    except RateLimitError as e:
+        kind, _ = groq_pacer.classify_rate_limit(e)
+        if kind == "day":
+            return jsonify({"error": "Groq's shared daily quota is used up for today, sir — it resets tomorrow."}), 429
+        return jsonify({"error": "Groq's briefly rate-limited, sir — give it a few seconds and try again."}), 429
+    except Exception as e:
+        logger.error(f"Important-email answer-draft failed for suggestion {suggestion_id}: {e}")
+        return jsonify({"error": "I couldn't draft that reply, sir."}), 500
+
+    users.set_suggestion_draft(suggestion_id, draft_subject, draft_body)
+    return jsonify({"ok": True, "draft_subject": draft_subject, "draft_body": draft_body})
 
 
 @app.route("/api/compose/draft", methods=["POST"])

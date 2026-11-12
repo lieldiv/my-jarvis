@@ -112,9 +112,15 @@ def _init_db():
     with _connect() as conn:
         if PG_CONFIGURED:
             # A brand-new Postgres database has no pre-recurrence-era
-            # history to migrate, unlike the sqlite/Turso branch below --
-            # every column just goes straight into CREATE TABLE, no
-            # ALTER TABLE ADD COLUMN dance needed at all. SERIAL is
+            # history to migrate, so new TABLES just go straight into
+            # CREATE TABLE here. A column added to a table that's already
+            # live in a deployed Postgres database (e.g. detected_question
+            # and important_scan_high_water_ms below, added after
+            # important_email_suggestions/users already shipped with real
+            # user data) still needs its own ALTER TABLE -- CREATE TABLE IF
+            # NOT EXISTS is a no-op once the table exists, same as sqlite.
+            # Postgres (unlike sqlite) supports ADD COLUMN IF NOT EXISTS
+            # natively, so no try/except dance is needed here. SERIAL is
             # Postgres's auto-incrementing integer primary key.
             conn.execute(
                 """
@@ -127,7 +133,8 @@ def _init_db():
                     last_login_at REAL NOT NULL,
                     important_suggestions_enabled INTEGER NOT NULL DEFAULT 0,
                     important_senders TEXT,
-                    important_suggestions_enabled_at REAL
+                    important_suggestions_enabled_at REAL,
+                    important_scan_high_water_ms REAL
                 )
                 """
             )
@@ -148,7 +155,8 @@ def _init_db():
                     status TEXT NOT NULL DEFAULT 'pending',
                     resolution TEXT,
                     created_at REAL NOT NULL,
-                    resolved_at REAL
+                    resolved_at REAL,
+                    detected_question TEXT
                 )
                 """
             )
@@ -231,6 +239,8 @@ def _init_db():
                 )
                 """
             )
+            conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS important_scan_high_water_ms REAL")
+            conn.execute("ALTER TABLE important_email_suggestions ADD COLUMN IF NOT EXISTS detected_question TEXT")
             return
 
         conn.execute(
@@ -297,21 +307,33 @@ def _init_db():
         # idempotent ALTER-TABLE-and-ignore-the-duplicate-column-error dance
         # as reminders.recurrence/emoji/flourish above, not into the
         # CREATE TABLE itself.
+        # important_suggestions_enabled/important_senders/important_suggestions_enabled_at
+        # are no longer read or written anywhere (the settings UI they backed
+        # was removed -- detection is now an unconditional, always-on part of
+        # the system, by explicit product-owner instruction) but are left in
+        # place rather than dropped, on an already-deployed database, for the
+        # same reason this file never drops a column elsewhere: harmless dead
+        # data beats a migration that could fail partway on Render's free tier.
         for column, decl in (
             ("important_suggestions_enabled", "INTEGER NOT NULL DEFAULT 0"),
             ("important_senders", "TEXT"),
             ("important_suggestions_enabled_at", "REAL"),
+            ("important_scan_high_water_ms", "REAL"),
         ):
             try:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {column} {decl}")
             except Exception:
                 pass  # column already exists
 
-        # One row per Gmail message the background scheduler (see
-        # daily_briefing.py's _check_important_emails) matched against a
-        # user's configured "important sender" list. Detection writes a
-        # 'pending' row; the SAME background scheduler then drafts it
-        # ('pending' -> 'drafted') -- but never sends it on its own. Sending
+        # One row per Gmail message daily_briefing.py's background scheduler
+        # (_check_important_emails) classified as worth a reply -- scanning
+        # every connected user's own most recent inbox mail, unconditionally
+        # (no sender list, no settings toggle any more). Detection writes a
+        # 'pending' row (a straightforward reply) or 'awaiting_choice' (the
+        # email poses a clear yes/no question -- see detected_question); the
+        # SAME background scheduler then drafts a 'pending' row
+        # ('pending' -> 'drafted'), while 'awaiting_choice' rows wait for the
+        # user's own pick (app.py's .../answer route) before drafting. Sending
         # always goes through the normal confirm-to-act path
         # (productivity_service.request_send_email), the exact same gate
         # every other write in this app already uses: the product owner was
@@ -337,10 +359,19 @@ def _init_db():
                 status TEXT NOT NULL DEFAULT 'pending',
                 resolution TEXT,
                 created_at REAL NOT NULL,
-                resolved_at REAL
+                resolved_at REAL,
+                detected_question TEXT
             )
             """
         )
+        # detected_question: added after important_email_suggestions already
+        # existed in deployed databases (this table shipped once already
+        # tonight without it) -- same idempotent ALTER-TABLE dance as every
+        # other column added to an existing table in this file.
+        try:
+            conn.execute("ALTER TABLE important_email_suggestions ADD COLUMN detected_question TEXT")
+        except Exception:
+            pass  # column already exists
 
         # Tasks/to-do items — one row per task a user creates
         # completed is 0/1 (one-time tasks only — see task_completions below
@@ -889,58 +920,39 @@ def get_completion_timestamps_since(user_id: str, since: float) -> list[float]:
 # persistence at all, since a background thread can't read the HUD's own
 # localStorage-based "settings") plus the per-message suggestion rows.
 # ---------------------------------------------------------------------------
-def get_important_suggestions_settings(user_id: str) -> dict:
+def get_scan_high_water(user_id: str) -> float | None:
+    """The date_ms of the newest email already classified for "is this
+    important" by _check_important_emails, so an unchanged recent-mail
+    window is never reclassified (and re-billed against the shared Groq
+    budget) every single 60s scheduler cycle forever."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT important_suggestions_enabled, important_senders, important_suggestions_enabled_at"
-            " FROM users WHERE id = ?",
-            (user_id,),
+            "SELECT important_scan_high_water_ms FROM users WHERE id = ?", (user_id,),
         ).fetchone()
-    if not row:
-        return {"enabled": False, "senders": [], "enabled_at": None}
-    return {
-        "enabled": bool(row[0]),
-        "senders": [s for s in (row[1] or "").split(",") if s],
-        "enabled_at": row[2],
-    }
+    return row[0] if row and row[0] is not None else None
 
 
-def set_important_suggestions_settings(user_id: str, enabled: bool, senders: list[str]) -> None:
-    """senders: already-validated, lowercased email addresses (app.py
-    normalizes and caps at 5 before calling this). important_suggestions_enabled_at
-    is re-stamped on every OFF->ON transition, not just the very first time
-    ever — so re-enabling after a pause never backfills mail that arrived
-    while it was off. See _check_important_emails's own use of this value."""
-    current = get_important_suggestions_settings(user_id)
-    joined = ",".join(senders[:5]) if senders else None
-    newly_enabled = enabled and not current["enabled"]
+def set_scan_high_water(user_id: str, date_ms: float) -> None:
     with _connect() as conn:
-        if newly_enabled:
-            conn.execute(
-                "UPDATE users SET important_suggestions_enabled = ?, important_senders = ?,"
-                " important_suggestions_enabled_at = ? WHERE id = ?",
-                (1 if enabled else 0, joined, time.time(), user_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE users SET important_suggestions_enabled = ?, important_senders = ? WHERE id = ?",
-                (1 if enabled else 0, joined, user_id),
-            )
+        conn.execute(
+            "UPDATE users SET important_scan_high_water_ms = ? WHERE id = ?", (date_ms, user_id),
+        )
 
 
-def list_important_suggestion_candidates() -> list[dict]:
-    """Every user with the toggle on AND a connected Google token — mirrors
-    list_connected_user_ids()'s WHERE clause plus the new enabled flag, so
-    the scheduler never needs a separate per-user is-connected check."""
+def important_suggestion_exists(user_id: str, gmail_message_id: str) -> bool:
+    """Cheap existence check the scanner runs BEFORE classifying a message --
+    lets it skip an already-recorded message without spending another Groq
+    call on it, which matters while the high-water mark is intentionally
+    being held back (see _check_important_emails's coverage-gap guard):
+    without this, a user stuck behind a backlog larger than one scan window
+    would have the same already-classified messages re-billed against the
+    shared Groq budget every single cycle, forever."""
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT id, important_senders, important_suggestions_enabled_at FROM users"
-            " WHERE important_suggestions_enabled = 1 AND google_token_json IS NOT NULL"
-        ).fetchall()
-    return [
-        {"user_id": r[0], "senders": [s for s in (r[1] or "").split(",") if s], "enabled_at": r[2]}
-        for r in rows
-    ]
+        row = conn.execute(
+            "SELECT 1 FROM important_email_suggestions WHERE user_id = ? AND gmail_message_id = ?",
+            (user_id, gmail_message_id),
+        ).fetchone()
+    return row is not None
 
 
 def add_important_suggestion(user_id: str, gmail_message_id: str, sender_name: str, sender_email: str,
@@ -1010,22 +1022,35 @@ def record_suggestion_draft_error(suggestion_id: int, draft_error: str) -> None:
         )
 
 
+def set_suggestion_awaiting_choice(suggestion_id: int, question: str) -> None:
+    """Called when detection's own classification finds the email poses a
+    clear yes/no question -- advances 'pending' -> 'awaiting_choice' and
+    stores that question so the Suggestions tab can show Yes/No buttons
+    instead of going straight to a drafted reply. Not scoped by user_id --
+    runs from the background scheduler, same as set_suggestion_draft."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE important_email_suggestions SET status = 'awaiting_choice', detected_question = ? WHERE id = ?",
+            (question, suggestion_id),
+        )
+
+
 def list_pending_suggestions(user_id: str) -> list[dict]:
-    """Everything NOT YET resolved -- both freshly-detected ('pending', no
-    draft yet) and already-drafted ('drafted', awaiting the user's own
-    send/dismiss decision) rows, so the Inbox tab can show "preparing a
-    draft..." as well as the ready-to-send state."""
+    """Everything NOT YET resolved -- freshly-detected ('pending', no draft
+    yet), awaiting a yes/no pick ('awaiting_choice'), and already-drafted
+    ('drafted', awaiting the user's own send/dismiss decision) rows, so the
+    Suggestions tab can show each of those three states."""
     with _connect() as conn:
         rows = conn.execute(
             "SELECT id, sender_name, sender_email, subject, snippet, date_ms,"
-            " draft_subject, draft_body, status"
+            " draft_subject, draft_body, status, detected_question"
             " FROM important_email_suggestions WHERE user_id = ? AND status != 'resolved'"
             " ORDER BY date_ms DESC",
             (user_id,),
         ).fetchall()
     return [
         {"id": r[0], "sender_name": r[1], "sender_email": r[2], "subject": r[3], "snippet": r[4], "date_ms": r[5],
-         "draft_subject": r[6], "draft_body": r[7], "status": r[8]}
+         "draft_subject": r[6], "draft_body": r[7], "status": r[8], "detected_question": r[9]}
         for r in rows
     ]
 
@@ -1034,7 +1059,7 @@ def get_suggestion(suggestion_id: int, user_id: str) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
             "SELECT id, sender_name, sender_email, subject, snippet, date_ms,"
-            " draft_subject, draft_body, status"
+            " draft_subject, draft_body, status, detected_question"
             " FROM important_email_suggestions WHERE id = ? AND user_id = ?",
             (suggestion_id, user_id),
         ).fetchone()
@@ -1042,7 +1067,7 @@ def get_suggestion(suggestion_id: int, user_id: str) -> dict | None:
         return None
     return {"id": row[0], "sender_name": row[1], "sender_email": row[2], "subject": row[3],
             "snippet": row[4], "date_ms": row[5], "draft_subject": row[6], "draft_body": row[7],
-            "status": row[8]}
+            "status": row[8], "detected_question": row[9]}
 
 
 def mark_suggestion_resolved(suggestion_id: int, user_id: str, resolution: str) -> bool:

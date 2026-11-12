@@ -51,13 +51,19 @@ const browser = await chromium.launch();
 {
   const { ctx, page, errors, calls } = await newPage(browser);
   await goTab(page, 'suggestions');
-  check('Suggestions: title and a live count', (await page.locator('#tab-suggestions .page-title').innerText()) === 'הצעות מערכת' && (await page.locator('#suggestions-sub').innerText()) === '11 הצעות ממתינות', await page.locator('#suggestions-sub').innerText());
+  check('Suggestions: title and a live count', (await page.locator('#tab-suggestions .page-title').innerText()) === 'הצעות מערכת' && (await page.locator('#suggestions-sub').innerText()) === '12 הצעות ממתינות', await page.locator('#suggestions-sub').innerText());
 
   const pendingCard = await page.locator('.suggestion-card').nth(0).innerText();
   check('Suggestions: a not-yet-drafted email suggestion shows "preparing a draft", dismiss only (no send button)', pendingCard.includes('מכין טיוטת תשובה') && (await page.locator('.suggestion-card').nth(0).locator('.ds-btn.pri').count()) === 0, pendingCard);
 
   const draftedCard = await page.locator('.suggestion-card').nth(1).innerText();
   check('Suggestions: a drafted email suggestion shows the draft text and a "שלח לאישור" button', draftedCard.includes('תודה, מאשר') && draftedCard.includes('שלח לאישור'), draftedCard);
+
+  const choiceCardStatic = await page.locator('.suggestion-card').nth(2);
+  const choiceCardText = await choiceCardStatic.innerText();
+  check('Suggestions: an awaiting_choice email suggestion shows its detected question and כן/לא buttons, no שלח לאישור yet',
+        choiceCardText.includes('רוצה לצאת לארוחת ערב הערב') && choiceCardText.includes('כן') && choiceCardText.includes('לא')
+        && !choiceCardText.includes('שלח לאישור'), choiceCardText);
 
   const conflictCard = await page.locator('.notice-conflict').innerText();
   check('Suggestions: a notice WITH an action_label shows that button plus "התעלם"', conflictCard.includes('שתי פגישות חופפות') && conflictCard.includes('פתח יומן') && conflictCard.includes('התעלם'), conflictCard);
@@ -81,7 +87,9 @@ const browser = await chromium.launch();
   check('Suggestions: the weather-vs-calendar notice renders (dismiss-only)', weatherCard.includes('צפוי גשם מחר') && weatherCard.includes('הבנתי'), weatherCard);
 
   const dailyWeatherCard = await page.locator('.notice-daily_weather').innerText();
-  check('Suggestions: the UNCONDITIONAL daily-weather card renders (dismiss-only)', dailyWeatherCard.includes('מזג האוויר היום') && dailyWeatherCard.includes('22') && dailyWeatherCard.includes('הבנתי'), dailyWeatherCard);
+  check('Suggestions: the UNCONDITIONAL daily-weather card renders, with NO dismiss button at all (dismissing it would defeat its one job: always being there)',
+        dailyWeatherCard.includes('מזג האוויר היום') && dailyWeatherCard.includes('22') && !dailyWeatherCard.includes('הבנתי')
+        && (await page.locator('.notice-daily_weather .mail-actions').count()) === 0, dailyWeatherCard);
 
   const staleTaskCard = await page.locator('.notice-stale_task').innerText();
   check('Suggestions: the stale-task notice renders with a "פתח משימות" action', staleTaskCard.includes('לסדר את המחסן') && staleTaskCard.includes('פתח משימות'), staleTaskCard);
@@ -127,6 +135,83 @@ const browser = await chromium.launch();
   const dismissCall = calls.find(c => /\/api\/suggestions\/notices\/201\/dismiss$/.test(c.url));
   check('...and still dismisses the notice it acted on', !!dismissCall, JSON.stringify(dismissCall));
   check('no JS errors (action-button run)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ================================================================= awaiting_choice: answering yes/no drafts and refreshes the card
+{
+  const { ctx, page, errors, calls } = await newPage(browser);
+  await goTab(page, 'suggestions');
+
+  const rec = (r) => calls.push({ m: r.request().method(), url: r.request().url(), body: r.request().postData() });
+  await page.route('**/api/inbox/suggestions/*/answer', async r => {
+    rec(r);
+    await new Promise(res => setTimeout(res, 300));  // deliberate delay -- gives the mid-flight disabled-state check below a real window to observe
+    await r.fulfill({ json: { ok: true, draft_subject: 'Re: ארוחת ערב?', draft_body: 'היי יוסי, כן, בא לי!' } });
+  });
+  // Registered right before the click, so it only affects the refetch that
+  // follows answering (the page already loaded once via installMocks' own
+  // /api/suggestions route before this point) -- always serves the
+  // post-answer state, standing in for what the real backend would return
+  // once set_suggestion_draft has run.
+  await page.route('**/api/suggestions', async r => {
+    if (r.request().method() !== 'GET') return r.fallback();
+    const data = JSON.parse(JSON.stringify(SUGGESTIONS));
+    const row = data.email_suggestions.find(s => s.id === 103);
+    row.status = 'drafted'; row.detected_question = null;
+    row.draft_subject = 'Re: ארוחת ערב?'; row.draft_body = 'היי יוסי, כן, בא לי!';
+    await r.fulfill({ json: data });
+  });
+
+  const choiceCard = page.locator('.suggestion-card').nth(2);
+  await choiceCard.locator('.ds-btn', { hasText: 'כן' }).click();
+  // Same double-submit guard as dismissNotice -- the card's buttons must be
+  // disabled for the whole round-trip, before the response (and the refresh
+  // it triggers) ever resolves, so a double-click or a כן-then-לא click
+  // can't fire two competing /answer calls against the same row.
+  const allDisabledMidFlight = await choiceCard.locator('button').evaluateAll(btns => btns.every(b => b.disabled));
+  check('while an /answer call is in flight, the card\'s own buttons are disabled (no double-submit)', allDisabledMidFlight);
+
+  await page.waitForTimeout(600);
+  const answerCalls = calls.filter(c => /\/suggestions\/103\/answer$/.test(c.url));
+  check('clicking כן POSTs the answer route with {answer: true}, exactly once',
+        answerCalls.length === 1 && JSON.parse(answerCalls[0].body).answer === true, JSON.stringify(answerCalls));
+
+  const updatedCard = await page.locator('.suggestion-card').nth(2).innerText();
+  check('after answering, the tab refreshes and the card now shows the drafted reply with a שלח לאישור button',
+        updatedCard.includes('היי יוסי, כן, בא לי') && updatedCard.includes('שלח לאישור'), updatedCard);
+
+  check('no JS errors (awaiting_choice answer run)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ================================================================= awaiting_choice: buttons re-enable after a FAILED answer call (so the user can retry)
+{
+  const { ctx, page, errors } = await newPage(browser);
+  await goTab(page, 'suggestions');
+  await page.route('**/api/inbox/suggestions/*/answer', r => r.fulfill({ json: { error: 'הקצאת Groq היומית נגמרה, אדוני.' } }));
+  const choiceCard = page.locator('.suggestion-card').nth(2);
+  await choiceCard.locator('.ds-btn', { hasText: 'כן' }).click();
+  await page.waitForTimeout(500);
+  const stillAwaitingChoice = await choiceCard.innerText();
+  check('after a FAILED answer call, the card is still there showing the same question (not silently dropped)',
+        stillAwaitingChoice.includes('רוצה לצאת לארוחת ערב הערב'), stillAwaitingChoice);
+  const reenabled = await choiceCard.locator('button').evaluateAll(btns => btns.every(b => !b.disabled));
+  check('...and its buttons re-enable so the user can retry (not stuck disabled forever)', reenabled);
+  check('no JS errors (answer-retry run)', errors.length === 0, errors.join(' | '));
+  await ctx.close();
+}
+
+// ================================================================= awaiting_choice: a failed answer call shows an error, doesn't crash the tab
+{
+  const { ctx, page, errors, calls } = await newPage(browser);
+  await goTab(page, 'suggestions');
+  await page.route('**/api/inbox/suggestions/*/answer', r => r.fulfill({ json: { error: 'Groq rate-limited, sir.' } }));
+  await page.locator('.suggestion-card').nth(2).locator('.ds-btn', { hasText: 'לא' }).click();
+  await page.waitForTimeout(500);
+  check('a failed answer call surfaces an error toast', (await page.locator('#toast').innerText()).includes('Groq rate-limited'));
+  check('...and the card is still there, unresolved (not silently removed)', (await page.locator('.suggestion-card').count()) === 3);
+  check('no JS errors (answer-failure run)', errors.length === 0, errors.join(' | '));
   await ctx.close();
 }
 
